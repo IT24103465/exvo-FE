@@ -2555,3 +2555,303 @@
   background: rgba(255, 0, 0, 0.12);
   box-shadow: 0 0 16px rgba(255, 0, 0, 0.25);
 }
+
+/* ══════════════ NAVBAR DASHBOARD BUTTON ══════════════ */
+
+.nav-dash-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 0, 0, 0.08);
+  border: 1px solid rgba(255, 0, 0, 0.35);
+  border-radius: 9999px;
+  color: #ffffff;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(10px);
+}
+
+.nav-dash-btn:hover {
+  background: rgba(255, 0, 0, 0.22);
+  border-color: #ff0000;
+  box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+
+/* ══════════════ RIGHT-SIDE ORGANIZER DASHBOARD DRAWER ══════════════ */
+
+.organizer-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: flex-end;
+  animation: drawerFadeIn 0.3s ease forwards;
+}
+
+@keyframes drawerFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.organizer-drawer-right {
+  width: 100%;
+  max-width: 480px;
+  height: 100vh;
+  background: linear-gradient(165deg, rgba(18, 7, 7, 0.96) 0%, rgba(8, 3, 3, 0.98) 100%);
+  border-left: 1px solid rgba(255, 0, 0, 0.3);
+  box-shadow: -15px 0 50px rgba(0, 0, 0, 0.9), -5px 0 25px rgba(255, 0, 0, 0.15);
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  animation: slideInRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.organizer-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.organizer-drawer-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.organizer-drawer-close:hover {
+  background: rgba(255, 0, 0, 0.2);
+  border-color: #ff0000;
+  color: #ff3333;
+  transform: rotate(90deg);
+}
+
+/* ── Dashboard Stats Cards ── */
+
+.dash-stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.2s ease;
+}
+
+.dash-stat-card:hover {
+  border-color: rgba(255, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dash-stat-label {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #888;
+}
+
+.dash-stat-val {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+/* ── Dashboard Events List ── */
+
+.organizer-events-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.organizer-events-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.organizer-events-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 10px;
+}
+
+.organizer-events-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 0, 0, 0.4);
+  border-radius: 10px;
+}
+
+.dash-event-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+.dash-event-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 0, 0, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Dashboard Action Buttons (Edit / Delete) ── */
+
+.dash-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dash-action-btn--edit {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+.dash-action-btn--edit:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+}
+
+.dash-action-btn--delete {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.dash-action-btn--delete:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+/* ══════════════ ADD & EDIT EVENT MODAL STYLES ══════════════ */
+
+.add-event-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: backdrop-fade 0.25s ease both;
+  overflow-y: auto;
+}
+
+.add-event-modal {
+  position: relative;
+  width: min(100%, 640px);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px 24px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 0, 0, 0.35);
+  background: linear-gradient(175deg, rgba(22, 10, 10, 0.98) 0%, rgba(10, 5, 5, 0.98) 100%);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.95), 0 0 45px rgba(255, 0, 0, 0.25);
+  text-align: left;
+  animation: panel-zoom-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.add-event-modal::-webkit-scrollbar {
+  width: 5px;
+}
+
+.add-event-modal::-webkit-scrollbar-thumb {
+  background: rgba(255, 0, 0, 0.4);
+  border-radius: 10px;
+}
+
+.add-event-modal__close {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #aaa;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.add-event-modal__close:hover {
+  color: #ffffff;
+  background: rgba(255, 0, 0, 0.3);
+  border-color: #ff0000;
+  transform: rotate(90deg);
+}
+
+.add-event-input {
+  width: 100%;
+  background: rgba(14, 14, 16, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #ffffff;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.add-event-input:focus {
+  border-color: #ff0000;
+  box-shadow: 0 0 16px rgba(255, 0, 0, 0.35);
+  background: rgba(20, 20, 24, 0.98);
+}

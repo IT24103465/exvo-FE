@@ -1,8 +1,8 @@
 # Exvo Frontend
 
-Exvo is an event discovery platform for finding and exploring upcoming live experiences. This repository contains the Sprint 1 frontend: a responsive React interface with a visually focused home screen, event categories, authentication flows, and a user profile experience.
+Exvo is an event discovery platform for finding and exploring upcoming live experiences. This repository contains the frontend: a responsive React interface with a visually focused home screen, event categories, authentication flows, and a user profile experience.
 
-## Sprint 1 Delivered
+## Features
 
 - Responsive Exvo landing and event discovery screen
 - Branded navigation with responsive menu overlay
@@ -50,7 +50,7 @@ npm run dev
 
 Vite will print the local development URL, normally `http://localhost:5173`.
 
-For the complete Sprint 1 experience, start the authentication backend before testing login, registration, profile, and logout behavior.
+Start the authentication backend before testing login, registration, profile, and logout behavior.
 
 ## Available Scripts
 
@@ -91,7 +91,7 @@ Exvo/
 
 For local testing, clear the `token` and `user` entries from `localStorage` to reset authentication state.
 
-## Current Sprint 1 Boundaries
+## Current Limitations
 
 The current frontend focuses on the discovery and authentication foundation. These UI interactions are not yet connected to production services:
 
