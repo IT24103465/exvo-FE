@@ -576,10 +576,6 @@ function App() {
   const [authState, setAuthState] = useState(readAuthState)
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsSection, setShowAllEventsSection] = useState(true)
-  const [categorySearchQuery, setCategorySearchQuery] = useState('')
-  const [isCategorySearchOpen, setIsCategorySearchOpen] = useState(false)
-  const categorySearchInputRef = useRef(null)
-  const categorySearchContainerRef = useRef(null)
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
   const [ticketQuantity, setTicketQuantity] = useState(1)
@@ -687,41 +683,17 @@ function App() {
   const formatSelectedDate = (dateStr, timeStr) => {
     if (!dateStr) return ''
     try {
-      let cleanStr = String(dateStr).trim()
-      if (cleanStr.includes('T')) {
-        cleanStr = cleanStr.split('T')[0]
-      }
-
-      let d
-      const ymdMatch = cleanStr.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
-
-      if (ymdMatch) {
-        const year = Number(ymdMatch[1])
-        const month = Number(ymdMatch[2])
-        const day = Number(ymdMatch[3])
-        d = new Date(year, month - 1, day)
-      } else {
-        d = new Date(cleanStr)
-      }
-
-      if (isNaN(d.getTime())) {
-        return cleanStr !== 'undefined' && cleanStr !== 'null' ? cleanStr : ''
-      }
-
+      const parts = dateStr.split('-')
+      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]))
       const formatted = d.toLocaleDateString('en-US', {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
         year: 'numeric'
       })
-
-      if (!formatted || formatted === 'Invalid Date') {
-        return cleanStr
-      }
-
       return `${formatted}${timeStr ? ` @ ${timeStr}` : ''}`
     } catch {
-      return String(dateStr)
+      return dateStr
     }
   }
 
@@ -732,8 +704,6 @@ function App() {
   const scrollToSection = (sectionId) => {
     setMobileMenuOpen(false)
     if (sectionId === 'home') {
-      setIsCategorySearchOpen(false)
-      setCategorySearchQuery('')
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
@@ -742,22 +712,6 @@ function App() {
       element.scrollIntoView({ behavior: 'smooth' })
     }
   }
-
-  // Collapse category search bar on outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (
-        isCategorySearchOpen &&
-        categorySearchContainerRef.current &&
-        !categorySearchContainerRef.current.contains(event.target)
-      ) {
-        setIsCategorySearchOpen(false)
-        setCategorySearchQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isCategorySearchOpen])
 
   const handleContactSubmit = (e) => {
     e.preventDefault()
@@ -800,8 +754,8 @@ function App() {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
-          const catName = typeof e.category === 'object' && e.category !== null
-            ? e.category.name
+          const catName = typeof e.category === 'object' && e.category !== null 
+            ? e.category.name 
             : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Concert'))
           const eventDateVal = e.date || e.eventDate
           return {
@@ -810,7 +764,7 @@ function App() {
             subtitle: e.artistOrOrganizer || e.organizerName || 'Live Event',
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
             cover: e.coverImage || e.imageUrl || null,
-            year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            year: eventDateVal ? new Date(eventDateVal).getFullYear().toString() : '2026',
             category: catName,
             venue: e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
@@ -1364,18 +1318,9 @@ function App() {
   })
 
   const filteredEvents = albumList.filter((event) => {
-    const matchesCategory = !activeCategory || activeCategory === 'all' ||
-      (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '').toLowerCase().includes(activeCategory.toLowerCase())
-
-    const query = categorySearchQuery.trim().toLowerCase()
-    const matchesSearch = !query ||
-      (event.title || '').toLowerCase().includes(query) ||
-      (event.artistOrOrganizer || event.subtitle || '').toLowerCase().includes(query) ||
-      (event.venue || '').toLowerCase().includes(query) ||
-      (event.category || '').toLowerCase().includes(query) ||
-      (event.description || '').toLowerCase().includes(query)
-
-    return matchesCategory && matchesSearch
+    if (!activeCategory || activeCategory === 'all') return true
+    const eCat = (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '').toLowerCase()
+    return eCat.includes(activeCategory.toLowerCase())
   })
 
   if (showAuth) {
@@ -1421,22 +1366,20 @@ function App() {
         </div>
 
         <div className="home-actions">
-          {isOrganizer && (
-            <button
-              type="button"
-              className="nav-dash-btn"
-              onClick={() => setOrganizerDashboardOpen(true)}
-              title="Open Organizer Dashboard"
-            >
-              <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-              </svg>
-              <span>DASHBOARD</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className="nav-dash-btn"
+            onClick={() => setOrganizerDashboardOpen(true)}
+            title="Open Organizer Dashboard"
+          >
+            <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+            <span>DASHBOARD</span>
+          </button>
 
           {isOrganizer && (
             <button
@@ -1570,7 +1513,7 @@ function App() {
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
               ? (isOrganizer
-                ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                ? ['HOME', 'EVENTS', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
                 : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT'])
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']).map((link) => (
                 <button
@@ -1578,10 +1521,6 @@ function App() {
                   onClick={() => {
                     if (link === 'HOME') scrollToSection('home')
                     else if (link === 'EVENTS') scrollToSection('events')
-                    else if (link === 'DASHBOARD') {
-                      setMobileMenuOpen(false)
-                      setOrganizerDashboardOpen(true)
-                    }
                     else if (link === 'ADD EVENT') {
                       setMobileMenuOpen(false)
                       setShowAddEventModal(true)
@@ -2551,18 +2490,8 @@ function App() {
 
           <p className="text-[10px] md:text-xs tracking-[0.25em] text-neutral-400 font-medium uppercase max-w-2xl mx-auto leading-loose">
             LATEST SINGLES &amp; ALBUMS FROM &amp; NEWS MUSIC{' '}
-          </p>
 
-          <div className="explore-events-btn-wrapper">
-            <button
-              type="button"
-              onClick={() => scrollToSection('events')}
-              className="explore-events-hero-btn"
-              title="Explore all upcoming events"
-            >
-              <span>EXPLORE EVENTS</span>
-            </button>
-          </div>
+          </p>
         </div>
 
         {/* 3D Cover Flow Carousel */}
@@ -2661,78 +2590,21 @@ function App() {
 
         {/* Event Category Explore Section */}
         <div id="events" className="w-full mt-10 md:mt-14 px-2 scroll-mt-24">
-          <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+          <div className="flex items-center justify-between mb-5">
             <div>
               <p className="text-[10px] tracking-[0.3em] text-[#FF0000] uppercase font-bold mb-1">Browse</p>
               <h2 className="text-xl md:text-2xl font-black tracking-wider uppercase text-white font-['Orbitron']">Explore by Category</h2>
             </div>
-
-            <div className="flex items-center gap-3">
-              {/* Expanding Animated Search Bar */}
-              <div ref={categorySearchContainerRef} className={`category-search-bar-wrap ${isCategorySearchOpen ? 'is-open' : ''}`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsCategorySearchOpen((prev) => {
-                      const next = !prev
-                      if (next) {
-                        setTimeout(() => categorySearchInputRef.current?.focus(), 150)
-                      } else {
-                        setCategorySearchQuery('')
-                      }
-                      return next
-                    })
-                  }}
-                  className="category-search-btn"
-                  title="Search Events"
-                  aria-label="Search Events"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.2">
-                    <circle cx="11" cy="11" r="8" />
-                    <path strokeLinecap="round" d="m21 21-4.3-4.3" />
-                  </svg>
-                </button>
-
-                <div className="category-search-input-shell">
-                  <input
-                    ref={categorySearchInputRef}
-                    type="text"
-                    value={categorySearchQuery}
-                    onChange={(e) => {
-                      setCategorySearchQuery(e.target.value)
-                      const el = document.getElementById('all-events-grid')
-                      if (el && e.target.value.trim().length === 1) {
-                        el.scrollIntoView({ behavior: 'smooth' })
-                      }
-                    }}
-                    placeholder="Search events, artists..."
-                    className="category-search-input"
-                  />
-                  {categorySearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setCategorySearchQuery('')}
-                      className="category-search-clear-btn"
-                      title="Clear search"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  setActiveCategory('all')
-                  setCategorySearchQuery('')
-                  const el = document.getElementById('all-events-grid')
-                  if (el) el.scrollIntoView({ behavior: 'smooth' })
-                }}
-                className="text-[10px] tracking-[0.2em] uppercase text-neutral-400 hover:text-white border border-neutral-700 hover:border-white px-4 py-2 rounded-full transition-all duration-300 font-semibold cursor-pointer active:scale-95 hover:bg-white/5 whitespace-nowrap"
-              >
-                View All ({albumList.length})
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                setActiveCategory('all')
+                const el = document.getElementById('all-events-grid')
+                if (el) el.scrollIntoView({ behavior: 'smooth' })
+              }}
+              className="text-[10px] tracking-[0.2em] uppercase text-neutral-400 hover:text-white border border-neutral-700 hover:border-white px-4 py-2 rounded-full transition-all duration-300 font-semibold cursor-pointer active:scale-95 hover:bg-white/5"
+            >
+              View All ({albumList.length})
+            </button>
           </div>
 
           <div className="category-scroll-wrapper">
@@ -2814,11 +2686,7 @@ function App() {
                 )}
               </h2>
               <p className="text-neutral-400 text-xs mt-1">
-                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
-                {categorySearchQuery && (
-                  <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
-                )}
-                {' '}• Real-time database sync
+                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} • Real-time database sync
               </p>
             </div>
 
@@ -3325,7 +3193,7 @@ function App() {
       </footer>
 
       {/* ══════════════ RIGHT-SIDE ORGANIZER DASHBOARD DRAWER ══════════════ */}
-      {isOrganizer && organizerDashboardOpen && (
+      {organizerDashboardOpen && (
         <div
           className="organizer-drawer-backdrop"
           role="presentation"
