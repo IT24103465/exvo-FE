@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile } from './services/authService'
-import { getAllEvents, createEvent } from './services/eventService'
+import { getAllEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
 
 // Import local assets from src/assets
 import sarithImg from './assets/sarith.jpg'
@@ -599,10 +599,21 @@ function App() {
   const [profileFeedback, setProfileFeedback] = useState({ type: '', text: '' })
 
   // Add Event State
+  const [dbCategories, setDbCategories] = useState([
+    { id: 1, name: 'Music & Concerts' },
+    { id: 2, name: 'Concert' },
+    { id: 3, name: 'Festival' },
+    { id: 4, name: 'Live Session' },
+    { id: 5, name: 'DJ Night' },
+    { id: 6, name: 'Acoustic' },
+    { id: 7, name: 'Stand-Up' },
+    { id: 8, name: 'EDM Arena' },
+  ])
   const [newEventForm, setNewEventForm] = useState({
     title: '',
     artistOrOrganizer: '',
-    category: 'Concert',
+    categoryId: 1,
+    category: 'Music & Concerts',
     date: '',
     time: '19:00',
     venue: '',
@@ -615,6 +626,25 @@ function App() {
   })
   const [eventPublishing, setEventPublishing] = useState(false)
   const [eventFeedback, setEventFeedback] = useState({ type: '', text: '' })
+
+  // Organizer Dashboard & Edit Event State
+  const [organizerDashboardOpen, setOrganizerDashboardOpen] = useState(false)
+  const [dashboardSearch, setDashboardSearch] = useState('')
+  const [showEditEventModal, setShowEditEventModal] = useState(false)
+  const [editingEventId, setEditingEventId] = useState(null)
+  const [editEventForm, setEditEventForm] = useState({
+    title: '',
+    artistOrOrganizer: '',
+    category: 'Concert',
+    date: '',
+    time: '19:00',
+    venue: '',
+    ticketTiers: [],
+    coverImage: '',
+    description: '',
+  })
+  const [editEventPublishing, setEditEventPublishing] = useState(false)
+  const [editEventFeedback, setEditEventFeedback] = useState({ type: '', text: '' })
 
   const handleAddTicketTier = () => {
     setNewEventForm((prev) => ({
@@ -724,21 +754,25 @@ function App() {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
+          const catName = typeof e.category === 'object' && e.category !== null 
+            ? e.category.name 
+            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Concert'))
+          const eventDateVal = e.date || e.eventDate
           return {
             id: e.id,
             title: e.title,
             subtitle: e.artistOrOrganizer || e.organizerName || 'Live Event',
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
-            cover: e.coverImage || null,
-            year: e.date ? new Date(e.date).getFullYear().toString() : '2026',
-            category: e.category || 'Concert',
-            venue: e.venue || 'Sri Lanka',
-            minPrice: Number(e.minPrice) || minTiersPrice || 0,
-            trackCount: `${e.category || 'Concert'} • From LKR ${Number(e.minPrice || minTiersPrice || 0).toLocaleString()} • ${e.venue || 'Sri Lanka'}`,
+            cover: e.coverImage || e.imageUrl || null,
+            year: eventDateVal ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            category: catName,
+            venue: e.venue || e.location || 'Sri Lanka',
+            minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
             ticketTiers: parsedTiers,
-            totalCapacity: e.totalCapacity || 500,
-            eventDate: e.date,
-            eventTime: e.time,
+            totalCapacity: e.totalCapacity || e.availableTickets || 500,
+            eventDate: eventDateVal,
+            eventTime: e.time || '19:00',
             description: e.description,
             isDbEvent: true
           }
@@ -751,9 +785,19 @@ function App() {
     }
   }
 
-  // Fetch published events from database on mount
+  // Fetch published events from database on mount & categories from Catalog API
   useEffect(() => {
     fetchLiveEvents()
+    getCategories().then((cats) => {
+      if (Array.isArray(cats) && cats.length > 0) {
+        setDbCategories(cats)
+        setNewEventForm((prev) => ({
+          ...prev,
+          categoryId: prev.categoryId || cats[0].id,
+          category: prev.category || cats[0].name,
+        }))
+      }
+    })
   }, [])
 
   const handleLogout = () => {
@@ -812,14 +856,23 @@ function App() {
     setEventFeedback({ type: '', text: '' })
 
     try {
-      // 1. Persist event to backend database (events table)
+      const selectedCategoryObj = dbCategories.find(
+        (c) => String(c.id) === String(newEventForm.categoryId) || c.name === newEventForm.category
+      )
+      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : (Number(newEventForm.categoryId) || 1)
+      const categoryNameVal = selectedCategoryObj ? selectedCategoryObj.name : (newEventForm.category || 'Music & Concerts')
+
+      // 1. Persist event to backend database (events table via Gateway)
       const res = await createEvent({
         title: newEventForm.title.trim(),
         artistOrOrganizer: newEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
-        category: newEventForm.category,
+        categoryId: categoryIdVal,
+        category: categoryNameVal,
+        categoryName: categoryNameVal,
         date: newEventForm.date,
         time: newEventForm.time || '19:00',
         venue: newEventForm.venue.trim(),
+        location: newEventForm.venue.trim(),
         ticketTiers: validTiers,
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
@@ -833,12 +886,13 @@ function App() {
         title: res.title || newEventForm.title.trim(),
         subtitle: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
         artistOrOrganizer: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
-        category: newEventForm.category || 'Concert',
+        category: categoryNameVal,
+        categoryId: categoryIdVal,
         venue: newEventForm.venue.trim() || 'Colombo',
         minPrice: minPrice,
         cover: res.coverImage || newEventForm.coverImage || null,
         year: newEventForm.date ? new Date(newEventForm.date).getFullYear().toString() : '2026',
-        trackCount: `${newEventForm.category} • From LKR ${minPrice.toLocaleString()} • ${newEventForm.venue}`,
+        trackCount: `${categoryNameVal} • From LKR ${minPrice.toLocaleString()} • ${newEventForm.venue}`,
         ticketTiers: validTiers,
         totalCapacity: totalCap,
         eventDate: newEventForm.date,
@@ -857,7 +911,8 @@ function App() {
         setNewEventForm({
           title: '',
           artistOrOrganizer: '',
-          category: 'Concert',
+          categoryId: dbCategories[0]?.id || 1,
+          category: dbCategories[0]?.name || 'Music & Concerts',
           date: '',
           time: '19:00',
           venue: '',
@@ -874,6 +929,169 @@ function App() {
       setEventFeedback({ type: 'error', text: err.message || 'Failed to publish event to backend.' })
     } finally {
       setEventPublishing(false)
+    }
+  }
+
+  // Edit Event Handlers
+  const handleStartEditEvent = (event) => {
+    setEditingEventId(event.id)
+    setEditEventForm({
+      title: event.title || '',
+      artistOrOrganizer: event.artistOrOrganizer || event.subtitle || '',
+      category: event.category || 'Concert',
+      date: event.eventDate || '',
+      time: event.eventTime || '19:00',
+      venue: event.venue || '',
+      ticketTiers: event.ticketTiers && event.ticketTiers.length > 0 ? event.ticketTiers.map((t) => ({
+        id: String(t.id || Date.now()),
+        name: t.name || 'Pass',
+        price: String(t.price || 0),
+        quantity: String(t.quantity || 100)
+      })) : [
+        { id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }
+      ],
+      coverImage: event.cover || '',
+      description: event.description || '',
+    })
+    setEditEventFeedback({ type: '', text: '' })
+    setShowEditEventModal(true)
+  }
+
+  const handleAddTicketTierInEdit = () => {
+    setEditEventForm((prev) => ({
+      ...prev,
+      ticketTiers: [
+        ...prev.ticketTiers,
+        { id: String(Date.now()), name: '', price: '', quantity: '100' }
+      ]
+    }))
+  }
+
+  const handleRemoveTicketTierInEdit = (tierId) => {
+    if (editEventForm.ticketTiers.length <= 1) return
+    setEditEventForm((prev) => ({
+      ...prev,
+      ticketTiers: prev.ticketTiers.filter((t) => t.id !== tierId)
+    }))
+  }
+
+  const handleUpdateTicketTierInEdit = (tierId, field, value) => {
+    setEditEventForm((prev) => ({
+      ...prev,
+      ticketTiers: prev.ticketTiers.map((t) =>
+        t.id === tierId ? { ...t, [field]: value } : t
+      )
+    }))
+  }
+
+  const handleEditEventCoverUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setEditEventFeedback({ type: 'error', text: 'Please select a valid image file (PNG, JPG, WEBP).' })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX_W = 800
+        const scale = Math.min(1, MAX_W / img.width)
+        canvas.width = img.width * scale
+        canvas.height = img.height * scale
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        setEditEventForm((prev) => ({ ...prev, coverImage: canvas.toDataURL('image/jpeg', 0.88) }))
+        setEditEventFeedback({ type: '', text: '' })
+      }
+      img.src = event.target.result
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleUpdateEventSubmit = async (e) => {
+    e.preventDefault()
+    if (!editEventForm.title.trim() || !editEventForm.venue.trim() || !editEventForm.date) {
+      setEditEventFeedback({ type: 'error', text: 'Please enter Event Title, Date, and Venue.' })
+      return
+    }
+
+    const validTiers = editEventForm.ticketTiers.filter((t) => t.name.trim() && Number(t.price) > 0)
+    if (validTiers.length === 0) {
+      setEditEventFeedback({ type: 'error', text: 'Please add at least one valid ticket category with a price.' })
+      return
+    }
+
+    setEditEventPublishing(true)
+    setEditEventFeedback({ type: '', text: '' })
+
+    try {
+      const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
+      const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
+
+      const payload = {
+        id: editingEventId,
+        title: editEventForm.title.trim(),
+        artistOrOrganizer: editEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
+        category: editEventForm.category,
+        date: editEventForm.date,
+        time: editEventForm.time || '19:00',
+        venue: editEventForm.venue.trim(),
+        ticketTiers: validTiers,
+        coverImage: editEventForm.coverImage || null,
+        description: editEventForm.description?.trim() || null,
+      }
+
+      await updateEvent(editingEventId, payload)
+
+      setAlbumList((prev) =>
+        prev.map((e) =>
+          e.id === editingEventId
+            ? {
+              ...e,
+              title: payload.title,
+              subtitle: payload.artistOrOrganizer,
+              artistOrOrganizer: payload.artistOrOrganizer,
+              category: payload.category,
+              venue: payload.venue,
+              minPrice: minPrice,
+              cover: payload.coverImage || e.cover,
+              eventDate: payload.date,
+              eventTime: payload.time,
+              description: payload.description,
+              ticketTiers: validTiers,
+              totalCapacity: totalCap,
+            }
+            : e
+        )
+      )
+
+      await fetchLiveEvents()
+      setEditEventFeedback({ type: 'success', text: 'Event updated successfully in Database!' })
+
+      setTimeout(() => {
+        setShowEditEventModal(false)
+        setEditEventFeedback({ type: '', text: '' })
+      }, 900)
+    } catch (err) {
+      setEditEventFeedback({ type: 'error', text: err.message || 'Failed to update event.' })
+    } finally {
+      setEditEventPublishing(false)
+    }
+  }
+
+  const handleDeleteEvent = async (eventId, eventTitle) => {
+    if (!window.confirm(`Are you sure you want to delete "${eventTitle || 'this event'}" from the database?`)) {
+      return
+    }
+
+    try {
+      await deleteEvent(eventId)
+      setAlbumList((prev) => prev.filter((e) => e.id !== eventId))
+      await fetchLiveEvents()
+    } catch (err) {
+      alert(`Could not delete event: ${err.message || 'Error occurred'}`)
     }
   }
 
@@ -1148,6 +1366,21 @@ function App() {
         </div>
 
         <div className="home-actions">
+          <button
+            type="button"
+            className="nav-dash-btn"
+            onClick={() => setOrganizerDashboardOpen(true)}
+            title="Open Organizer Dashboard"
+          >
+            <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+            <span>DASHBOARD</span>
+          </button>
+
           {isOrganizer && (
             <button
               type="button"
@@ -1718,17 +1951,23 @@ function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">CATEGORY</label>
                   <select
-                    value={newEventForm.category}
-                    onChange={(e) => setNewEventForm({ ...newEventForm, category: e.target.value })}
+                    value={newEventForm.categoryId || newEventForm.category}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value
+                      const found = dbCategories.find((c) => String(c.id) === String(selectedVal) || c.name === selectedVal)
+                      if (found) {
+                        setNewEventForm({ ...newEventForm, categoryId: found.id, category: found.name })
+                      } else {
+                        setNewEventForm({ ...newEventForm, category: selectedVal })
+                      }
+                    }}
                     className="contact-input"
                   >
-                    <option value="Concert">Concert</option>
-                    <option value="Festival">Festival</option>
-                    <option value="Live Session">Live Session</option>
-                    <option value="DJ Night">DJ Night</option>
-                    <option value="Acoustic">Acoustic</option>
-                    <option value="Stand-Up">Stand-Up</option>
-                    <option value="EDM Arena">EDM Arena</option>
+                    {dbCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2952,6 +3191,373 @@ function App() {
         </div>
 
       </footer>
+
+      {/* ══════════════ RIGHT-SIDE ORGANIZER DASHBOARD DRAWER ══════════════ */}
+      {organizerDashboardOpen && (
+        <div
+          className="organizer-drawer-backdrop"
+          role="presentation"
+          onClick={() => setOrganizerDashboardOpen(false)}
+        >
+          <aside
+            className="organizer-drawer-right"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Organizer Dashboard"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Sci-Fi Brackets */}
+            <div className="cyber-bracket cyber-bracket--tl" />
+            <div className="cyber-bracket cyber-bracket--br" />
+
+            {/* Drawer Header */}
+            <div className="organizer-drawer-header">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 font-bold text-lg">
+                  📊
+                </div>
+                <div>
+                  <h2 className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase">
+                    ORGANIZER DASHBOARD
+                  </h2>
+                  <p className="text-[11px] text-neutral-400 font-sans">
+                    View, Edit & Delete Live Database Events
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="organizer-drawer-close"
+                onClick={() => setOrganizerDashboardOpen(false)}
+                aria-label="Close Dashboard"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Quick Stats Grid */}
+            <div className="grid grid-cols-3 gap-2.5 my-4">
+              <div className="dash-stat-card">
+                <span className="dash-stat-label">TOTAL EVENTS</span>
+                <span className="dash-stat-val text-white">{albumList.length}</span>
+              </div>
+              <div className="dash-stat-card">
+                <span className="dash-stat-label">TOTAL PASSES</span>
+                <span className="dash-stat-val text-red-400">
+                  {albumList.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="dash-stat-card">
+                <span className="dash-stat-label">DB STATUS</span>
+                <span className="dash-stat-val text-emerald-400 text-xs flex items-center gap-1 justify-center">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  ONLINE
+                </span>
+              </div>
+            </div>
+
+            {/* Controls Bar: Search & Add Event Button */}
+            <div className="flex items-center gap-2 mb-4">
+              <div className="relative flex-1">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs">🔍</span>
+                <input
+                  type="text"
+                  placeholder="Filter events..."
+                  value={dashboardSearch}
+                  onChange={(e) => setDashboardSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOrganizerDashboardOpen(false)
+                  setShowAddEventModal(true)
+                }}
+                className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer shadow-[0_0_12px_rgba(255,0,0,0.4)]"
+              >
+                <span>+</span>
+                <span>ADD</span>
+              </button>
+            </div>
+
+            {/* Events List */}
+            <div className="organizer-events-scroll space-y-3 pr-1">
+              {albumList.filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase())).length > 0 ? (
+                albumList
+                  .filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()))
+                  .map((evt) => (
+                    <div key={evt.id} className="dash-event-card group">
+                      <div className="flex items-start gap-3">
+                        {evt.cover ? (
+                          <img
+                            src={evt.cover}
+                            alt={evt.title}
+                            className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
+                            🎵
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="px-2 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-[9px] font-bold font-['Orbitron'] text-red-400 uppercase truncate">
+                              {evt.category || 'Concert'}
+                            </span>
+                            <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                              From LKR {Number(evt.minPrice || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-bold text-white font-['Orbitron'] truncate group-hover:text-red-400 transition-colors">
+                            {evt.title}
+                          </h4>
+                          <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+                            📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
+                          </p>
+
+                          {/* Action Buttons: EDIT & DELETE */}
+                          <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-white/5">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditEvent(evt)}
+                              className="dash-action-btn dash-action-btn--edit"
+                              title="Edit Event Details"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                              <span>EDIT</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEvent(evt.id, evt.title)}
+                              className="dash-action-btn dash-action-btn--delete"
+                              title="Delete Event from Database"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              <span>DELETE</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <div className="text-center py-12 text-neutral-500 text-xs font-['Orbitron']">
+                  No events matching search criteria.
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ══════════════ EDIT EVENT MODAL ══════════════ */}
+      {showEditEventModal && (
+        <div className="add-event-backdrop" role="presentation" onClick={() => setShowEditEventModal(false)}>
+          <div className="add-event-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="add-event-modal__close"
+              onClick={() => setShowEditEventModal(false)}
+            >
+              ×
+            </button>
+
+            <div className="add-event-header">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                DATABASE EDIT MODE
+              </div>
+              <h2 className="text-2xl font-black font-['Orbitron'] text-white uppercase tracking-wider">
+                EDIT <span className="text-[#FF0000]">EVENT</span>
+              </h2>
+              <p className="text-xs text-neutral-400 mt-1">
+                Update event title, category, date, venue, ticket pricing, or poster image.
+              </p>
+            </div>
+
+            <form onSubmit={handleUpdateEventSubmit} className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT TITLE *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Mega Music Fest 2026"
+                    value={editEventForm.title}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, title: e.target.value })}
+                    className="add-event-input"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">ARTIST OR ORGANIZER</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Exvo Entertainment"
+                    value={editEventForm.artistOrOrganizer}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, artistOrOrganizer: e.target.value })}
+                    className="add-event-input"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">CATEGORY *</label>
+                  <select
+                    value={editEventForm.category}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, category: e.target.value })}
+                    className="add-event-input"
+                  >
+                    <option value="Concert">Concert</option>
+                    <option value="Festival">Festival</option>
+                    <option value="Live Session">Live Session</option>
+                    <option value="DJ Night">DJ Night</option>
+                    <option value="Acoustic">Acoustic</option>
+                    <option value="Stand-Up">Stand-Up</option>
+                    <option value="EDM Arena">EDM Arena</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT DATE *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editEventForm.date}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, date: e.target.value })}
+                    className="add-event-input"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TIME</label>
+                  <input
+                    type="time"
+                    value={editEventForm.time}
+                    onChange={(e) => setEditEventForm({ ...editEventForm, time: e.target.value })}
+                    className="add-event-input"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">VENUE / LOCATION *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Lotus Tower Arena, Colombo"
+                  value={editEventForm.venue}
+                  onChange={(e) => setEditEventForm({ ...editEventForm, venue: e.target.value })}
+                  className="add-event-input"
+                />
+              </div>
+
+              {/* Cover Image Upload */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">COVER IMAGE</label>
+                <div className="flex items-center gap-3">
+                  {editEventForm.coverImage && (
+                    <img src={editEventForm.coverImage} alt="Cover Preview" className="w-12 h-12 rounded object-cover border border-white/20" />
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditEventCoverUpload}
+                    className="text-xs text-neutral-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-['Orbitron'] file:bg-red-600/20 file:text-red-400 hover:file:bg-red-600/40 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Ticket Tiers */}
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TICKET CATEGORIES & PRICING *</label>
+                  <button
+                    type="button"
+                    onClick={handleAddTicketTierInEdit}
+                    className="text-[10px] font-['Orbitron'] text-red-400 hover:text-red-300 font-bold uppercase cursor-pointer"
+                  >
+                    + ADD TIER
+                  </button>
+                </div>
+                {editEventForm.ticketTiers.map((tier) => (
+                  <div key={tier.id} className="grid grid-cols-12 gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="Category Name (e.g. VIP)"
+                      value={tier.name}
+                      onChange={(e) => handleUpdateTicketTierInEdit(tier.id, 'name', e.target.value)}
+                      className="col-span-5 add-event-input text-xs"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price (LKR)"
+                      value={tier.price}
+                      onChange={(e) => handleUpdateTicketTierInEdit(tier.id, 'price', e.target.value)}
+                      className="col-span-4 add-event-input text-xs"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Qty"
+                      value={tier.quantity}
+                      onChange={(e) => handleUpdateTicketTierInEdit(tier.id, 'quantity', e.target.value)}
+                      className="col-span-2 add-event-input text-xs"
+                    />
+                    {editEventForm.ticketTiers.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTicketTierInEdit(tier.id)}
+                        className="col-span-1 text-neutral-500 hover:text-red-400 text-sm text-center"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">DESCRIPTION</label>
+                <textarea
+                  rows={3}
+                  placeholder="Event details..."
+                  value={editEventForm.description}
+                  onChange={(e) => setEditEventForm({ ...editEventForm, description: e.target.value })}
+                  className="add-event-input resize-none"
+                />
+              </div>
+
+              {editEventFeedback.text && (
+                <div className={`p-3 rounded-xl text-xs font-bold ${editEventFeedback.type === 'error' ? 'bg-red-950/80 border border-red-500/50 text-red-300' : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'}`}>
+                  {editEventFeedback.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditEventModal(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 text-xs font-['Orbitron'] uppercase cursor-pointer"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  disabled={editEventPublishing}
+                  className="px-6 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer"
+                >
+                  {editEventPublishing ? 'SAVING...' : 'UPDATE EVENT'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   )
