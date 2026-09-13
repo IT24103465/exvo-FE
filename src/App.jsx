@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile } from './services/authService'
+import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile, deleteUserAccount } from './services/authService'
 import { getAllEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
 
-// Import local assets from src/assets
-import sarithImg from './assets/sarith.jpg'
-import wayoImg from './assets/wayo.jpg'
-import wiramayaImg from './assets/wiramaya.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -56,6 +52,37 @@ const getUserDetails = (user) => {
     .join('') || 'E'
 
   return { name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
+}
+
+const getEventPoster = (event) => {
+  const storedPoster = event?.coverImage || event?.imageUrl || event?.ImageUrl || event?.posterUrl || event?.bannerUrl
+  return storedPoster || null
+}
+
+const EventPoster = ({ event, className = '', imageClassName = '' }) => {
+  const [failedPoster, setFailedPoster] = useState(null)
+  const poster = event?.cover && event.cover !== failedPoster ? event.cover : null
+
+  if (!poster) {
+    return (
+      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-neutral-950 via-red-950/40 to-black p-5 text-center ${className}`}>
+        <span className="font-['Orbitron'] text-sm font-black uppercase tracking-wider text-white drop-shadow-md">
+          {event?.title || 'Untitled Event'}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={poster}
+      alt={event?.title || 'Event poster'}
+      className={imageClassName || className}
+      loading="lazy"
+      draggable="false"
+      onError={() => setFailedPoster(poster)}
+    />
+  )
 }
 
 // ── Sparkling particle canvas for footer ──
@@ -581,6 +608,7 @@ function App() {
   const categorySearchInputRef = useRef(null)
   const categorySearchContainerRef = useRef(null)
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
+  const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
   const [ticketQuantity, setTicketQuantity] = useState(1)
   const [bookingSuccess, setBookingSuccess] = useState(false)
@@ -601,6 +629,8 @@ function App() {
   })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileFeedback, setProfileFeedback] = useState({ type: '', text: '' })
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
 
   // Add Event State
   const [dbCategories, setDbCategories] = useState([
@@ -791,43 +821,52 @@ function App() {
   const fetchLiveEvents = async () => {
     try {
       const dbEvents = await getAllEvents()
-      if (Array.isArray(dbEvents)) {
+      if (Array.isArray(dbEvents) && dbEvents.length > 0) {
         const formattedEvents = dbEvents.map((e) => {
           let parsedTiers = []
           try {
-            parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+            if (e.ticketTiersJson) {
+              parsedTiers = typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : (e.ticketTiersJson || [])
+            } else {
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+            }
           } catch {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
           const catName = typeof e.category === 'object' && e.category !== null
             ? e.category.name
-            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Concert'))
+            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Music & Concerts'))
           const eventDateVal = e.date || e.eventDate
           return {
             id: e.id,
             title: e.title,
             subtitle: e.artistOrOrganizer || e.organizerName || 'Live Event',
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
-            cover: e.coverImage || e.imageUrl || null,
+            organizerId: e.organizerId || e.OrganizerId,
+            organizerName: e.organizerName || e.OrganizerName,
+            cover: getEventPoster(e),
             year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
             category: catName,
-            venue: e.venue || e.location || 'Sri Lanka',
+            venue: e.venueName || e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
-            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venueName || e.venue || e.location || 'Sri Lanka'}`,
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
-            eventDate: eventDateVal,
-            eventTime: e.time || '19:00',
+            eventDate: e.eventDate || eventDateVal,
+            eventTime: e.eventTime || e.time || '19:00',
             description: e.description,
             isDbEvent: true
           }
         })
         setAlbumList(formattedEvents)
         setCenterIndex(0)
+      } else {
+        setAlbumList([])
       }
     } catch (err) {
-      console.warn('Failed to fetch DB events:', err)
+      console.error('Failed to fetch catalog events:', err)
+      setAlbumList([])
     }
   }
 
@@ -843,7 +882,7 @@ function App() {
           category: prev.category || cats[0].name,
         }))
       }
-    })
+    }).catch((err) => console.error('Failed to fetch catalog categories:', err))
   }, [])
 
   const handleLogout = () => {
@@ -1224,6 +1263,39 @@ function App() {
     } finally {
       setProfileSaving(false)
     }
+  }
+
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true)
+    try {
+      await deleteUserAccount()
+      setAuthState(readAuthState())
+      setShowProfileModal(false)
+      setShowDeleteConfirm(false)
+      alert('Your account has been deleted successfully.')
+    } catch (err) {
+      alert(err.message || 'Could not delete account.')
+    } finally {
+      setIsDeletingAccount(false)
+    }
+  }
+
+  const handleOpenEventDetails = (event) => {
+    let tiers = event?.ticketTiers
+    if (typeof tiers === 'string') {
+      try { tiers = JSON.parse(tiers) } catch { }
+    }
+    if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && event?.ticketTiersJson) {
+      try { tiers = typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson } catch { }
+    }
+    setSelectedDetailEvent({
+      ...event,
+      ticketTiers: Array.isArray(tiers) ? tiers : []
+    })
+  }
+
+  const handleCloseEventDetails = () => {
+    setSelectedDetailEvent(null)
   }
 
   const handleOpenBooking = (event) => {
@@ -1784,6 +1856,49 @@ function App() {
                     </svg>
                     <span>LOGOUT</span>
                   </button>
+                </div>
+
+                {/* Delete Account */}
+                <div className="profile-delete-zone">
+                  {!showDeleteConfirm ? (
+                    <button
+                      className="profile-btn-delete-acc"
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(true)}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                      <span>DELETE ACCOUNT</span>
+                    </button>
+                  ) : (
+                    <div className="profile-delete-confirm-box">
+                      <p className="text-xs text-red-400 font-semibold mb-2 text-center">
+                        Are you sure you want to permanently delete your account?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="profile-btn-confirm-delete"
+                          disabled={isDeletingAccount}
+                          onClick={handleDeleteAccount}
+                        >
+                          {isDeletingAccount ? 'DELETING...' : 'YES, DELETE'}
+                        </button>
+                        <button
+                          type="button"
+                          className="profile-btn-cancel-delete"
+                          disabled={isDeletingAccount}
+                          onClick={() => setShowDeleteConfirm(false)}
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -2581,27 +2696,16 @@ function App() {
                     key={album.id || index}
                     onClick={() => {
                       if (isCenter) {
-                        handleOpenBooking(album)
+                        handleOpenEventDetails(album)
                       } else {
                         setCenterIndex(index)
                         resetAutoplay()
                       }
                     }}
                     className={`carousel-card ${cardClass} group cursor-pointer`}
-                    title={isCenter ? `Click to book: ${album.title}` : album.title}
+                    title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
-                    {album.cover ? (
-                      <img
-                        src={album.cover}
-                        alt={album.title}
-                        className="w-full h-full object-cover select-none"
-                        draggable="false"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center p-4 text-center">
-                        <span className="text-3xl opacity-50">🎵</span>
-                      </div>
-                    )}
+                    <EventPoster event={album} imageClassName="w-full h-full object-cover select-none" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-80" />
 
                     {/* Center Card Title and Tag Overlay */}
@@ -2860,15 +2964,11 @@ function App() {
                 return (
                   <div
                     key={event.id || idx}
-                    className="event-cyber-card group"
+                    onClick={() => handleOpenEventDetails(event)}
+                    className="event-cyber-card group cursor-pointer"
                   >
                     <div className="event-cyber-card__poster-box">
-                      <img
-                        src={event.cover}
-                        alt={event.title}
-                        className="event-cyber-card__poster"
-                        loading="lazy"
-                      />
+                      <EventPoster event={event} imageClassName="event-cyber-card__poster" />
                       <div className="event-cyber-card__poster-overlay" />
 
                       {/* Top Badges */}
@@ -2897,11 +2997,16 @@ function App() {
 
                       <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
                         <div className="flex items-center gap-2">
-                          <span className="text-red-500">📅</span>
+                          <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
                           <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-red-500">📍</span>
+                          <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
                           <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
                         </div>
                       </div>
@@ -2915,13 +3020,10 @@ function App() {
                         </div>
 
                         <button
-                          onClick={() => handleOpenBooking(event)}
+                          onClick={() => handleOpenEventDetails(event)}
                           className="event-book-btn"
                         >
-                          <span>BOOK PASS</span>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
+                          <span>VIEW</span>
                         </button>
                       </div>
                     </div>
@@ -3687,6 +3789,263 @@ function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ EVENT DETAILS VIEW MODAL ══════════════ */}
+      {selectedDetailEvent && (
+        <div
+          className="event-detail-modal-backdrop animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseEventDetails}
+        >
+          <div
+            className="event-detail-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cyber Brackets */}
+            <div className="cyber-bracket cyber-bracket--tl" />
+            <div className="cyber-bracket cyber-bracket--br" />
+
+            {/* Main Landscape Grid Container */}
+            <div className="grid grid-cols-1 md:grid-cols-12 min-h-[460px] max-h-[85vh] md:max-h-[80vh] overflow-hidden">
+
+              {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
+              <div
+                className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10"
+                style={selectedDetailEvent.cover ? { backgroundImage: `url(${selectedDetailEvent.cover})` } : undefined}
+              >
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
+
+                {/* Top Badges */}
+                <div className="relative z-10 flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-red-950/90 border border-red-500/60 text-red-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase shadow-md">
+                    {selectedDetailEvent.category || selectedDetailEvent.genre || 'LIVE EVENT'}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase flex items-center gap-1.5 shadow-md">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    AVAILABLE NOW
+                  </span>
+                </div>
+
+                {/* Bottom Poster Details */}
+                <div className="relative z-10 mt-auto pt-6">
+                  <div className="text-[11px] text-red-400 font-['Orbitron'] font-bold tracking-widest uppercase mb-1 drop-shadow">
+                    FEATURED: {selectedDetailEvent.artistOrOrganizer || selectedDetailEvent.subtitle || 'EXVO LIVE'}
+                  </div>
+                  <h2 className="text-xl sm:text-3xl font-black font-['Orbitron'] text-white tracking-wide leading-tight drop-shadow-md mb-4">
+                    {selectedDetailEvent.title}
+                  </h2>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const eventToBook = selectedDetailEvent
+                      handleCloseEventDetails()
+                      handleOpenBooking(eventToBook)
+                    }}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-red-700 hover:from-red-600 hover:to-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-widest uppercase transition-all shadow-[0_0_20px_rgba(255,0,0,0.5)] cursor-pointer flex items-center justify-center gap-2 border border-red-400/30"
+                  >
+                    <span>GET TICKETS NOW</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Info & Ticket Tiers (7 cols) */}
+              <div className="md:col-span-7 flex flex-col h-full bg-[#0a0a0c] overflow-hidden">
+
+                {/* Header with Close button */}
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                  <div className="text-xs font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                    EVENT INFORMATION & PASSES
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseEventDetails}
+                    className="w-8 h-8 rounded-full bg-white/5 border border-white/10 hover:border-red-500 hover:bg-red-950/80 text-white hover:text-red-400 flex items-center justify-center text-sm transition-all cursor-pointer"
+                    aria-label="Close details"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Content Body */}
+                <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+
+                  {/* Info Tiles Grid */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        DATE
+                      </div>
+                      <div className="text-xs font-bold text-white">
+                        {formatSelectedDate(selectedDetailEvent.eventDate, selectedDetailEvent.eventTime) || selectedDetailEvent.date || 'Sep 26, 2026'}
+                      </div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        TIME
+                      </div>
+                      <div className="text-xs font-bold text-white">
+                        {selectedDetailEvent.eventTime || selectedDetailEvent.time || '19:00 Onwards'}
+                      </div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        VENUE
+                      </div>
+                      <div className="text-xs font-bold text-white truncate" title={selectedDetailEvent.venue}>
+                        {selectedDetailEvent.venue || 'Colombo, Sri Lanka'}
+                      </div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 010 4 2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 010-4 2 2 0 002-2V7a2 2 0 00-2-2H5z" />
+                        </svg>
+                        PRICE RANGE
+                      </div>
+                      <div className="text-xs font-bold text-red-400 font-['Orbitron']">
+                        {(() => {
+                          let tiers = selectedDetailEvent.ticketTiers;
+                          if (typeof tiers === 'string') {
+                            try { tiers = JSON.parse(tiers) } catch { }
+                          }
+                          if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && selectedDetailEvent.ticketTiersJson) {
+                            try { tiers = typeof selectedDetailEvent.ticketTiersJson === 'string' ? JSON.parse(selectedDetailEvent.ticketTiersJson) : selectedDetailEvent.ticketTiersJson } catch { }
+                          }
+                          if (Array.isArray(tiers) && tiers.length > 0) {
+                            const prices = tiers.map(t => Number(t.price) || 0).filter(p => p > 0);
+                            if (prices.length > 0) {
+                              const minP = Math.min(...prices);
+                              const maxP = Math.max(...prices);
+                              if (minP < maxP) {
+                                return `LKR ${minP.toLocaleString()} - ${maxP.toLocaleString()}`;
+                              }
+                              return `LKR ${minP.toLocaleString()}`;
+                            }
+                          }
+                          return selectedDetailEvent.price
+                            ? `LKR ${Number(selectedDetailEvent.price).toLocaleString()}`
+                            : 'LKR 2,500';
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Event Overview / Description */}
+                  <div className="space-y-1.5 bg-white/[0.02] border border-white/10 rounded-xl p-3">
+                    <div className="text-[11px] font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      OVERVIEW
+                    </div>
+                    <p className="text-xs text-neutral-300 leading-relaxed font-sans line-clamp-3 hover:line-clamp-none transition-all">
+                      {selectedDetailEvent.description ||
+                        `Experience an extraordinary live event featuring top performance artists, cutting-edge stage lighting, sound systems, and an unparalleled atmosphere. Secure your passes now to lock in your access to Sri Lanka's premiere event.`}
+                    </p>
+                  </div>
+
+                  {/* Ticket Categories & Pricing Tiers */}
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center justify-between">
+                      <span>AVAILABLE TICKET CATEGORIES</span>
+                      <span className="text-[9px] text-neutral-400 font-normal">LIMITED PASSES</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(() => {
+                        let tiers = selectedDetailEvent.ticketTiers;
+                        if (typeof tiers === 'string') {
+                          try { tiers = JSON.parse(tiers) } catch { }
+                        }
+                        if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && selectedDetailEvent.ticketTiersJson) {
+                          try { tiers = typeof selectedDetailEvent.ticketTiersJson === 'string' ? JSON.parse(selectedDetailEvent.ticketTiersJson) : selectedDetailEvent.ticketTiersJson } catch { }
+                        }
+                        const finalTiers = Array.isArray(tiers) && tiers.length > 0
+                          ? tiers
+                          : [
+                            { name: 'General Admission Pass', price: selectedDetailEvent.price || 2500, quantity: selectedDetailEvent.totalCapacity || 500 },
+                            { name: 'VIP Priority Access Pass', price: (selectedDetailEvent.price || 2500) * 2, quantity: Math.round((selectedDetailEvent.totalCapacity || 500) * 0.2) }
+                          ];
+
+                        return finalTiers.map((tier, idx) => (
+                          <div key={idx} className="event-detail-tier-card">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-red-950/60 border border-red-500/40 flex items-center justify-center text-red-500 text-xs font-bold font-['Orbitron']">
+                                {idx + 1}
+                              </div>
+                              <div>
+                                <div className="text-xs font-bold font-['Orbitron'] text-white">
+                                  {tier.name || tier.tierName}
+                                </div>
+                                <div className="text-[10px] text-neutral-400">
+                                  Capacity: {tier.quantity || 200} passes available
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-black font-['Orbitron'] text-red-400">
+                                LKR {(Number(tier.price) || 0).toLocaleString()}
+                              </div>
+                              <div className="text-[9px] text-emerald-400 font-bold uppercase">INSTANT ISSUANCE</div>
+                            </div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* Bottom Actions Footer */}
+                <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 mt-auto">
+                  <button
+                    type="button"
+                    onClick={handleCloseEventDetails}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 text-xs font-['Orbitron'] uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    CLOSE
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const eventToBook = selectedDetailEvent
+                      handleCloseEventDetails()
+                      handleOpenBooking(eventToBook)
+                    }}
+                    className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>BOOK PASSES NOW</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
+                </div>
+
+              </div>
+
+            </div>
+
           </div>
         </div>
       )}

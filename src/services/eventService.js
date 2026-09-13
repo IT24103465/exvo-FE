@@ -1,65 +1,23 @@
-// Catalog service and gateway URLs
-const CANDIDATE_URLS = [
-  'http://localhost:5000/api/catalog/events',
-  'http://localhost:5255/api/catalog/events',
-];
-
-const CATEGORY_CANDIDATE_URLS = [
-  'http://localhost:5000/api/catalog/categories',
-  'http://localhost:5255/api/catalog/categories',
-];
-
-export const DEFAULT_CATEGORIES = [
-  { id: 1, name: 'Music & Concerts', description: 'Live music events and festivals' },
-  { id: 2, name: 'Concert', description: 'Concerts and live performances' },
-  { id: 3, name: 'Festival', description: 'Music and cultural festivals' },
-  { id: 4, name: 'Live Session', description: 'Intimate live sessions' },
-  { id: 5, name: 'DJ Night', description: 'EDM and DJ night events' },
-  { id: 6, name: 'Acoustic', description: 'Unplugged acoustic sets' },
-  { id: 7, name: 'Stand-Up', description: 'Comedy and stand-up shows' },
-  { id: 8, name: 'EDM Arena', description: 'Electronic dance music festivals' }
-];
+const configuredApiBaseUrl = typeof import.meta.env === 'undefined' ? undefined : import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (configuredApiBaseUrl || 'http://localhost:5000').replace(/\/$/, '');
+const EVENTS_API_URL = `${API_BASE_URL}/api/events`;
+const CATEGORIES_API_URL = `${API_BASE_URL}/api/categories`;
 
 export const getCategories = async () => {
-  for (const url of CATEGORY_CANDIDATE_URLS) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (response.ok) {
-        const categories = await response.json();
-        if (Array.isArray(categories) && categories.length > 0) {
-          return categories;
-        }
-      }
-    } catch (err) {
-      console.warn(`Could not fetch categories from ${url}:`, err.message);
-    }
-  }
-  return DEFAULT_CATEGORIES;
+  const response = await fetch(CATEGORIES_API_URL, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Categories request failed (${response.status})`);
+  return response.json();
 };
 
 const fetchWithFallback = async (endpoint = '', options = {}) => {
-  let lastError = null;
-
-  for (const baseUrl of CANDIDATE_URLS) {
-    try {
-      const url = `${baseUrl}${endpoint}`;
-      const res = await fetch(url, options);
-
-      // If status is 404, 502, 503, try next candidate URL
-      if ((!endpoint && res.status === 404) || res.status === 502 || res.status === 503) {
-        continue;
-      }
-
-      return res;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  throw lastError || new Error('Backend service endpoints unreachable');
+  const url = `${EVENTS_API_URL}${endpoint}`;
+  const response = await fetch(url, options);
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
+  return response;
 };
 
 const getAuthHeaders = () => {
@@ -71,6 +29,32 @@ const getAuthHeaders = () => {
   return headers;
 };
 
+const normalizeEvent = (ev) => {
+  if (!ev) return ev;
+  const hasTierData = ev.ticketTiersJson !== undefined || ev.ticketTiers !== undefined;
+  let tiers = [];
+  if (ev.ticketTiersJson) {
+    try {
+      tiers = typeof ev.ticketTiersJson === 'string' ? JSON.parse(ev.ticketTiersJson) : ev.ticketTiersJson;
+    } catch (err) {
+      console.warn('Failed to parse ticketTiersJson from API:', err);
+    }
+  } else if (typeof ev.ticketTiers === 'string') {
+    try {
+      tiers = JSON.parse(ev.ticketTiers);
+    } catch (err) {
+      console.warn('Failed to parse ticketTiers string from API:', err);
+    }
+  } else if (Array.isArray(ev.ticketTiers)) {
+    tiers = ev.ticketTiers;
+  }
+
+  return {
+    ...ev,
+    ...(hasTierData ? { ticketTiers: Array.isArray(tiers) ? tiers : [] } : {}),
+  };
+};
+
 // The Catalog API is authoritative; never merge browser-stored events into it.
 const requestEvent = async (endpoint, options) => {
   const response = await fetchWithFallback(endpoint, { cache: 'no-store', ...options });
@@ -79,7 +63,9 @@ const requestEvent = async (endpoint, options) => {
   }
   if (response.status === 204) return null;
   const text = await response.text();
-  return text ? JSON.parse(text) : null;
+  if (!text) return null;
+  const data = JSON.parse(text);
+  return Array.isArray(data) ? data.map(normalizeEvent) : normalizeEvent(data);
 };
 
 const requestEventList = async (endpoint, headers) => {
@@ -102,15 +88,20 @@ export const getMyEvents = () => requestEventList('/my-events', getAuthHeaders()
 
 // POST create event
 export const createEvent = async (eventData) => {
-  const minPrice = eventData.ticketTiers && eventData.ticketTiers.length > 0
-    ? Math.min(...eventData.ticketTiers.map((t) => Number(t.price) || 0))
+  const tiersList = eventData.ticketTiers || [];
+  const minPrice = tiersList.length > 0
+    ? Math.min(...tiersList.map((t) => Number(t.price) || 0))
     : (Number(eventData.price) || 0);
 
-  const totalCap = eventData.ticketTiers && eventData.ticketTiers.length > 0
-    ? eventData.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
+  const totalCap = tiersList.length > 0
+    ? tiersList.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
     : (Number(eventData.availableTickets) || 500);
 
   const catId = Number(eventData.categoryId) || 1;
+
+  const formattedEventDate = eventData.date
+    ? `${eventData.date}T${eventData.time || '19:00'}:00`
+    : new Date().toISOString().slice(0, 19);
 
   const payload = {
     title: eventData.title,
@@ -118,7 +109,7 @@ export const createEvent = async (eventData) => {
     location: eventData.venue || eventData.location || 'Colombo',
     venue: eventData.venue || eventData.location || 'Colombo',
     price: minPrice,
-    eventDate: eventData.date ? new Date(`${eventData.date}T${eventData.time || '19:00'}:00`).toISOString() : new Date().toISOString(),
+    eventDate: formattedEventDate,
     categoryId: catId,
     organizerId: Number(eventData.organizerId) || 1,
     imageUrl: eventData.coverImage || null,
@@ -127,7 +118,8 @@ export const createEvent = async (eventData) => {
     category: eventData.categoryName || eventData.category || 'Music & Concerts',
     date: eventData.date,
     time: eventData.time || '19:00',
-    ticketTiers: (eventData.ticketTiers || []).map((t) => ({
+    ticketTiersJson: JSON.stringify(tiersList),
+    ticketTiers: tiersList.map((t) => ({
       id: String(t.id),
       name: t.name,
       price: Number(t.price) || 0,
@@ -144,11 +136,38 @@ export const createEvent = async (eventData) => {
 };
 
 // PUT update event
-export const updateEvent = (id, eventData) => requestEvent(`/${id}`, {
-  method: 'PUT',
-  headers: getAuthHeaders(),
-  body: JSON.stringify(eventData),
-});
+export const updateEvent = (id, eventData) => {
+  const tiersList = eventData.ticketTiers || [];
+  const minPrice = tiersList.length > 0
+    ? Math.min(...tiersList.map((t) => Number(t.price) || 0))
+    : (Number(eventData.price) || 0);
+
+  const totalCap = tiersList.length > 0
+    ? tiersList.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
+    : (Number(eventData.availableTickets) || 500);
+
+  const catId = Number(eventData.categoryId) || 1;
+
+  const payload = {
+    ...eventData,
+    price: minPrice,
+    availableTickets: totalCap,
+    categoryId: catId,
+    ticketTiersJson: JSON.stringify(tiersList),
+    ticketTiers: tiersList.map((t) => ({
+      id: String(t.id),
+      name: t.name,
+      price: Number(t.price) || 0,
+      quantity: Number(t.quantity) || 0,
+    })),
+  };
+
+  return requestEvent(`/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+};
 
 // DELETE event
 export const deleteEvent = (id) => requestEvent(`/${id}`, {
