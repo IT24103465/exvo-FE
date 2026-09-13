@@ -196,3 +196,35 @@ export const logoutUser = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
 };
+
+export const deleteUserAccount = async () => {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    throw new Error('Not authenticated');
+  }
+
+  const response = await fetchWithFallback('/profile', {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  let data = {};
+  const text = await response.text();
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { message: text };
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Delete account failed with status ${response.status}`);
+  }
+
+  logoutUser();
+  return data;
+};
