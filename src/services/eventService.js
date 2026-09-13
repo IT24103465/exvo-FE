@@ -1,63 +1,23 @@
-// Catalog service and gateway URLs
-const CANDIDATE_URLS = [
-  'http://localhost:5255/api/catalog/events',
-  'http://localhost:5000/api/catalog/events',
-];
-
-const CATEGORY_CANDIDATE_URLS = [
-  'http://localhost:5255/api/catalog/categories',
-  'http://localhost:5000/api/catalog/categories',
-];
-
-export const DEFAULT_CATEGORIES = [
-  { id: 1, name: 'Music & Concerts', description: 'Live music events and festivals' },
-  { id: 2, name: 'Concert', description: 'Concerts and live performances' },
-  { id: 3, name: 'Festival', description: 'Music and cultural festivals' },
-  { id: 4, name: 'Live Session', description: 'Intimate live sessions' },
-  { id: 5, name: 'DJ Night', description: 'EDM and DJ night events' },
-  { id: 6, name: 'Acoustic', description: 'Unplugged acoustic sets' },
-  { id: 7, name: 'Stand-Up', description: 'Comedy and stand-up shows' },
-  { id: 8, name: 'EDM Arena', description: 'Electronic dance music festivals' }
-];
+const configuredApiBaseUrl = typeof import.meta.env === 'undefined' ? undefined : import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (configuredApiBaseUrl || 'http://localhost:5000').replace(/\/$/, '');
+const EVENTS_API_URL = `${API_BASE_URL}/api/events`;
+const CATEGORIES_API_URL = `${API_BASE_URL}/api/categories`;
 
 export const getCategories = async () => {
-  for (const url of CATEGORY_CANDIDATE_URLS) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (response.ok) {
-        const categories = await response.json();
-        if (Array.isArray(categories) && categories.length > 0) {
-          return categories;
-        }
-      }
-    } catch (err) {
-      console.warn(`Could not fetch categories from ${url}:`, err.message);
-    }
-  }
-  return DEFAULT_CATEGORIES;
+  const response = await fetch(CATEGORIES_API_URL, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`Categories request failed (${response.status})`);
+  return response.json();
 };
 
 const fetchWithFallback = async (endpoint = '', options = {}) => {
-  let lastError = null;
-
-  for (const baseUrl of CANDIDATE_URLS) {
-    try {
-      const url = `${baseUrl}${endpoint}`;
-      const res = await fetch(url, options);
-
-      if (res.ok) {
-        return res;
-      }
-      lastError = new Error(`HTTP ${res.status} from ${url}`);
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  throw lastError || new Error('Backend service endpoints unreachable');
+  const url = `${EVENTS_API_URL}${endpoint}`;
+  const response = await fetch(url, options);
+  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
+  return response;
 };
 
 const getAuthHeaders = () => {
@@ -71,6 +31,7 @@ const getAuthHeaders = () => {
 
 const normalizeEvent = (ev) => {
   if (!ev) return ev;
+  const hasTierData = ev.ticketTiersJson !== undefined || ev.ticketTiers !== undefined;
   let tiers = [];
   if (ev.ticketTiersJson) {
     try {
@@ -90,7 +51,7 @@ const normalizeEvent = (ev) => {
 
   return {
     ...ev,
-    ticketTiers: Array.isArray(tiers) ? tiers : [],
+    ...(hasTierData ? { ticketTiers: Array.isArray(tiers) ? tiers : [] } : {}),
   };
 };
 

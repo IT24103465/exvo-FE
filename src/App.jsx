@@ -3,10 +3,6 @@ import './App.css'
 import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile, deleteUserAccount } from './services/authService'
 import { getAllEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
 
-// Import local assets from src/assets
-import sarithImg from './assets/sarith.jpg'
-import wayoImg from './assets/wayo.jpg'
-import wiramayaImg from './assets/wiramaya.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -56,6 +52,37 @@ const getUserDetails = (user) => {
     .join('') || 'E'
 
   return { name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
+}
+
+const getEventPoster = (event) => {
+  const storedPoster = event?.coverImage || event?.imageUrl || event?.ImageUrl || event?.posterUrl || event?.bannerUrl
+  return storedPoster || null
+}
+
+const EventPoster = ({ event, className = '', imageClassName = '' }) => {
+  const [failedPoster, setFailedPoster] = useState(null)
+  const poster = event?.cover && event.cover !== failedPoster ? event.cover : null
+
+  if (!poster) {
+    return (
+      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-neutral-950 via-red-950/40 to-black p-5 text-center ${className}`}>
+        <span className="font-['Orbitron'] text-sm font-black uppercase tracking-wider text-white drop-shadow-md">
+          {event?.title || 'Untitled Event'}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={poster}
+      alt={event?.title || 'Event poster'}
+      className={imageClassName || className}
+      loading="lazy"
+      draggable="false"
+      onError={() => setFailedPoster(poster)}
+    />
+  )
 }
 
 // ── Sparkling particle canvas for footer ──
@@ -564,89 +591,8 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
   )
 }
 
-const DEFAULT_FALLBACK_EVENTS = [
-  {
-    id: 1,
-    title: 'Pop Culture',
-    subtitle: 'Featured Artist',
-    artistOrOrganizer: 'Featured Artist',
-    cover: sarithImg,
-    year: '2026',
-    category: 'Music & Concerts',
-    venue: 'Port City Colombo',
-    minPrice: 2500,
-    trackCount: 'Music & Concerts • From LKR 2,500 • Port City Colombo',
-    ticketTiers: [
-      { name: 'General Admission', price: 2500, quantity: 500 },
-      { name: 'VIP Pass', price: 5000, quantity: 150 }
-    ],
-    totalCapacity: 650,
-    eventDate: '2026-09-26T19:00:00',
-    eventTime: '19:00',
-    description: 'Experience Sri Lanka\'s premier pop culture music festival featuring live performances by top artists and DJs.'
-  },
-  {
-    id: 2,
-    title: 'Justin Bieber Coachella',
-    subtitle: 'Live Performance',
-    artistOrOrganizer: 'Justin Bieber',
-    cover: wayoImg,
-    year: '2026',
-    category: 'Music & Concerts',
-    venue: 'Washington , DC',
-    minPrice: 8000,
-    trackCount: 'Music & Concerts • From LKR 8,000 • Washington , DC',
-    ticketTiers: [
-      { name: 'General Admission Pass', price: 8000, quantity: 300 }
-    ],
-    totalCapacity: 300,
-    eventDate: '2026-09-19T19:00:00',
-    eventTime: '19:00',
-    description: 'Special live concert session featuring international pop hits and electrifying stage lighting.'
-  },
-  {
-    id: 3,
-    title: 'Era of Marians',
-    subtitle: 'Marians Live',
-    artistOrOrganizer: 'Marians',
-    cover: wiramayaImg,
-    year: '2026',
-    category: 'Music & Concerts',
-    venue: 'Water\'s Edge',
-    minPrice: 2500,
-    trackCount: 'Music & Concerts • From LKR 2,500 • Water\'s Edge',
-    ticketTiers: [
-      { name: 'General Admission', price: 2500, quantity: 500 },
-      { name: 'VIP Pass', price: 5000, quantity: 150 }
-    ],
-    totalCapacity: 650,
-    eventDate: '2026-10-02T19:00:00',
-    eventTime: '19:00',
-    description: 'The iconic Era of Marians unplugged concert live at Water\'s Edge.'
-  },
-  {
-    id: 4,
-    title: 'WIRAMAYA',
-    subtitle: 'SLIIT Musical',
-    artistOrOrganizer: 'SLIIT Students',
-    cover: wiramayaImg,
-    year: '2026',
-    category: 'Music & Concerts',
-    venue: 'SLIIT Campus Auditorium',
-    minPrice: 2500,
-    trackCount: 'Music & Concerts • From LKR 2,500 • SLIIT',
-    ticketTiers: [
-      { name: 'Standard Pass', price: 2500, quantity: 400 }
-    ],
-    totalCapacity: 400,
-    eventDate: '2026-09-24T19:00:00',
-    eventTime: '19:00',
-    description: 'Wiramaya 2026 live grand musical extravaganza organized by SLIIT.'
-  }
-]
-
 function App() {
-  const [albumList, setAlbumList] = useState(DEFAULT_FALLBACK_EVENTS)
+  const [albumList, setAlbumList] = useState([])
   const [centerIndex, setCenterIndex] = useState(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
@@ -899,30 +845,28 @@ function App() {
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
             organizerId: e.organizerId || e.OrganizerId,
             organizerName: e.organizerName || e.OrganizerName,
-            cover: e.coverImage || e.imageUrl || sarithImg,
+            cover: getEventPoster(e),
             year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
             category: catName,
-            venue: e.venue || e.location || 'Sri Lanka',
+            venue: e.venueName || e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
-            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venueName || e.venue || e.location || 'Sri Lanka'}`,
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
-            eventDate: eventDateVal,
-            eventTime: e.time || '19:00',
+            eventDate: e.eventDate || eventDateVal,
+            eventTime: e.eventTime || e.time || '19:00',
             description: e.description,
             isDbEvent: true
           }
         })
         setAlbumList(formattedEvents)
         setCenterIndex(0)
-      } else if (!albumList || albumList.length === 0) {
-        setAlbumList(DEFAULT_FALLBACK_EVENTS)
+      } else {
+        setAlbumList([])
       }
     } catch (err) {
-      console.warn('Failed to fetch DB events:', err)
-      if (!albumList || albumList.length === 0) {
-        setAlbumList(DEFAULT_FALLBACK_EVENTS)
-      }
+      console.error('Failed to fetch catalog events:', err)
+      setAlbumList([])
     }
   }
 
@@ -938,7 +882,7 @@ function App() {
           category: prev.category || cats[0].name,
         }))
       }
-    })
+    }).catch((err) => console.error('Failed to fetch catalog categories:', err))
   }, [])
 
   const handleLogout = () => {
@@ -2761,18 +2705,7 @@ function App() {
                     className={`carousel-card ${cardClass} group cursor-pointer`}
                     title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
-                    {album.cover ? (
-                      <img
-                        src={album.cover}
-                        alt={album.title}
-                        className="w-full h-full object-cover select-none"
-                        draggable="false"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center p-4 text-center">
-                        <span className="text-3xl opacity-50">🎵</span>
-                      </div>
-                    )}
+                    <EventPoster event={album} imageClassName="w-full h-full object-cover select-none" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-80" />
 
                     {/* Center Card Title and Tag Overlay */}
@@ -3035,12 +2968,7 @@ function App() {
                     className="event-cyber-card group cursor-pointer"
                   >
                     <div className="event-cyber-card__poster-box">
-                      <img
-                        src={event.cover}
-                        alt={event.title}
-                        className="event-cyber-card__poster"
-                        loading="lazy"
-                      />
+                      <EventPoster event={event} imageClassName="event-cyber-card__poster" />
                       <div className="event-cyber-card__poster-overlay" />
 
                       {/* Top Badges */}
@@ -3887,7 +3815,7 @@ function App() {
               {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
               <div
                 className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10"
-                style={{ backgroundImage: `url(${selectedDetailEvent.cover || sarithImg})` }}
+                style={selectedDetailEvent.cover ? { backgroundImage: `url(${selectedDetailEvent.cover})` } : undefined}
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
 
