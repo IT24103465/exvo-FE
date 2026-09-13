@@ -1,16 +1,8 @@
-// Point to API Gateway or direct AuthService port
-const PRIMARY_API_URL = 'http://localhost:5000/api/auth';
-const FALLBACK_API_URL = 'http://localhost:5284/api/auth';
+const configuredApiBaseUrl = typeof import.meta.env === 'undefined' ? undefined : import.meta.env.VITE_API_BASE_URL;
+const API_BASE_URL = (configuredApiBaseUrl || 'http://localhost:5000').replace(/\/$/, '');
+const AUTH_API_URL = `${API_BASE_URL}/api/auth`;
 
-const fetchWithFallback = async (endpoint, options = {}) => {
-  try {
-    const res = await fetch(`${PRIMARY_API_URL}${endpoint}`, options);
-    return res;
-  } catch (err) {
-    // If gateway connection fails, automatically route to direct AuthService port
-    return await fetch(`${FALLBACK_API_URL}${endpoint}`, options);
-  }
-};
+const requestAuth = (endpoint, options = {}) => fetch(`${AUTH_API_URL}${endpoint}`, options);
 
 export const registerUser = async (
   payloadOrFullName,
@@ -36,7 +28,7 @@ export const registerUser = async (
     };
   }
 
-  const response = await fetchWithFallback('/register', {
+  const response = await requestAuth('/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -64,7 +56,7 @@ export const registerUser = async (
 };
 
 export const loginUser = async (email, password) => {
-  const response = await fetchWithFallback('/login', {
+  const response = await requestAuth('/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -96,7 +88,7 @@ export const getCurrentUserProfile = async () => {
   if (!token) return null;
 
   try {
-    const response = await fetchWithFallback('/profile', {
+    const response = await requestAuth('/profile', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -110,7 +102,7 @@ export const getCurrentUserProfile = async () => {
         return null;
       }
       // Fallback to /me
-      const meRes = await fetchWithFallback('/me', {
+      const meRes = await requestAuth('/me', {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -148,7 +140,7 @@ export const updateUserProfile = async (profileData) => {
     throw new Error('Not authenticated');
   }
 
-  const response = await fetchWithFallback('/profile', {
+  const response = await requestAuth('/profile', {
     method: 'PUT',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -203,7 +195,7 @@ export const deleteUserAccount = async () => {
     throw new Error('Not authenticated');
   }
 
-  const response = await fetchWithFallback('/profile', {
+  const response = await requestAuth('/profile', {
     method: 'DELETE',
     headers: {
       'Authorization': `Bearer ${token}`,

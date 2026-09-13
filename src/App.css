@@ -3248,10 +3248,6 @@
   background: rgba(255, 0, 0, 0.04);
 }
 
-border-radius: 8px;
-border: 1px solid rgba(255, 0, 0, 0.3);
-}
-
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 0, 0, 0.9);
 }
