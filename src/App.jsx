@@ -1,7 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile, deleteUserAccount } from './services/authService'
-import { getAllEvents, getMyEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
+import {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getCurrentUserProfile,
+  updateUserProfile,
+  deleteUserAccount,
+} from './services/authService'
+import {
+  getAllEvents,
+  getMyEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  getCategories,
+} from './services/eventService'
 
 // Import local assets from src/assets
 import sarithImg from './assets/sarith.jpg'
@@ -47,12 +61,13 @@ const getUserDetails = (user) => {
   const contactNumber = details.contactNumber || details.phoneNumber || ''
   const address = details.address || ''
   const profilePicture = details.profilePicture || ''
-  const initials = name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('') || 'E'
+  const initials =
+    name
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0].toUpperCase())
+      .join('') || 'E'
 
   return { id, name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
 }
@@ -157,7 +172,13 @@ const extractTimeFromEvent = (e) => {
   if (!e) return '19:00'
 
   const directTime = e.time || e.eventTime
-  if (directTime && typeof directTime === 'string' && directTime.trim() !== '' && directTime !== 'undefined' && directTime !== 'null') {
+  if (
+    directTime &&
+    typeof directTime === 'string' &&
+    directTime.trim() !== '' &&
+    directTime !== 'undefined' &&
+    directTime !== 'null'
+  ) {
     const cleanTime = directTime.trim()
     const match = cleanTime.match(/^(\d{1,2}):(\d{2})/)
     if (match) {
@@ -197,13 +218,13 @@ const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
     ['D', 'E', 'F', 'G'],
     ['H', 'I', 'J'],
     ['K', 'L', 'M'],
-    ['N', 'O', 'P']
+    ['N', 'O', 'P'],
   ]
   return ticketTiers.map((tier, idx) => {
     const existing = existingZones[idx]
     const name = (tier.name || `Category ${idx + 1}`).toUpperCase()
     const price = Number(tier.price) || 0
-    const rows = existing?.rows?.length ? existing.rows : (defaultRowSets[idx % defaultRowSets.length] || ['A', 'B'])
+    const rows = existing?.rows?.length ? existing.rows : defaultRowSets[idx % defaultRowSets.length] || ['A', 'B']
     const seatsPerRow = existing?.seatsPerRow || 12
     const occupiedSeats = existing?.occupiedSeats || []
     const id = existing?.id || `zone-tier-${idx + 1}`
@@ -213,7 +234,7 @@ const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
       price,
       rows,
       seatsPerRow,
-      occupiedSeats
+      occupiedSeats,
     }
   })
 }
@@ -226,7 +247,7 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
       price: 2500,
       rows: ['A', 'B', 'C'],
       seatsPerRow: 13,
-      occupiedSeats: []
+      occupiedSeats: [],
     },
     {
       id: 'z-premium',
@@ -234,22 +255,22 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
       price: 5000,
       rows: ['D', 'E', 'F', 'G'],
       seatsPerRow: 13,
-      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9']
-    }
+      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9'],
+    },
   ]
   if (ticketTiers && ticketTiers.length > 0) {
     return {
       enabled: true,
       autoSyncCategories: true,
       stageLabel: 'SCREEN',
-      zones: syncSeatingZonesWithTicketTiers(ticketTiers, defaultZones)
+      zones: syncSeatingZonesWithTicketTiers(ticketTiers, defaultZones),
     }
   }
   return {
     enabled: true,
     autoSyncCategories: true,
     stageLabel: 'SCREEN',
-    zones: defaultZones
+    zones: defaultZones,
   }
 }
 
@@ -257,8 +278,8 @@ const SeatingChartComponent = ({
   seatingConfig,
   isOrganizerEdit = false,
   selectedSeats = [],
-  onSelectSeat = () => { },
-  onToggleOccupied = () => { }
+  onSelectSeat = () => {},
+  onToggleOccupied = () => {},
 }) => {
   if (!seatingConfig || !seatingConfig.enabled || !seatingConfig.zones || seatingConfig.zones.length === 0) return null
 
@@ -270,7 +291,13 @@ const SeatingChartComponent = ({
       <div className="flex flex-col items-center justify-center mb-6">
         <div className="relative w-full max-w-md h-10 flex items-center justify-center overflow-hidden">
           <svg className="absolute inset-0 w-full h-full text-neutral-900" viewBox="0 0 400 40" fill="none">
-            <path d="M 10 35 Q 200 5 390 35" stroke="currentColor" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+            <path
+              d="M 10 35 Q 200 5 390 35"
+              stroke="currentColor"
+              strokeWidth="3.5"
+              fill="none"
+              strokeLinecap="round"
+            />
           </svg>
           <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-neutral-900 bg-white px-3">
             {stageLabel}
@@ -314,9 +341,7 @@ const SeatingChartComponent = ({
               {(zone.rows || ['A']).map((rowLetter) => (
                 <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
                   {/* Left Row Letter */}
-                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">
-                    {rowLetter}
-                  </span>
+                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
 
                   {/* Seat Grid */}
                   <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
@@ -325,17 +350,20 @@ const SeatingChartComponent = ({
                       const isOccupied = zone.occupiedSeats?.includes(seatId)
                       const isSelected = selectedSeats.includes(seatId)
 
-                      let seatClass = "w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none"
+                      let seatClass =
+                        'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
 
                       if (isSelected) {
-                        seatClass += " bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40"
+                        seatClass +=
+                          ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
                       } else if (isOccupied) {
-                        seatClass += " bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75"
+                        seatClass += ' bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75'
                         if (!isOrganizerEdit) {
-                          seatClass += " cursor-not-allowed"
+                          seatClass += ' cursor-not-allowed'
                         }
                       } else {
-                        seatClass += " bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50"
+                        seatClass +=
+                          ' bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50'
                       }
 
                       return (
@@ -361,9 +389,7 @@ const SeatingChartComponent = ({
                   </div>
 
                   {/* Right Row Letter */}
-                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">
-                    {rowLetter}
-                  </span>
+                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
                 </div>
               ))}
             </div>
@@ -432,11 +458,7 @@ const SparkCanvas = () => {
         }
 
         const progress = s.life / s.maxLife
-        let alpha = progress < 0.2
-          ? progress / 0.2
-          : progress > 0.8
-            ? (1 - progress) / 0.2
-            : 1
+        let alpha = progress < 0.2 ? progress / 0.2 : progress > 0.8 ? (1 - progress) / 0.2 : 1
 
         const twinkle = 0.5 + 0.5 * Math.sin(s.life * s.twinkleSpeed + s.twinklePhase)
         alpha *= twinkle
@@ -493,8 +515,6 @@ const SparkCanvas = () => {
   )
 }
 
-const albums = []
-
 const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
   const [authMode, setAuthMode] = useState(initialMode) // 'login' | 'register'
   const [accountType, setAccountType] = useState('booking') // 'booking' | 'company'
@@ -549,14 +569,14 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           contactNumber,
           email: registerEmail,
           password: registerPassword,
-          role: 'Organizer'
+          role: 'Organizer',
         })
       } else {
         await registerUser({
           fullName,
           email: registerEmail,
           password: registerPassword,
-          role: 'Attendee'
+          role: 'Attendee',
         })
       }
 
@@ -584,7 +604,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           </button>
           <div className="auth-brand-badge">
             <ExvoLogo />
-            <span><span className="text-[#FF0000]">EX</span>VO</span>
+            <span>
+              <span className="text-[#FF0000]">EX</span>VO
+            </span>
           </div>
         </div>
 
@@ -593,7 +615,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           <button
             type="button"
             className={`auth-mode-tab ${authMode === 'login' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('login'); setMessage('') }}
+            onClick={() => {
+              setAuthMode('login')
+              setMessage('')
+            }}
             role="tab"
             aria-selected={authMode === 'login'}
           >
@@ -602,7 +627,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           <button
             type="button"
             className={`auth-mode-tab ${authMode === 'register' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('register'); setMessage('') }}
+            onClick={() => {
+              setAuthMode('register')
+              setMessage('')
+            }}
             role="tab"
             aria-selected={authMode === 'register'}
           >
@@ -616,7 +644,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             <button
               type="button"
               className={`account-type-btn ${accountType === 'booking' ? 'active' : ''}`}
-              onClick={() => { setAccountType('booking'); setMessage('') }}
+              onClick={() => {
+                setAccountType('booking')
+                setMessage('')
+              }}
               aria-checked={accountType === 'booking'}
               role="radio"
             >
@@ -625,7 +656,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             <button
               type="button"
               className={`account-type-btn ${accountType === 'company' ? 'active' : ''}`}
-              onClick={() => { setAccountType('company'); setMessage('') }}
+              onClick={() => {
+                setAccountType('company')
+                setMessage('')
+              }}
               aria-checked={accountType === 'company'}
               role="radio"
             >
@@ -638,9 +672,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
         {authMode === 'login' && (
           <form className="auth-form" onSubmit={handleLoginSubmit}>
             <div className="auth-field-group">
-              <label className="login-field-label" htmlFor="login-email">EMAIL / USERNAME</label>
+              <label className="login-field-label" htmlFor="login-email">
+                EMAIL / USERNAME
+              </label>
               <div className="login-input-shell">
-                <span className="login-field-icon" aria-hidden="true">♙</span>
+                <span className="login-field-icon" aria-hidden="true">
+                  ♙
+                </span>
                 <input
                   id="login-email"
                   type="email"
@@ -655,7 +693,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <div className="auth-field-group">
               <div className="login-password-row">
-                <label className="login-field-label" htmlFor="login-password">PASSWORD</label>
+                <label className="login-field-label" htmlFor="login-password">
+                  PASSWORD
+                </label>
                 <button
                   className="login-forgot"
                   type="button"
@@ -665,7 +705,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </button>
               </div>
               <div className="login-input-shell">
-                <span className="login-field-icon" aria-hidden="true">▣</span>
+                <span className="login-field-icon" aria-hidden="true">
+                  ▣
+                </span>
                 <input
                   id="login-password"
                   type={showPassword ? 'text' : 'password'}
@@ -693,7 +735,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <p className="auth-bottom-switch">
               New to Exvo?
-              <button type="button" onClick={() => { setAuthMode('register'); setMessage('') }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register')
+                  setMessage('')
+                }}
+              >
                 Create an account
               </button>
             </p>
@@ -706,9 +754,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             {accountType === 'booking' ? (
               <>
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-full-name">FULL NAME</label>
+                  <label className="login-field-label" htmlFor="register-full-name">
+                    FULL NAME
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">♙</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ♙
+                    </span>
                     <input
                       id="register-full-name"
                       type="text"
@@ -722,9 +774,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-email">EMAIL ADDRESS</label>
+                  <label className="login-field-label" htmlFor="register-email">
+                    EMAIL ADDRESS
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">@</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      @
+                    </span>
                     <input
                       id="register-email"
                       type="email"
@@ -738,9 +794,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-password">PASSWORD</label>
+                  <label className="login-field-label" htmlFor="register-password">
+                    PASSWORD
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">▣</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ▣
+                    </span>
                     <input
                       id="register-password"
                       type={showPassword ? 'text' : 'password'}
@@ -766,9 +826,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               <>
                 <div className="auth-grid-2">
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-name">COMPANY NAME</label>
+                    <label className="login-field-label" htmlFor="company-name">
+                      COMPANY NAME
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">🏛</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        🏛
+                      </span>
                       <input
                         id="company-name"
                         type="text"
@@ -781,9 +845,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </div>
 
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-reg-no">REGISTRATION NO</label>
+                    <label className="login-field-label" htmlFor="company-reg-no">
+                      REGISTRATION NO
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">#</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        #
+                      </span>
                       <input
                         id="company-reg-no"
                         type="text"
@@ -798,9 +866,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
                 <div className="auth-grid-2">
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-email">OFFICIAL EMAIL</label>
+                    <label className="login-field-label" htmlFor="company-email">
+                      OFFICIAL EMAIL
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">@</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        @
+                      </span>
                       <input
                         id="company-email"
                         type="email"
@@ -814,9 +886,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </div>
 
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-contact">CONTACT NO</label>
+                    <label className="login-field-label" htmlFor="company-contact">
+                      CONTACT NO
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">☎</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        ☎
+                      </span>
                       <input
                         id="company-contact"
                         type="tel"
@@ -831,9 +907,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="company-password">PASSWORD</label>
+                  <label className="login-field-label" htmlFor="company-password">
+                    PASSWORD
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">▣</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ▣
+                    </span>
                     <input
                       id="company-password"
                       type={showPassword ? 'text' : 'password'}
@@ -859,17 +939,29 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <label className="register-terms">
               <input type="checkbox" required />
-              <span>I agree to the <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>Terms</button> &amp; Privacy Policy.</span>
+              <span>
+                I agree to the{' '}
+                <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>
+                  Terms
+                </button>{' '}
+                &amp; Privacy Policy.
+              </span>
             </label>
 
             <button className="login-submit" type="submit" disabled={isLoading}>
-              {isLoading ? 'CREATING...' : (accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT')}{' '}
+              {isLoading ? 'CREATING...' : accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT'}{' '}
               <span aria-hidden="true">→</span>
             </button>
 
             <p className="auth-bottom-switch">
               Already have an account?
-              <button type="button" onClick={() => { setAuthMode('login'); setMessage('') }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('login')
+                  setMessage('')
+                }}
+              >
                 Sign in
               </button>
             </p>
@@ -877,7 +969,15 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
         )}
 
         {message && (
-          <p className="login-message" style={isSuccess ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#4ade80' } : {}} role="status">
+          <p
+            className="login-message"
+            style={
+              isSuccess
+                ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#4ade80' }
+                : {}
+            }
+            role="status"
+          >
             {message}
           </p>
         )}
@@ -898,7 +998,6 @@ function App() {
   const [authState, setAuthState] = useState(readAuthState)
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
-  const [showAllEventsSection, setShowAllEventsSection] = useState(true)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
   const [isCategorySearchOpen, setIsCategorySearchOpen] = useState(false)
   const categorySearchInputRef = useRef(null)
@@ -907,7 +1006,7 @@ function App() {
   const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
   const [selectedSeats, setSelectedSeats] = useState([])
-  const [ticketQuantity, setTicketQuantity] = useState(1)
+  const [, setTicketQuantity] = useState(1)
   const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
@@ -924,7 +1023,7 @@ function App() {
     email: '',
     phoneNumber: '',
     address: '',
-    profilePicture: ''
+    profilePicture: '',
   })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileFeedback, setProfileFeedback] = useState({ type: '', text: '' })
@@ -952,7 +1051,7 @@ function App() {
     venue: '',
     ticketTiers: [
       { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
+      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
     ],
     seatingConfig: createDefaultSeatingConfig(),
     coverImage: '',
@@ -985,16 +1084,15 @@ function App() {
 
   const handleAddTicketTier = () => {
     setNewEventForm((prev) => {
-      const nextTiers = [
-        ...prev.ticketTiers,
-        { id: String(Date.now()), name: '', price: '', quantity: '100' }
-      ]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
@@ -1004,28 +1102,29 @@ function App() {
     setNewEventForm((prev) => {
       const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
 
   const handleUpdateTicketTier = (tierId, field, value) => {
     setNewEventForm((prev) => {
-      const nextTiers = prev.ticketTiers.map((t) =>
-        t.id === tierId ? { ...t, [field]: value } : t
-      )
+      const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync && (field === 'name' || field === 'price')
-        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
-        : prev.seatingConfig?.zones
+      const updatedZones =
+        autoSync && (field === 'name' || field === 'price')
+          ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+          : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
@@ -1041,7 +1140,7 @@ function App() {
     if (!dateStr) return ''
     try {
       let cleanStr = String(dateStr).trim()
-      let resolvedTime = (timeStr && timeStr !== 'undefined' && timeStr !== 'null') ? String(timeStr).trim() : ''
+      let resolvedTime = timeStr && timeStr !== 'undefined' && timeStr !== 'null' ? String(timeStr).trim() : ''
 
       if (cleanStr.includes('T')) {
         const parts = cleanStr.split('T')
@@ -1085,7 +1184,7 @@ function App() {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
-        year: 'numeric'
+        year: 'numeric',
       })
 
       if (!formatted || formatted === 'Invalid Date') {
@@ -1169,17 +1268,21 @@ function App() {
           let parsedTiers = []
           try {
             if (e.ticketTiersJson) {
-              parsedTiers = typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : (e.ticketTiersJson || [])
+              parsedTiers =
+                typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
             } else {
-              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
             }
           } catch {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
-          const catName = typeof e.category === 'object' && e.category !== null
-            ? e.category.name
-            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Music & Concerts'))
+          const catName =
+            typeof e.category === 'object' && e.category !== null
+              ? e.category.name
+              : typeof e.category === 'string'
+                ? e.category
+                : e.categoryName || 'Music & Concerts'
           const eventDateVal = e.date || e.eventDate
           return {
             id: e.id,
@@ -1189,7 +1292,10 @@ function App() {
             organizerId: e.organizerId || e.OrganizerId,
             organizerName: e.organizerName || e.OrganizerName,
             cover: e.coverImage || e.imageUrl || sarithImg,
-            year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            year:
+              eventDateVal && !isNaN(new Date(eventDateVal).getTime())
+                ? new Date(eventDateVal).getFullYear().toString()
+                : '2026',
             category: catName,
             venue: e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
@@ -1200,10 +1306,24 @@ function App() {
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
-            seatingConfig: e.seatingConfig || (e.seatingConfigJson ? (typeof e.seatingConfigJson === 'string' ? (() => { try { return JSON.parse(e.seatingConfigJson) } catch { return null } })() : e.seatingConfigJson) : null),
+            seatingConfig:
+              e.seatingConfig ||
+              (e.seatingConfigJson
+                ? typeof e.seatingConfigJson === 'string'
+                  ? (() => {
+                      try {
+                        return JSON.parse(e.seatingConfigJson)
+                      } catch {
+                        return null
+                      }
+                    })()
+                  : e.seatingConfigJson
+                : null),
             seatingConfigJson: e.seatingConfigJson,
-            isHidden: Boolean(e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id))),
-            isDbEvent: true
+            isHidden: Boolean(
+              e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
+            ),
+            isDbEvent: true,
           }
         })
         setAlbumList(formattedEvents)
@@ -1257,17 +1377,21 @@ function App() {
           let parsedTiers = []
           try {
             if (e.ticketTiersJson) {
-              parsedTiers = typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : (e.ticketTiersJson || [])
+              parsedTiers =
+                typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
             } else {
-              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
             }
           } catch {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
-          const catName = typeof e.category === 'object' && e.category !== null
-            ? e.category.name
-            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Music & Concerts'))
+          const catName =
+            typeof e.category === 'object' && e.category !== null
+              ? e.category.name
+              : typeof e.category === 'string'
+                ? e.category
+                : e.categoryName || 'Music & Concerts'
           const eventDateVal = e.date || e.eventDate
           return {
             id: e.id,
@@ -1278,7 +1402,10 @@ function App() {
             organizerName: e.organizerName || e.OrganizerName || userDetails.name,
             createdByEmail: userDetails.email,
             cover: e.coverImage || e.imageUrl || sarithImg,
-            year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            year:
+              eventDateVal && !isNaN(new Date(eventDateVal).getTime())
+                ? new Date(eventDateVal).getFullYear().toString()
+                : '2026',
             category: catName,
             venue: e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
@@ -1289,10 +1416,24 @@ function App() {
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
-            seatingConfig: e.seatingConfig || (e.seatingConfigJson ? (typeof e.seatingConfigJson === 'string' ? (() => { try { return JSON.parse(e.seatingConfigJson) } catch { return null } })() : e.seatingConfigJson) : null),
+            seatingConfig:
+              e.seatingConfig ||
+              (e.seatingConfigJson
+                ? typeof e.seatingConfigJson === 'string'
+                  ? (() => {
+                      try {
+                        return JSON.parse(e.seatingConfigJson)
+                      } catch {
+                        return null
+                      }
+                    })()
+                  : e.seatingConfigJson
+                : null),
             seatingConfigJson: e.seatingConfigJson,
-            isHidden: Boolean(e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id))),
-            isDbEvent: true
+            isHidden: Boolean(
+              e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
+            ),
+            isDbEvent: true,
           }
         })
         setMyEventsList(formatted)
@@ -1308,11 +1449,11 @@ function App() {
     if (isOrganizer && organizerDashboardOpen) {
       fetchMyEvents()
     }
+    // fetchMyEvents closes over the current authenticated user details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizerDashboardOpen, isOrganizer])
 
-  const myOrganizerEvents = myEventsList.length > 0
-    ? myEventsList
-    : albumList.filter((e) => isMyEvent(e, userDetails))
+  const myOrganizerEvents = myEventsList.length > 0 ? myEventsList : albumList.filter((e) => isMyEvent(e, userDetails))
 
   const handleEventCoverUpload = (e) => {
     const file = e.target.files?.[0]
@@ -1358,10 +1499,12 @@ function App() {
 
     try {
       const selectedCategoryObj = dbCategories.find(
-        (c) => String(c.id) === String(newEventForm.categoryId) || c.name === newEventForm.category
+        (c) => String(c.id) === String(newEventForm.categoryId) || c.name === newEventForm.category,
       )
-      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : (Number(newEventForm.categoryId) || 1)
-      const categoryNameVal = selectedCategoryObj ? selectedCategoryObj.name : (newEventForm.category || 'Music & Concerts')
+      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : Number(newEventForm.categoryId) || 1
+      const categoryNameVal = selectedCategoryObj
+        ? selectedCategoryObj.name
+        : newEventForm.category || 'Music & Concerts'
 
       // 1. Persist event to backend database (events table via Gateway)
       const res = await createEvent({
@@ -1410,7 +1553,7 @@ function App() {
         date: newEventForm.date,
         eventTime: newEventForm.time || '19:00',
         time: newEventForm.time || '19:00',
-        isDbEvent: true
+        isDbEvent: true,
       }
 
       setAlbumList((prev) => [createdItem, ...prev])
@@ -1432,7 +1575,7 @@ function App() {
           venue: '',
           ticketTiers: [
             { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
+            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
           ],
           seatingConfig: createDefaultSeatingConfig(),
           coverImage: '',
@@ -1457,14 +1600,15 @@ function App() {
       date: formatDateForInput(event.eventDate || event.date || ''),
       time: extractTimeFromEvent(event),
       venue: event.venue || '',
-      ticketTiers: event.ticketTiers && event.ticketTiers.length > 0 ? event.ticketTiers.map((t) => ({
-        id: String(t.id || Date.now()),
-        name: t.name || 'Pass',
-        price: String(t.price || 0),
-        quantity: String(t.quantity || 100)
-      })) : [
-        { id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }
-      ],
+      ticketTiers:
+        event.ticketTiers && event.ticketTiers.length > 0
+          ? event.ticketTiers.map((t) => ({
+              id: String(t.id || Date.now()),
+              name: t.name || 'Pass',
+              price: String(t.price || 0),
+              quantity: String(t.quantity || 100),
+            }))
+          : [{ id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }],
       seatingConfig: event.seatingConfig || createDefaultSeatingConfig(),
       coverImage: event.cover || '',
       description: event.description || '',
@@ -1475,16 +1619,15 @@ function App() {
 
   const handleAddTicketTierInEdit = () => {
     setEditEventForm((prev) => {
-      const nextTiers = [
-        ...prev.ticketTiers,
-        { id: String(Date.now()), name: '', price: '', quantity: '100' }
-      ]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
@@ -1494,28 +1637,29 @@ function App() {
     setEditEventForm((prev) => {
       const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
 
   const handleUpdateTicketTierInEdit = (tierId, field, value) => {
     setEditEventForm((prev) => {
-      const nextTiers = prev.ticketTiers.map((t) =>
-        t.id === tierId ? { ...t, [field]: value } : t
-      )
+      const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
-      const updatedZones = autoSync && (field === 'name' || field === 'price')
-        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
-        : prev.seatingConfig?.zones
+      const updatedZones =
+        autoSync && (field === 'name' || field === 'price')
+          ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+          : prev.seatingConfig?.zones
       return {
         ...prev,
         ticketTiers: nextTiers,
-        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
       }
     })
   }
@@ -1586,49 +1730,49 @@ function App() {
         prev.map((e) =>
           e.id === editingEventId
             ? {
-              ...e,
-              title: payload.title,
-              subtitle: payload.artistOrOrganizer,
-              artistOrOrganizer: payload.artistOrOrganizer,
-              category: payload.category,
-              venue: payload.venue,
-              minPrice: minPrice,
-              cover: payload.coverImage || e.cover,
-              eventDate: `${payload.date}T${payload.time}:00`,
-              date: payload.date,
-              eventTime: payload.time,
-              time: payload.time,
-              description: payload.description,
-              ticketTiers: validTiers,
-              seatingConfig: payload.seatingConfig,
-              totalCapacity: totalCap,
-            }
-            : e
-        )
+                ...e,
+                title: payload.title,
+                subtitle: payload.artistOrOrganizer,
+                artistOrOrganizer: payload.artistOrOrganizer,
+                category: payload.category,
+                venue: payload.venue,
+                minPrice: minPrice,
+                cover: payload.coverImage || e.cover,
+                eventDate: `${payload.date}T${payload.time}:00`,
+                date: payload.date,
+                eventTime: payload.time,
+                time: payload.time,
+                description: payload.description,
+                ticketTiers: validTiers,
+                seatingConfig: payload.seatingConfig,
+                totalCapacity: totalCap,
+              }
+            : e,
+        ),
       )
       setMyEventsList((prev) =>
         prev.map((e) =>
           e.id === editingEventId
             ? {
-              ...e,
-              title: payload.title,
-              subtitle: payload.artistOrOrganizer,
-              artistOrOrganizer: payload.artistOrOrganizer,
-              category: payload.category,
-              venue: payload.venue,
-              minPrice: minPrice,
-              cover: payload.coverImage || e.cover,
-              eventDate: `${payload.date}T${payload.time}:00`,
-              date: payload.date,
-              eventTime: payload.time,
-              time: payload.time,
-              description: payload.description,
-              ticketTiers: validTiers,
-              seatingConfig: payload.seatingConfig,
-              totalCapacity: totalCap,
-            }
-            : e
-        )
+                ...e,
+                title: payload.title,
+                subtitle: payload.artistOrOrganizer,
+                artistOrOrganizer: payload.artistOrOrganizer,
+                category: payload.category,
+                venue: payload.venue,
+                minPrice: minPrice,
+                cover: payload.coverImage || e.cover,
+                eventDate: `${payload.date}T${payload.time}:00`,
+                date: payload.date,
+                eventTime: payload.time,
+                time: payload.time,
+                description: payload.description,
+                ticketTiers: validTiers,
+                seatingConfig: payload.seatingConfig,
+                totalCapacity: totalCap,
+              }
+            : e,
+        ),
       )
 
       await fetchLiveEvents()
@@ -1662,7 +1806,10 @@ function App() {
 
   const handleToggleHideEvent = async (eventToToggle) => {
     const isCurrentlyHidden = Boolean(
-      eventToToggle.isHidden || eventToToggle.IsHidder === 1 || eventToToggle.IsHidder === true || getHiddenEventIds().includes(String(eventToToggle.id))
+      eventToToggle.isHidden ||
+      eventToToggle.IsHidder === 1 ||
+      eventToToggle.IsHidder === true ||
+      getHiddenEventIds().includes(String(eventToToggle.id)),
     )
     const newHiddenState = !isCurrentlyHidden
 
@@ -1672,8 +1819,12 @@ function App() {
       removeHiddenEventId(eventToToggle.id)
     }
 
-    setAlbumList((prev) => prev.map((e) => String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e))
-    setMyEventsList((prev) => prev.map((e) => String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e))
+    setAlbumList((prev) =>
+      prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
+    )
+    setMyEventsList((prev) =>
+      prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
+    )
 
     try {
       await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState, IsHidder: newHiddenState })
@@ -1773,7 +1924,7 @@ function App() {
     try {
       await deleteUserAccount()
       setAuthState(readAuthState())
-      setShowProfileModal(false)
+      setProfilePanelOpen(false)
       setShowDeleteConfirm(false)
       alert('Your account has been deleted successfully.')
     } catch (err) {
@@ -1786,14 +1937,18 @@ function App() {
   const handleOpenEventDetails = (event) => {
     let tiers = event?.ticketTiers
     if (typeof tiers === 'string') {
-      try { tiers = JSON.parse(tiers) } catch { }
+      try {
+        tiers = JSON.parse(tiers)
+      } catch {}
     }
     if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && event?.ticketTiersJson) {
-      try { tiers = typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson } catch { }
+      try {
+        tiers = typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson
+      } catch {}
     }
     setSelectedDetailEvent({
       ...event,
-      ticketTiers: Array.isArray(tiers) ? tiers : []
+      ticketTiers: Array.isArray(tiers) ? tiers : [],
     })
   }
 
@@ -1812,7 +1967,7 @@ function App() {
     const initialQtys = {}
     if (event.ticketTiers && event.ticketTiers.length > 0) {
       event.ticketTiers.forEach((tier, idx) => {
-        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+        const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
         initialQtys[key] = idx === 0 ? 1 : 0
       })
     } else {
@@ -1880,13 +2035,13 @@ function App() {
       if (video.currentTime >= endTime) {
         video.currentTime = startTime
       }
-    };
+    }
 
     const handleCanPlay = () => {
       if (video.currentTime < startTime) {
         video.currentTime = startTime
       }
-    };
+    }
 
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('canplay', handleCanPlay)
@@ -1930,10 +2085,6 @@ function App() {
     resetAutoplay()
   }
 
-  const activeAlbum = carouselEvents[centerIndex] || carouselEvents[0] || null
-
-
-
   const categoryDefinitions = [
     { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)', icon: '🔥' },
     { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
@@ -1967,11 +2118,16 @@ function App() {
   })
 
   const filteredEvents = publicEvents.filter((event) => {
-    const matchesCategory = !activeCategory || activeCategory === 'all' ||
-      (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '').toLowerCase().includes(activeCategory.toLowerCase())
+    const matchesCategory =
+      !activeCategory ||
+      activeCategory === 'all' ||
+      (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '')
+        .toLowerCase()
+        .includes(activeCategory.toLowerCase())
 
     const query = categorySearchQuery.trim().toLowerCase()
-    const matchesSearch = !query ||
+    const matchesSearch =
+      !query ||
       (event.title || '').toLowerCase().includes(query) ||
       (event.artistOrOrganizer || event.subtitle || '').toLowerCase().includes(query) ||
       (event.venue || '').toLowerCase().includes(query) ||
@@ -1995,8 +2151,10 @@ function App() {
   }
 
   return (
-    <div id="home" className="min-h-screen bg-neutral-950 text-white relative overflow-hidden flex flex-col justify-between font-sans">
-
+    <div
+      id="home"
+      className="min-h-screen bg-neutral-950 text-white relative overflow-hidden flex flex-col justify-between font-sans"
+    >
       {/* Background video - black & white, auto-play, loops from 0:06 to 0:21 */}
       <video
         ref={videoRef}
@@ -2013,7 +2171,6 @@ function App() {
 
       {/* Header / Navbar */}
       <header className="relative z-50 flex items-center justify-between px-6 md:px-12 py-6">
-
         {/* Left Side: EXVO Logo */}
         <div onClick={() => scrollToSection('home')} className="flex items-center gap-3 cursor-pointer select-none">
           <ExvoLogo />
@@ -2031,7 +2188,15 @@ function App() {
               onClick={() => setOrganizerDashboardOpen(true)}
               title="Open Organizer Dashboard"
             >
-              <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                className="w-4 h-4 text-red-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <rect x="3" y="3" width="7" height="7" />
                 <rect x="14" y="3" width="7" height="7" />
                 <rect x="14" y="14" width="7" height="7" />
@@ -2048,7 +2213,15 @@ function App() {
               onClick={() => setShowAddEventModal(true)}
               title="Create / Add New Event"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -2080,7 +2253,10 @@ function App() {
                       className="profile-compact-avatar"
                       title="View full profile"
                       aria-label="View full profile"
-                      onClick={() => { setProfilePanelOpen(true); setProfileMenuOpen(false) }}
+                      onClick={() => {
+                        setProfilePanelOpen(true)
+                        setProfileMenuOpen(false)
+                      }}
                     >
                       {userDetails.profilePicture ? (
                         <img src={userDetails.profilePicture} alt={userDetails.name} className="profile-avatar__img" />
@@ -2095,14 +2271,21 @@ function App() {
                       role="button"
                       tabIndex={0}
                       title="Click to view full profile"
-                      onClick={() => { setProfilePanelOpen(true); setProfileMenuOpen(false) }}
+                      onClick={() => {
+                        setProfilePanelOpen(true)
+                        setProfileMenuOpen(false)
+                      }}
                     >
                       <strong className="profile-compact-name">{userDetails.name}</strong>
                       <span className="profile-compact-email">{userDetails.email}</span>
                       <div className="profile-compact-badge-wrap">
-                        <span className={`role-pill ${(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'role-pill--organizer' : 'role-pill--attendee'}`}>
+                        <span
+                          className={`role-pill ${userDetails.role === 'Organizer' || userDetails.role === 'Company' ? 'role-pill--organizer' : 'role-pill--attendee'}`}
+                        >
                           <span className="role-pill__dot" />
-                          {(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'ORGANIZER' : 'TICKET BOOKING'}
+                          {userDetails.role === 'Organizer' || userDetails.role === 'Company'
+                            ? 'ORGANIZER'
+                            : 'TICKET BOOKING'}
                         </span>
                       </div>
                     </div>
@@ -2115,7 +2298,14 @@ function App() {
                       aria-label="Logout"
                       onClick={handleLogout}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                         <polyline points="16 17 21 12 16 7" />
                         <line x1="21" y1="12" x2="9" y2="12" />
@@ -2172,44 +2362,41 @@ function App() {
           {/* Overlay Menu Items */}
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
-              ? (isOrganizer
+              ? isOrganizer
                 ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
-                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT'])
-              : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']).map((link) => (
-                <button
-                  key={link}
-                  onClick={() => {
-                    if (link === 'HOME') scrollToSection('home')
-                    else if (link === 'EVENTS') scrollToSection('events')
-                    else if (link === 'DASHBOARD') {
-                      setMobileMenuOpen(false)
-                      setOrganizerDashboardOpen(true)
-                    }
-                    else if (link === 'ADD EVENT') {
-                      setMobileMenuOpen(false)
-                      setShowAddEventModal(true)
-                    }
-                    else if (link === 'ABOUT US') scrollToSection('about-us')
-                    else if (link === 'CONTACT') scrollToSection('contact-us')
-                    else if (link === 'LOGIN') {
-                      setMobileMenuOpen(false)
-                      setShowAuth(true)
-                      setAuthInitialMode('login')
-                    }
-                    else if (link === 'PROFILE') {
-                      setMobileMenuOpen(false)
-                      setProfilePanelOpen(true)
-                    }
-                    else if (link === 'LOGOUT') {
-                      setMobileMenuOpen(false)
-                      handleLogout()
-                    }
-                  }}
-                  className="nav-overlay-item group"
-                >
-                  <span className="nav-overlay-label">{link}</span>
-                </button>
-              ))}
+                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+              : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
+            ).map((link) => (
+              <button
+                key={link}
+                onClick={() => {
+                  if (link === 'HOME') scrollToSection('home')
+                  else if (link === 'EVENTS') scrollToSection('events')
+                  else if (link === 'DASHBOARD') {
+                    setMobileMenuOpen(false)
+                    setOrganizerDashboardOpen(true)
+                  } else if (link === 'ADD EVENT') {
+                    setMobileMenuOpen(false)
+                    setShowAddEventModal(true)
+                  } else if (link === 'ABOUT US') scrollToSection('about-us')
+                  else if (link === 'CONTACT') scrollToSection('contact-us')
+                  else if (link === 'LOGIN') {
+                    setMobileMenuOpen(false)
+                    setShowAuth(true)
+                    setAuthInitialMode('login')
+                  } else if (link === 'PROFILE') {
+                    setMobileMenuOpen(false)
+                    setProfilePanelOpen(true)
+                  } else if (link === 'LOGOUT') {
+                    setMobileMenuOpen(false)
+                    handleLogout()
+                  }
+                }}
+                className="nav-overlay-item group"
+              >
+                <span className="nav-overlay-label">{link}</span>
+              </button>
+            ))}
           </div>
 
           {/* Overlay Footer Ribbon */}
@@ -2224,8 +2411,21 @@ function App() {
       )}
 
       {profilePanelOpen && (
-        <div className="profile-panel-backdrop" role="presentation" onClick={() => { setProfilePanelOpen(false); setIsEditingProfile(false); }}>
-          <section className="profile-panel" role="dialog" aria-modal="true" aria-labelledby="profile-title" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="profile-panel-backdrop"
+          role="presentation"
+          onClick={() => {
+            setProfilePanelOpen(false)
+            setIsEditingProfile(false)
+          }}
+        >
+          <section
+            className="profile-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             {/* Ambient Sci-Fi Corner Brackets */}
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
@@ -2234,7 +2434,10 @@ function App() {
               className="profile-panel__close"
               type="button"
               aria-label="Close profile"
-              onClick={() => { setProfilePanelOpen(false); setIsEditingProfile(false); }}
+              onClick={() => {
+                setProfilePanelOpen(false)
+                setIsEditingProfile(false)
+              }}
             >
               ×
             </button>
@@ -2248,9 +2451,13 @@ function App() {
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping inline-block mr-1.5" />
                     EXVO ID // 2026
                   </span>
-                  <span className={`role-pill ${(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'role-pill--organizer' : 'role-pill--attendee'}`}>
+                  <span
+                    className={`role-pill ${userDetails.role === 'Organizer' || userDetails.role === 'Company' ? 'role-pill--organizer' : 'role-pill--attendee'}`}
+                  >
                     <span className="role-pill__dot" />
-                    {(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'ORGANIZER' : 'TICKET BOOKING'}
+                    {userDetails.role === 'Organizer' || userDetails.role === 'Company'
+                      ? 'ORGANIZER'
+                      : 'TICKET BOOKING'}
                   </span>
                 </div>
 
@@ -2272,7 +2479,15 @@ function App() {
                     aria-label="Change Profile Photo"
                     onClick={handleStartEditProfile}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-3.5 h-3.5"
+                    >
                       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                       <circle cx="12" cy="13" r="4" />
                     </svg>
@@ -2281,9 +2496,19 @@ function App() {
 
                 {/* Name & Email */}
                 <div className="profile-header-info">
-                  <h2 id="profile-title" className="profile-user-name">{userDetails.name}</h2>
+                  <h2 id="profile-title" className="profile-user-name">
+                    {userDetails.name}
+                  </h2>
                   <div className="profile-email-chip">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-red-500">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-3.5 h-3.5 text-red-500"
+                    >
                       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                       <polyline points="22,6 12,13 2,6" />
                     </svg>
@@ -2295,7 +2520,15 @@ function App() {
                 <div className="profile-tiles-grid">
                   <div className="profile-tile">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                         <circle cx="12" cy="7" r="4" />
                       </svg>
@@ -2306,7 +2539,15 @@ function App() {
 
                   <div className="profile-tile">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                       </svg>
                       <span className="profile-tile-label">PHONE</span>
@@ -2322,7 +2563,15 @@ function App() {
 
                   <div className="profile-tile profile-tile--full">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                         <circle cx="12" cy="10" r="3" />
                       </svg>
@@ -2340,7 +2589,15 @@ function App() {
                   {userDetails.companyName && userDetails.companyName !== userDetails.name && (
                     <div className="profile-tile">
                       <div className="profile-tile-header">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="profile-tile-icon"
+                        >
                           <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
                           <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
                         </svg>
@@ -2353,7 +2610,15 @@ function App() {
                   {userDetails.companyRegNumber && (
                     <div className="profile-tile">
                       <div className="profile-tile-header">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="profile-tile-icon"
+                        >
                           <line x1="4" y1="9" x2="20" y2="9" />
                           <line x1="4" y1="15" x2="20" y2="15" />
                           <line x1="10" y1="3" x2="8" y2="21" />
@@ -2368,19 +2633,31 @@ function App() {
 
                 {/* Actions */}
                 <div className="profile-action-row">
-                  <button
-                    className="profile-btn-primary"
-                    type="button"
-                    onClick={handleStartEditProfile}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <button className="profile-btn-primary" type="button" onClick={handleStartEditProfile}>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4"
+                    >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
                     <span>EDIT PROFILE</span>
                   </button>
                   <button className="profile-btn-logout" type="button" onClick={handleLogout}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4"
+                    >
                       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                       <polyline points="16 17 21 12 16 7" />
                       <line x1="21" y1="12" x2="9" y2="12" />
@@ -2392,12 +2669,16 @@ function App() {
                 {/* Delete Account */}
                 <div className="profile-delete-zone">
                   {!showDeleteConfirm ? (
-                    <button
-                      className="profile-btn-delete-acc"
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <button className="profile-btn-delete-acc" type="button" onClick={() => setShowDeleteConfirm(true)}>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4"
+                      >
                         <polyline points="3 6 5 6 21 6" />
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                         <line x1="10" y1="11" x2="10" y2="17" />
@@ -2463,7 +2744,15 @@ function App() {
 
                   <div className="profile-upload-actions">
                     <label htmlFor="profile-pic-upload" className="profile-upload-trigger">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4"
+                      >
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
@@ -2478,11 +2767,7 @@ function App() {
                       onChange={handleProfileImageChange}
                     />
                     {profileForm.profilePicture && (
-                      <button
-                        type="button"
-                        className="profile-btn-clear-photo"
-                        onClick={handleRemoveProfileImage}
-                      >
+                      <button type="button" className="profile-btn-clear-photo" onClick={handleRemoveProfileImage}>
                         Remove Photo
                       </button>
                     )}
@@ -2492,9 +2777,19 @@ function App() {
                 {/* Form Fields */}
                 <div className="profile-form-grid">
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-name">FULL NAME</label>
+                    <label className="profile-field-label" htmlFor="edit-name">
+                      FULL NAME
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                         <circle cx="12" cy="7" r="4" />
                       </svg>
@@ -2510,9 +2805,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-email">EMAIL ADDRESS</label>
+                    <label className="profile-field-label" htmlFor="edit-email">
+                      EMAIL ADDRESS
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                         <polyline points="22,6 12,13 2,6" />
                       </svg>
@@ -2528,9 +2833,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-phone">PHONE NUMBER</label>
+                    <label className="profile-field-label" htmlFor="edit-phone">
+                      PHONE NUMBER
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                       </svg>
                       <input
@@ -2544,9 +2859,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-address">ADDRESS</label>
+                    <label className="profile-field-label" htmlFor="edit-address">
+                      ADDRESS
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                         <circle cx="12" cy="10" r="3" />
                       </svg>
@@ -2562,17 +2887,15 @@ function App() {
                 </div>
 
                 {profileFeedback.text && (
-                  <div className={`profile-feedback-badge ${profileFeedback.type === 'success' ? 'profile-feedback--success' : 'profile-feedback--error'}`}>
+                  <div
+                    className={`profile-feedback-badge ${profileFeedback.type === 'success' ? 'profile-feedback--success' : 'profile-feedback--error'}`}
+                  >
                     {profileFeedback.text}
                   </div>
                 )}
 
                 <div className="profile-action-row">
-                  <button
-                    className="profile-btn-primary"
-                    type="submit"
-                    disabled={profileSaving}
-                  >
+                  <button className="profile-btn-primary" type="submit" disabled={profileSaving}>
                     {profileSaving ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -2586,7 +2909,10 @@ function App() {
                     className="profile-btn-discard"
                     type="button"
                     disabled={profileSaving}
-                    onClick={() => { setIsEditingProfile(false); setProfileFeedback({ type: '', text: '' }); }}
+                    onClick={() => {
+                      setIsEditingProfile(false)
+                      setProfileFeedback({ type: '', text: '' })
+                    }}
                   >
                     CANCEL
                   </button>
@@ -2600,7 +2926,13 @@ function App() {
       {/* ══════════════ ORGANIZER ADD EVENT MODAL ══════════════ */}
       {showAddEventModal && (
         <div className="profile-panel-backdrop" role="presentation" onClick={() => setShowAddEventModal(false)}>
-          <section className="profile-panel add-event-panel" role="dialog" aria-modal="true" aria-labelledby="add-event-title" onClick={(e) => e.stopPropagation()}>
+          <section
+            className="profile-panel add-event-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-event-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
 
@@ -2625,14 +2957,20 @@ function App() {
             </div>
 
             <div className="add-event-header">
-              <h2 id="add-event-title" className="profile-user-name">Create Live Event</h2>
-              <p className="text-xs text-neutral-400">Publish your concert or festival directly to the EXVO ecosystem</p>
+              <h2 id="add-event-title" className="profile-user-name">
+                Create Live Event
+              </h2>
+              <p className="text-xs text-neutral-400">
+                Publish your concert or festival directly to the EXVO ecosystem
+              </p>
             </div>
 
             <form onSubmit={handleCreateEvent} className="add-event-form space-y-3 mt-4 text-left">
               {/* Event Title */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT TITLE *</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT TITLE *
+                </label>
                 <input
                   type="text"
                   required
@@ -2646,7 +2984,9 @@ function App() {
               {/* Artist / Band / Subtitle & Category Row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">PERFORMER / ARTIST</label>
+                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                    PERFORMER / ARTIST
+                  </label>
                   <input
                     type="text"
                     placeholder="e.g. Sarith Surith & News"
@@ -2656,12 +2996,16 @@ function App() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">CATEGORY</label>
+                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                    CATEGORY
+                  </label>
                   <select
                     value={newEventForm.categoryId || newEventForm.category}
                     onChange={(e) => {
                       const selectedVal = e.target.value
-                      const found = dbCategories.find((c) => String(c.id) === String(selectedVal) || c.name === selectedVal)
+                      const found = dbCategories.find(
+                        (c) => String(c.id) === String(selectedVal) || c.name === selectedVal,
+                      )
                       if (found) {
                         setNewEventForm({ ...newEventForm, categoryId: found.id, category: found.name })
                       } else {
@@ -2683,7 +3027,15 @@ function App() {
               <div className="add-event-section-box">
                 <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                   <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      className="w-3.5 h-3.5 text-red-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                       <line x1="16" y1="2" x2="16" y2="6" />
                       <line x1="8" y1="2" x2="8" y2="6" />
@@ -2721,16 +3073,26 @@ function App() {
                 {/* Quick Date Presets */}
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                   <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Quick:</span>
-                  <button type="button" onClick={() => handleSetQuickDate(1)} className="add-event-quick-chip">Tomorrow</button>
-                  <button type="button" onClick={() => handleSetQuickDate(7)} className="add-event-quick-chip">+1 Week</button>
-                  <button type="button" onClick={() => handleSetQuickDate(14)} className="add-event-quick-chip">+2 Weeks</button>
-                  <button type="button" onClick={() => handleSetQuickDate(30)} className="add-event-quick-chip">+1 Month</button>
+                  <button type="button" onClick={() => handleSetQuickDate(1)} className="add-event-quick-chip">
+                    Tomorrow
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(7)} className="add-event-quick-chip">
+                    +1 Week
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(14)} className="add-event-quick-chip">
+                    +2 Weeks
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(30)} className="add-event-quick-chip">
+                    +1 Month
+                  </button>
                 </div>
               </div>
 
               {/* Venue / Location */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">VENUE / LOCATION *</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  VENUE / LOCATION *
+                </label>
                 <input
                   type="text"
                   required
@@ -2746,18 +3108,24 @@ function App() {
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <svg className="w-3.5 h-3.5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        className="w-3.5 h-3.5 text-red-500"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z" />
                       </svg>
                       TICKET PRICING & CATEGORIES *
                     </label>
-                    <p className="text-[10px] text-neutral-400">Add multiple price tiers (VIP, General, Early Bird, etc.)</p>
+                    <p className="text-[10px] text-neutral-400">
+                      Add multiple price tiers (VIP, General, Early Bird, etc.)
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddTicketTier}
-                    className="add-event-add-tier-btn"
-                  >
+                  <button type="button" onClick={handleAddTicketTier} className="add-event-add-tier-btn">
                     + Add Category
                   </button>
                 </div>
@@ -2811,7 +3179,13 @@ function App() {
                             className="add-event-tier-remove-btn"
                             title="Remove category"
                           >
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              className="w-4 h-4"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <line x1="18" y1="6" x2="6" y2="18" />
                               <line x1="6" y1="6" x2="18" y2="18" />
                             </svg>
@@ -2842,12 +3216,16 @@ function App() {
                 {/* Tier Summary Footer */}
                 <div className="add-event-tiers-summary">
                   <span>
-                    Total Capacity: <strong>{newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets</strong>
+                    Total Capacity:{' '}
+                    <strong>
+                      {newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets
+                    </strong>
                   </span>
                   <span>
-                    Price: <strong>
-                      {newEventForm.ticketTiers.filter(t => Number(t.price) > 0).length > 0
-                        ? `LKR ${Math.min(...newEventForm.ticketTiers.map(t => Number(t.price) || 0)).toLocaleString()} - ${Math.max(...newEventForm.ticketTiers.map(t => Number(t.price) || 0)).toLocaleString()}`
+                    Price:{' '}
+                    <strong>
+                      {newEventForm.ticketTiers.filter((t) => Number(t.price) > 0).length > 0
+                        ? `LKR ${Math.min(...newEventForm.ticketTiers.map((t) => Number(t.price) || 0)).toLocaleString()} - ${Math.max(...newEventForm.ticketTiers.map((t) => Number(t.price) || 0)).toLocaleString()}`
                         : 'Set prices above'}
                     </strong>
                   </span>
@@ -2862,7 +3240,9 @@ function App() {
                       <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement, zones & blocked seats</p>
+                    <p className="text-[10px] text-neutral-400">
+                      Configure interactive seat arrangement, zones & blocked seats
+                    </p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
@@ -2870,25 +3250,33 @@ function App() {
                     type="button"
                     onClick={() => {
                       const curr = newEventForm.seatingConfig || createDefaultSeatingConfig()
-                      setNewEventForm(prev => ({
+                      setNewEventForm((prev) => ({
                         ...prev,
-                        seatingConfig: { ...curr, enabled: !curr.enabled }
+                        seatingConfig: { ...curr, enabled: !curr.enabled },
                       }))
                     }}
-                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${newEventForm.seatingConfig?.enabled
-                      ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-                      : 'bg-white/5 border border-white/10 text-neutral-400'
-                      }`}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                      newEventForm.seatingConfig?.enabled
+                        ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border border-white/10 text-neutral-400'
+                    }`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${newEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
-                    {newEventForm.seatingConfig?.enabled ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)' : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                    <span
+                      className={`w-2 h-2 rounded-full ${newEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`}
+                    />
+                    {newEventForm.seatingConfig?.enabled
+                      ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
+                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
                   </button>
                 </div>
 
-                <div className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${newEventForm.seatingConfig?.enabled
-                  ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                  : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
-                  }`}>
+                <div
+                  className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${
+                    newEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                      : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-sm">{newEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
@@ -2910,9 +3298,9 @@ function App() {
                           value={newEventForm.seatingConfig.stageLabel || 'SCREEN'}
                           onChange={(e) => {
                             const val = e.target.value
-                            setNewEventForm(prev => ({
+                            setNewEventForm((prev) => ({
                               ...prev,
-                              seatingConfig: { ...prev.seatingConfig, stageLabel: val }
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val },
                             }))
                           }}
                           placeholder="e.g. SCREEN or MAIN STAGE"
@@ -2930,19 +3318,54 @@ function App() {
                               newZones = createDefaultSeatingConfig().zones
                             } else if (preset === 'vip_general') {
                               newZones = [
-                                { id: 'z1', name: 'VIP FRONT ROW', price: 5000, rows: ['A', 'B'], seatsPerRow: 10, occupiedSeats: [] },
-                                { id: 'z2', name: 'GENERAL ARENA', price: 2500, rows: ['C', 'D', 'E', 'F'], seatsPerRow: 12, occupiedSeats: [] }
+                                {
+                                  id: 'z1',
+                                  name: 'VIP FRONT ROW',
+                                  price: 5000,
+                                  rows: ['A', 'B'],
+                                  seatsPerRow: 10,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'GENERAL ARENA',
+                                  price: 2500,
+                                  rows: ['C', 'D', 'E', 'F'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
                               ]
                             } else if (preset === 'theater') {
                               newZones = [
-                                { id: 'z1', name: 'ORCHESTRA', price: 4000, rows: ['A', 'B', 'C', 'D'], seatsPerRow: 14, occupiedSeats: [] },
-                                { id: 'z2', name: 'MEZZANINE', price: 2500, rows: ['E', 'F', 'G'], seatsPerRow: 14, occupiedSeats: [] },
-                                { id: 'z3', name: 'BALCONY', price: 1500, rows: ['H', 'I', 'J'], seatsPerRow: 12, occupiedSeats: [] }
+                                {
+                                  id: 'z1',
+                                  name: 'ORCHESTRA',
+                                  price: 4000,
+                                  rows: ['A', 'B', 'C', 'D'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'MEZZANINE',
+                                  price: 2500,
+                                  rows: ['E', 'F', 'G'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z3',
+                                  name: 'BALCONY',
+                                  price: 1500,
+                                  rows: ['H', 'I', 'J'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
                               ]
                             }
-                            setNewEventForm(prev => ({
+                            setNewEventForm((prev) => ({
                               ...prev,
-                              seatingConfig: { ...prev.seatingConfig, zones: newZones }
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones },
                             }))
                           }}
                           className="contact-input !py-1.5 text-xs"
@@ -2962,10 +3385,13 @@ function App() {
                           <button
                             type="button"
                             onClick={() => {
-                              const synced = syncSeatingZonesWithTicketTiers(newEventForm.ticketTiers, newEventForm.seatingConfig?.zones || [])
-                              setNewEventForm(prev => ({
+                              const synced = syncSeatingZonesWithTicketTiers(
+                                newEventForm.ticketTiers,
+                                newEventForm.seatingConfig?.zones || [],
+                              )
+                              setNewEventForm((prev) => ({
                                 ...prev,
-                                seatingConfig: { ...prev.seatingConfig, zones: synced }
+                                seatingConfig: { ...prev.seatingConfig, zones: synced },
                               }))
                             }}
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
@@ -2978,14 +3404,21 @@ function App() {
                           type="button"
                           onClick={() => {
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + (newEventForm.seatingConfig.zones.length * 3))
-                            const newZone = { id: nextId, name: 'NEW ZONE', price: 2000, rows: [nextLetter], seatsPerRow: 10, occupiedSeats: [] }
-                            setNewEventForm(prev => ({
+                            const nextLetter = String.fromCharCode(65 + newEventForm.seatingConfig.zones.length * 3)
+                            const newZone = {
+                              id: nextId,
+                              name: 'NEW ZONE',
+                              price: 2000,
+                              rows: [nextLetter],
+                              seatsPerRow: 10,
+                              occupiedSeats: [],
+                            }
+                            setNewEventForm((prev) => ({
                               ...prev,
                               seatingConfig: {
                                 ...prev.seatingConfig,
-                                zones: [...prev.seatingConfig.zones, newZone]
-                              }
+                                zones: [...prev.seatingConfig.zones, newZone],
+                              },
                             }))
                           }}
                           className="text-red-400 hover:text-red-300 cursor-pointer"
@@ -2995,7 +3428,10 @@ function App() {
                       </div>
 
                       {newEventForm.seatingConfig.zones.map((zone, zIdx) => (
-                        <div key={zone.id || zIdx} className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2">
+                        <div
+                          key={zone.id || zIdx}
+                          className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2"
+                        >
                           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
                             <div>
                               <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
@@ -3004,12 +3440,12 @@ function App() {
                                 value={zone.name}
                                 onChange={(e) => {
                                   const name = e.target.value
-                                  setNewEventForm(prev => ({
+                                  setNewEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, name } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, name } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs font-bold"
@@ -3022,12 +3458,12 @@ function App() {
                                 value={zone.price}
                                 onChange={(e) => {
                                   const price = Number(e.target.value) || 0
-                                  setNewEventForm(prev => ({
+                                  setNewEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, price } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, price } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs"
@@ -3039,13 +3475,16 @@ function App() {
                                 type="text"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
-                                  const rows = e.target.value.split(',').map(r => r.trim().toUpperCase()).filter(Boolean)
-                                  setNewEventForm(prev => ({
+                                  const rows = e.target.value
+                                    .split(',')
+                                    .map((r) => r.trim().toUpperCase())
+                                    .filter(Boolean)
+                                  setNewEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, rows } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs"
@@ -3061,12 +3500,14 @@ function App() {
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
                                     const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
-                                    setNewEventForm(prev => ({
+                                    setNewEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
                                         ...prev.seatingConfig,
-                                        zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, seatsPerRow } : z)
-                                      }
+                                        zones: prev.seatingConfig.zones.map((z, i) =>
+                                          i === zIdx ? { ...z, seatsPerRow } : z,
+                                        ),
+                                      },
                                     }))
                                   }}
                                   className="contact-input !py-1 text-xs"
@@ -3076,12 +3517,12 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setNewEventForm(prev => ({
+                                    setNewEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
                                         ...prev.seatingConfig,
-                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx)
-                                      }
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx),
+                                      },
                                     }))
                                   }}
                                   className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
@@ -3105,13 +3546,13 @@ function App() {
                         seatingConfig={newEventForm.seatingConfig}
                         isOrganizerEdit={true}
                         onToggleOccupied={(seatId) => {
-                          setNewEventForm(prev => {
+                          setNewEventForm((prev) => {
                             const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map(z => {
+                            const updatedZones = currentConfig.zones.map((z) => {
                               const isOccupied = z.occupiedSeats?.includes(seatId)
                               let newOccupied
                               if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter(s => s !== seatId)
+                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
                               } else {
                                 newOccupied = [...(z.occupiedSeats || []), seatId]
                               }
@@ -3119,7 +3560,7 @@ function App() {
                             })
                             return {
                               ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones }
+                              seatingConfig: { ...currentConfig, zones: updatedZones },
                             }
                           })
                         }}
@@ -3131,11 +3572,17 @@ function App() {
 
               {/* Event Cover Image Upload */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT BANNER / COVER POSTER</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT BANNER / COVER POSTER
+                </label>
                 <div className="add-event-banner-wrap">
                   {newEventForm.coverImage ? (
                     <div className="add-event-banner-preview">
-                      <img src={newEventForm.coverImage} alt="Cover preview" className="w-full h-32 object-cover rounded-xl border border-red-500/50 shadow-lg shadow-red-950/50" />
+                      <img
+                        src={newEventForm.coverImage}
+                        alt="Cover preview"
+                        className="w-full h-32 object-cover rounded-xl border border-red-500/50 shadow-lg shadow-red-950/50"
+                      />
                       <button
                         type="button"
                         onClick={() => setNewEventForm({ ...newEventForm, coverImage: '' })}
@@ -3146,19 +3593,22 @@ function App() {
                     </div>
                   ) : (
                     <label className="add-event-banner-dropzone">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6 text-red-500 mb-1.5">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="w-6 h-6 text-red-500 mb-1.5"
+                      >
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
                       </svg>
-                      <span className="text-xs text-neutral-200 font-semibold font-['Orbitron']">Upload Event Poster</span>
+                      <span className="text-xs text-neutral-200 font-semibold font-['Orbitron']">
+                        Upload Event Poster
+                      </span>
                       <span className="text-[10px] text-neutral-400">PNG, JPG or WEBP (Optimized auto-fit)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleEventCoverUpload}
-                        className="hidden"
-                      />
+                      <input type="file" accept="image/*" onChange={handleEventCoverUpload} className="hidden" />
                     </label>
                   )}
                 </div>
@@ -3166,7 +3616,9 @@ function App() {
 
               {/* Description */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT DESCRIPTION</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT DESCRIPTION
+                </label>
                 <textarea
                   rows={2}
                   placeholder="Gate opening times, special rules, VIP benefits..."
@@ -3177,17 +3629,15 @@ function App() {
               </div>
 
               {eventFeedback.text && (
-                <div className={`p-2.5 rounded-lg text-xs font-semibold ${eventFeedback.type === 'error' ? 'bg-red-950/70 border border-red-500/50 text-red-300' : 'bg-green-950/70 border border-green-500/50 text-green-300'}`}>
+                <div
+                  className={`p-2.5 rounded-lg text-xs font-semibold ${eventFeedback.type === 'error' ? 'bg-red-950/70 border border-red-500/50 text-red-300' : 'bg-green-950/70 border border-green-500/50 text-green-300'}`}
+                >
                   {eventFeedback.text}
                 </div>
               )}
 
               <div className="pt-2 flex gap-3">
-                <button
-                  type="submit"
-                  disabled={eventPublishing}
-                  className="profile-btn-primary flex-1 !py-3"
-                >
+                <button type="submit" disabled={eventPublishing} className="profile-btn-primary flex-1 !py-3">
                   {eventPublishing ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -3202,11 +3652,7 @@ function App() {
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAddEventModal(false)}
-                  className="profile-btn-logout !px-4"
-                >
+                <button type="button" onClick={() => setShowAddEventModal(false)} className="profile-btn-logout !px-4">
                   Cancel
                 </button>
               </div>
@@ -3218,7 +3664,13 @@ function App() {
       {/* ══════════════ TICKET BOOKING MODAL ══════════════ */}
       {bookingModalEvent && (
         <div className="profile-panel-backdrop" role="presentation" onClick={() => setBookingModalEvent(null)}>
-          <section className="profile-panel booking-modal-panel" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title" onClick={(e) => e.stopPropagation()}>
+          <section
+            className="profile-panel booking-modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
 
@@ -3245,11 +3697,7 @@ function App() {
                 </div>
 
                 <div className="booking-modal-hero">
-                  <img
-                    src={bookingModalEvent.cover}
-                    alt={bookingModalEvent.title}
-                    className="booking-modal-cover"
-                  />
+                  <img src={bookingModalEvent.cover} alt={bookingModalEvent.title} className="booking-modal-cover" />
                   <div className="text-left">
                     <span className="event-category-pill mb-2 inline-block">
                       {bookingModalEvent.category || 'CONCERT'}
@@ -3260,52 +3708,63 @@ function App() {
                     <p className="text-xs text-red-400 font-['Orbitron'] mt-1">
                       {bookingModalEvent.artistOrOrganizer || bookingModalEvent.subtitle}
                     </p>
-                    <p className="text-[11px] text-neutral-400 mt-1.5">
-                      📍 {bookingModalEvent.venue || 'Sri Lanka'}
-                    </p>
+                    <p className="text-[11px] text-neutral-400 mt-1.5">📍 {bookingModalEvent.venue || 'Sri Lanka'}</p>
                     <p className="text-[11px] text-neutral-400">
-                      📅 {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}
+                      📅{' '}
+                      {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
+                        bookingModalEvent.year}
                     </p>
                   </div>
                 </div>
 
                 {/* ── MULTI-TIER TICKET BOOKING & SEATING FLOW ── */}
                 {(() => {
-                  const totalTicketsCount = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
-                    : (tierQuantities['standard'] || 1)
+                  const totalTicketsCount =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                      : tierQuantities['standard'] || 1
 
-                  const totalBookingPrice = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
-                      const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
-                      const qty = tierQuantities[key] || 0
-                      return sum + (Number(tier.price || 0) * qty)
-                    }, 0)
-                    : (Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1))
+                  const totalBookingPrice =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                          const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                          const qty = tierQuantities[key] || 0
+                          return sum + Number(tier.price || 0) * qty
+                        }, 0)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
 
-                  const selectedTiersSummary = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? bookingModalEvent.ticketTiers
-                      .map((tier, idx) => {
-                        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
-                        const qty = tierQuantities[key] || 0
-                        return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
-                      })
-                      .filter(Boolean)
-                      .join(', ')
-                    : `${tierQuantities['standard'] || 1}x Standard Pass`
+                  const selectedTiersSummary =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers
+                          .map((tier, idx) => {
+                            const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                            const qty = tierQuantities[key] || 0
+                            return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                          })
+                          .filter(Boolean)
+                          .join(', ')
+                      : `${tierQuantities['standard'] || 1}x Standard Pass`
 
                   return (
                     <>
                       {/* ── STEP INDICATOR (only if seating enabled) ── */}
                       {bookingModalEvent.seatingConfig?.enabled && (
                         <div className="flex items-center gap-2 mt-4 mb-1">
-                          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}>
-                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">1</span>
+                          <div
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}
+                          >
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">
+                              1
+                            </span>
                             SELECT TIERS & QTY
                           </div>
                           <div className="flex-1 h-px bg-white/10" />
-                          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 2 ? 'bg-amber-500 text-black' : 'bg-white/10 text-neutral-400'}`}>
-                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">2</span>
+                          <div
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 2 ? 'bg-amber-500 text-black' : 'bg-white/10 text-neutral-400'}`}
+                          >
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">
+                              2
+                            </span>
                             PICK SEATS
                           </div>
                         </div>
@@ -3321,7 +3780,7 @@ function App() {
                             {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
                               <div className="space-y-2.5">
                                 {bookingModalEvent.ticketTiers.map((tier, idx) => {
-                                  const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                                  const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
                                   const qty = tierQuantities[key] || 0
                                   const isSelected = qty > 0
 
@@ -3329,7 +3788,7 @@ function App() {
                                     e.stopPropagation()
                                     setTierQuantities((prev) => ({
                                       ...prev,
-                                      [key]: Math.max(0, (prev[key] || 0) - 1)
+                                      [key]: Math.max(0, (prev[key] || 0) - 1),
                                     }))
                                   }
 
@@ -3341,7 +3800,7 @@ function App() {
                                     if (totalOther + qty >= 10) return
                                     setTierQuantities((prev) => ({
                                       ...prev,
-                                      [key]: (prev[key] || 0) + 1
+                                      [key]: (prev[key] || 0) + 1,
                                     }))
                                   }
 
@@ -3349,35 +3808,52 @@ function App() {
                                     <div
                                       key={key}
                                       onClick={() => setSelectedTier(tier)}
-                                      className={`booking-tier-card p-3 rounded-xl border transition-all ${isSelected ? 'border-red-500/80 bg-red-950/30' : 'border-white/10 bg-black/40 hover:border-white/20'
-                                        }`}
+                                      className={`booking-tier-card p-3 rounded-xl border transition-all ${
+                                        isSelected
+                                          ? 'border-red-500/80 bg-red-950/30'
+                                          : 'border-white/10 bg-black/40 hover:border-white/20'
+                                      }`}
                                       style={{ cursor: 'pointer' }}
                                     >
                                       <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
-                                          <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? 'border-red-500 bg-red-500' : 'border-neutral-600'
-                                            }`}>
+                                          <div
+                                            className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                                              isSelected ? 'border-red-500 bg-red-500' : 'border-neutral-600'
+                                            }`}
+                                          >
                                             {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                           </div>
                                           <div>
-                                            <div className="font-bold text-sm text-white font-['Orbitron']">{tier.name || `Tier ${idx + 1}`}</div>
+                                            <div className="font-bold text-sm text-white font-['Orbitron']">
+                                              {tier.name || `Tier ${idx + 1}`}
+                                            </div>
                                             {tier.description && (
-                                              <div className="text-[10px] text-neutral-400 mt-0.5">{tier.description}</div>
+                                              <div className="text-[10px] text-neutral-400 mt-0.5">
+                                                {tier.description}
+                                              </div>
                                             )}
                                             <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
-                                              LKR {Number(tier.price || 0).toLocaleString()} <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                              LKR {Number(tier.price || 0).toLocaleString()}{' '}
+                                              <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
                                             </div>
                                           </div>
                                         </div>
 
                                         {/* Per-Tier Stepper */}
-                                        <div className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+                                        <div
+                                          className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
                                           <button
                                             type="button"
                                             onClick={handleDecrease}
                                             disabled={qty <= 0}
-                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${qty > 0 ? 'bg-white/10 hover:bg-red-600 text-white' : 'bg-white/5 text-neutral-600 cursor-not-allowed'
-                                              }`}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
+                                              qty > 0
+                                                ? 'bg-white/10 hover:bg-red-600 text-white'
+                                                : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                            }`}
                                           >
                                             -
                                           </button>
@@ -3388,8 +3864,11 @@ function App() {
                                             type="button"
                                             onClick={handleIncrease}
                                             disabled={totalTicketsCount >= 10}
-                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${totalTicketsCount < 10 ? 'bg-white/10 hover:bg-red-600 text-white' : 'bg-white/5 text-neutral-600 cursor-not-allowed'
-                                              }`}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
+                                              totalTicketsCount < 10
+                                                ? 'bg-white/10 hover:bg-red-600 text-white'
+                                                : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                            }`}
                                           >
                                             +
                                           </button>
@@ -3406,13 +3885,19 @@ function App() {
                                     <div className="font-bold text-sm text-white font-['Orbitron']">Standard Pass</div>
                                     <div className="text-[10px] text-neutral-400">General admission pass</div>
                                     <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
-                                      LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()} <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                      LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()}{' '}
+                                      <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10">
                                     <button
                                       type="button"
-                                      onClick={() => setTierQuantities(prev => ({ ...prev, standard: Math.max(1, (prev.standard || 1) - 1) }))}
+                                      onClick={() =>
+                                        setTierQuantities((prev) => ({
+                                          ...prev,
+                                          standard: Math.max(1, (prev.standard || 1) - 1),
+                                        }))
+                                      }
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
                                     >
                                       -
@@ -3422,7 +3907,12 @@ function App() {
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={() => setTierQuantities(prev => ({ ...prev, standard: Math.min(10, (prev.standard || 1) + 1) }))}
+                                      onClick={() =>
+                                        setTierQuantities((prev) => ({
+                                          ...prev,
+                                          standard: Math.min(10, (prev.standard || 1) + 1),
+                                        }))
+                                      }
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
                                     >
                                       +
@@ -3444,22 +3934,30 @@ function App() {
                           {/* Total Summary + Action */}
                           <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
                             <div className="text-left">
-                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
+                                Total Payable
+                              </span>
                               <div className="text-xl font-black text-white font-['Orbitron']">
                                 LKR {totalBookingPrice.toLocaleString()}
                               </div>
-                              <div className="text-[10px] text-neutral-400">{totalTicketsCount} pass{totalTicketsCount !== 1 ? 'es' : ''}</div>
+                              <div className="text-[10px] text-neutral-400">
+                                {totalTicketsCount} pass{totalTicketsCount !== 1 ? 'es' : ''}
+                              </div>
                             </div>
 
                             {bookingModalEvent.seatingConfig?.enabled ? (
                               <button
                                 type="button"
-                                onClick={() => { setSelectedSeats([]); setBookingStep(2) }}
+                                onClick={() => {
+                                  setSelectedSeats([])
+                                  setBookingStep(2)
+                                }}
                                 disabled={totalTicketsCount === 0}
-                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${totalTicketsCount > 0
-                                  ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.5)]'
-                                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-                                  }`}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                  totalTicketsCount > 0
+                                    ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+                                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                }`}
                               >
                                 <span>💺</span>
                                 CHOOSE SEATS
@@ -3476,10 +3974,11 @@ function App() {
                                   }, 600)
                                 }}
                                 disabled={bookingSubmitting || totalTicketsCount === 0}
-                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${totalTicketsCount > 0
-                                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
-                                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-                                  }`}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                  totalTicketsCount > 0
+                                    ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                }`}
                               >
                                 {bookingSubmitting ? (
                                   <>
@@ -3544,21 +4043,28 @@ function App() {
 
                           <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
                             <div className="text-left">
-                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
+                                Total Payable
+                              </span>
                               <div className="text-xl font-black text-white font-['Orbitron']">
-                                LKR {selectedSeats.length > 0
-                                  ? selectedSeats.reduce((total, seatId) => {
-                                    let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
-                                    bookingModalEvent.seatingConfig.zones?.forEach(z => {
-                                      const row = seatId.charAt(0)
-                                      if (z.rows?.includes(row)) p = Number(z.price || p)
-                                    })
-                                    return total + p
-                                  }, 0).toLocaleString()
+                                LKR{' '}
+                                {selectedSeats.length > 0
+                                  ? selectedSeats
+                                      .reduce((total, seatId) => {
+                                        let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
+                                        bookingModalEvent.seatingConfig.zones?.forEach((z) => {
+                                          const row = seatId.charAt(0)
+                                          if (z.rows?.includes(row)) p = Number(z.price || p)
+                                        })
+                                        return total + p
+                                      }, 0)
+                                      .toLocaleString()
                                   : totalBookingPrice.toLocaleString()}
                               </div>
                               {selectedSeats.length > 0 && (
-                                <div className="text-[10px] text-amber-400 font-mono mt-0.5">{selectedSeats.length} seat{selectedSeats.length > 1 ? 's' : ''} selected</div>
+                                <div className="text-[10px] text-amber-400 font-mono mt-0.5">
+                                  {selectedSeats.length} seat{selectedSeats.length > 1 ? 's' : ''} selected
+                                </div>
                               )}
                             </div>
 
@@ -3569,22 +4075,40 @@ function App() {
                                 setTimeout(() => {
                                   if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
                                     const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
-                                      const newOccupied = Array.from(new Set([...(z.occupiedSeats || []), ...selectedSeats]))
+                                      const newOccupied = Array.from(
+                                        new Set([...(z.occupiedSeats || []), ...selectedSeats]),
+                                      )
                                       return { ...z, occupiedSeats: newOccupied }
                                     })
-                                    const updatedSeatingConfig = { ...bookingModalEvent.seatingConfig, zones: updatedZones }
-                                    setAlbumList((prev) => prev.map((e) => e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e))
-                                    setMyEventsList((prev) => prev.map((e) => e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e))
+                                    const updatedSeatingConfig = {
+                                      ...bookingModalEvent.seatingConfig,
+                                      zones: updatedZones,
+                                    }
+                                    setAlbumList((prev) =>
+                                      prev.map((e) =>
+                                        e.id === bookingModalEvent.id
+                                          ? { ...e, seatingConfig: updatedSeatingConfig }
+                                          : e,
+                                      ),
+                                    )
+                                    setMyEventsList((prev) =>
+                                      prev.map((e) =>
+                                        e.id === bookingModalEvent.id
+                                          ? { ...e, seatingConfig: updatedSeatingConfig }
+                                          : e,
+                                      ),
+                                    )
                                   }
                                   setBookingSubmitting(false)
                                   setBookingSuccess(true)
                                 }, 600)
                               }}
                               disabled={bookingSubmitting || selectedSeats.length === 0}
-                              className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${selectedSeats.length > 0
-                                ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
-                                : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
-                                }`}
+                              className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                selectedSeats.length > 0
+                                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                  : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+                              }`}
                             >
                               {bookingSubmitting ? (
                                 <>
@@ -3612,33 +4136,37 @@ function App() {
                 </div>
                 <h3 className="text-xl font-black text-white font-['Orbitron'] uppercase">RESERVATION CONFIRMED!</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-                  Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved in the EXVO network.
+                  Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved
+                  in the EXVO network.
                 </p>
 
                 {/* Digital Ticket Pass Card */}
                 {(() => {
-                  const totalTicketsCount = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
-                    : (tierQuantities['standard'] || 1)
+                  const totalTicketsCount =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                      : tierQuantities['standard'] || 1
 
-                  const totalBookingPrice = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
-                      const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
-                      const qty = tierQuantities[key] || 0
-                      return sum + (Number(tier.price || 0) * qty)
-                    }, 0)
-                    : (Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1))
+                  const totalBookingPrice =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                          const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                          const qty = tierQuantities[key] || 0
+                          return sum + Number(tier.price || 0) * qty
+                        }, 0)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
 
-                  const selectedTiersSummary = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                    ? bookingModalEvent.ticketTiers
-                      .map((tier, idx) => {
-                        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
-                        const qty = tierQuantities[key] || 0
-                        return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
-                      })
-                      .filter(Boolean)
-                      .join(', ')
-                    : `${tierQuantities['standard'] || 1}x Standard Pass`
+                  const selectedTiersSummary =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers
+                          .map((tier, idx) => {
+                            const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                            const qty = tierQuantities[key] || 0
+                            return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                          })
+                          .filter(Boolean)
+                          .join(', ')
+                      : `${tierQuantities['standard'] || 1}x Standard Pass`
 
                   return (
                     <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
@@ -3647,8 +4175,12 @@ function App() {
 
                       <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
                         <div>
-                          <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">EXVO DIGITAL PASS</div>
-                          <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">{bookingModalEvent.title}</div>
+                          <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">
+                            EXVO DIGITAL PASS
+                          </div>
+                          <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">
+                            {bookingModalEvent.title}
+                          </div>
                         </div>
                         <div className="text-right">
                           <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
@@ -3660,19 +4192,28 @@ function App() {
                       <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
                         <div>
                           <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER(S)</span>
-                          <strong className="text-white font-['Orbitron'] text-[11px] block truncate">{selectedTiersSummary || 'General Admission'}</strong>
+                          <strong className="text-white font-['Orbitron'] text-[11px] block truncate">
+                            {selectedTiersSummary || 'General Admission'}
+                          </strong>
                         </div>
                         <div>
                           <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TOTAL PASSES</span>
-                          <strong className="text-white font-['Orbitron']">{totalTicketsCount} {totalTicketsCount === 1 ? 'Pass' : 'Passes'}</strong>
+                          <strong className="text-white font-['Orbitron']">
+                            {totalTicketsCount} {totalTicketsCount === 1 ? 'Pass' : 'Passes'}
+                          </strong>
                         </div>
                         <div>
                           <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
-                          <strong className="text-white text-[11px]">{formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}</strong>
+                          <strong className="text-white text-[11px]">
+                            {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
+                              bookingModalEvent.year}
+                          </strong>
                         </div>
                         <div>
                           <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
-                          <strong className="text-white text-[11px] truncate block">{bookingModalEvent.venue || 'Colombo'}</strong>
+                          <strong className="text-white text-[11px] truncate block">
+                            {bookingModalEvent.venue || 'Colombo'}
+                          </strong>
                         </div>
                       </div>
 
@@ -3705,16 +4246,13 @@ function App() {
 
       {/* Main Hero View */}
       <main className="relative z-10 flex-grow flex flex-col items-center justify-center px-4 pt-4 pb-8 max-w-7xl mx-auto w-full">
-
         {/* Central Band Title: SARITH x NEWS */}
         <div className="text-center space-y-4 mb-6 md:mb-10 select-none">
           <h1 className="flex items-center justify-center gap-4 flex-wrap">
             <span className="font-extrabold text-5xl md:text-8xl tracking-tight leading-none text-white scale-y-105">
               UPCOMING
             </span>
-            <span className="text-2xl md:text-4xl text-[#FF0000] font-light self-center">
-
-            </span>
+            <span className="text-2xl md:text-4xl text-[#FF0000] font-light self-center"></span>
             <span className="font-['Orbitron'] font-black text-5xl md:text-8xl tracking-[0.1em] leading-none text-white">
               EVENTS
             </span>
@@ -3823,24 +4361,31 @@ function App() {
             <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-xl flex items-center justify-center mx-auto mb-3">
               🎪
             </div>
-            <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">No Database Events Yet</h3>
-            <p className="text-[11px] text-neutral-400">Organizers can add live events using the "Add Event" button above.</p>
+            <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">
+              No Database Events Yet
+            </h3>
+            <p className="text-[11px] text-neutral-400">
+              Organizers can add live events using the "Add Event" button above.
+            </p>
           </div>
         )}
-
-
 
         {/* Event Category Explore Section */}
         <div id="events" className="w-full mt-10 md:mt-14 px-2 scroll-mt-24">
           <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
             <div>
               <p className="text-[10px] tracking-[0.3em] text-[#FF0000] uppercase font-bold mb-1">Browse</p>
-              <h2 className="text-xl md:text-2xl font-black tracking-wider uppercase text-white font-['Orbitron']">Explore by Category</h2>
+              <h2 className="text-xl md:text-2xl font-black tracking-wider uppercase text-white font-['Orbitron']">
+                Explore by Category
+              </h2>
             </div>
 
             <div className="flex items-center gap-3">
               {/* Expanding Animated Search Bar */}
-              <div ref={categorySearchContainerRef} className={`category-search-bar-wrap ${isCategorySearchOpen ? 'is-open' : ''}`}>
+              <div
+                ref={categorySearchContainerRef}
+                className={`category-search-bar-wrap ${isCategorySearchOpen ? 'is-open' : ''}`}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -3934,12 +4479,7 @@ function App() {
                 >
                   {/* Photo or Cyber Gradient Icon background */}
                   {cat.image ? (
-                    <img
-                      src={cat.image}
-                      alt={cat.label}
-                      className="category-card__photo"
-                      draggable="false"
-                    />
+                    <img src={cat.image} alt={cat.label} className="category-card__photo" draggable="false" />
                   ) : (
                     <div className="category-card__photo flex items-center justify-center bg-gradient-to-b from-[#1c0808] via-[#100505] to-[#080202]">
                       <span className="text-3xl filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
@@ -3979,17 +4519,22 @@ function App() {
               </div>
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
-                  <>EXPLORE <span className="text-[#FF0000]">{activeCategory}</span> EVENTS</>
+                  <>
+                    EXPLORE <span className="text-[#FF0000]">{activeCategory}</span> EVENTS
+                  </>
                 ) : (
-                  <>ALL UPCOMING <span className="text-[#FF0000]">EXPERIENCES</span></>
+                  <>
+                    ALL UPCOMING <span className="text-[#FF0000]">EXPERIENCES</span>
+                  </>
                 )}
               </h2>
               <p className="text-neutral-400 text-xs mt-1">
-                Showing {showAllEventsInGrid ? filteredEvents.length : Math.min(12, filteredEvents.length)} of {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
+                Showing {showAllEventsInGrid ? filteredEvents.length : Math.min(12, filteredEvents.length)} of{' '}
+                {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
                 {categorySearchQuery && (
                   <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
-                )}
-                {' '}• Real-time database sync
+                )}{' '}
+                • Real-time database sync
               </p>
             </div>
 
@@ -4000,15 +4545,18 @@ function App() {
                   setActiveCategory('all')
                   setShowAllEventsInGrid(false)
                 }}
-                className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${!activeCategory || activeCategory === 'all'
-                  ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
-                  : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
-                  }`}
+                className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${
+                  !activeCategory || activeCategory === 'all'
+                    ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
+                    : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
+                }`}
               >
                 ALL ({albumList.length})
               </button>
               {['Concert', 'Festival', 'Live Session', 'DJ Night', 'Acoustic', 'Stand-Up'].map((catName) => {
-                const count = albumList.filter((e) => ((e.category || '').toLowerCase().includes(catName.toLowerCase()))).length
+                const count = albumList.filter((e) =>
+                  (e.category || '').toLowerCase().includes(catName.toLowerCase()),
+                ).length
                 return (
                   <button
                     key={catName}
@@ -4016,10 +4564,11 @@ function App() {
                       setActiveCategory(activeCategory === catName ? 'all' : catName)
                       setShowAllEventsInGrid(false)
                     }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${activeCategory === catName
-                      ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
-                      : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
-                      }`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${
+                      activeCategory === catName
+                        ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
+                        : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
+                    }`}
                   >
                     {catName.toUpperCase()} {count > 0 && `(${count})`}
                   </button>
@@ -4042,19 +4591,12 @@ function App() {
                       className="event-cyber-card group cursor-pointer"
                     >
                       <div className="event-cyber-card__poster-box">
-                        <img
-                          src={event.cover}
-                          alt={event.title}
-                          className="event-cyber-card__poster"
-                          loading="lazy"
-                        />
+                        <img src={event.cover} alt={event.title} className="event-cyber-card__poster" loading="lazy" />
                         <div className="event-cyber-card__poster-overlay" />
 
                         {/* Top Badges */}
                         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-                          <span className="event-category-pill">
-                            {event.category || 'CONCERT'}
-                          </span>
+                          <span className="event-category-pill">{event.category || 'CONCERT'}</span>
                           <span className="event-live-status-pill">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
                             AVAILABLE
@@ -4076,15 +4618,40 @@ function App() {
 
                         <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
                           <div className="flex items-center gap-2">
-                            <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            <svg
+                              className="w-3.5 h-3.5 text-red-500 shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
                             </svg>
                             <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <svg
+                              className="w-3.5 h-3.5 text-red-500 shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
                             </svg>
                             <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
                           </div>
@@ -4092,16 +4659,15 @@ function App() {
 
                         <div className="event-cyber-card__footer">
                           <div>
-                            <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">Passes From</div>
+                            <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">
+                              Passes From
+                            </div>
                             <div className="text-sm md:text-base font-black text-white font-['Orbitron']">
                               {eventPrice > 0 ? `LKR ${eventPrice.toLocaleString()}` : 'FREE PASS'}
                             </div>
                           </div>
 
-                          <button
-                            onClick={() => handleOpenEventDetails(event)}
-                            className="event-book-btn"
-                          >
+                          <button onClick={() => handleOpenEventDetails(event)} className="event-book-btn">
                             <span>VIEW</span>
                           </button>
                         </div>
@@ -4123,14 +4689,24 @@ function App() {
                       {showAllEventsInGrid ? (
                         <>
                           <span>SHOW LESS</span>
-                          <svg className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg
+                            className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 15l7-7 7 7" />
                           </svg>
                         </>
                       ) : (
                         <>
                           <span>VIEW ALL ({filteredEvents.length}) EVENTS</span>
-                          <svg className="w-4 h-4 transition-transform duration-300 group-hover:translate-y-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg
+                            className="w-4 h-4 transition-transform duration-300 group-hover:translate-y-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
                           </svg>
                         </>
@@ -4139,7 +4715,9 @@ function App() {
                     <span className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
                   </button>
                   <p className="text-[11px] text-neutral-400 font-sans mt-2.5">
-                    {showAllEventsInGrid ? `Showing all ${filteredEvents.length} events` : `Showing 12 of ${filteredEvents.length} live database events`}
+                    {showAllEventsInGrid
+                      ? `Showing all ${filteredEvents.length} events`
+                      : `Showing 12 of ${filteredEvents.length} live database events`}
                   </p>
                 </div>
               )}
@@ -4162,13 +4740,11 @@ function App() {
             </div>
           )}
         </section>
-
       </main>
 
       {/* ══════════════ ABOUT US SECTION ══════════════ */}
       <section id="about-us" className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20">
         <div className="max-w-7xl mx-auto">
-
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
@@ -4179,25 +4755,31 @@ function App() {
               REDEFINING LIVE <span className="text-[#FF0000]">EXPERIENCES</span>
             </h2>
             <p className="text-neutral-400 text-xs md:text-sm max-w-2xl mx-auto leading-relaxed tracking-wide">
-              EXVO is Sri Lanka's next-generation digital event platform. We connect music lovers, festival seekers, and artists with seamless booking and powerful organizer tools.
+              EXVO is Sri Lanka's next-generation digital event platform. We connect music lovers, festival seekers, and
+              artists with seamless booking and powerful organizer tools.
             </p>
           </div>
 
           {/* Vision & Features Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-
             {/* Feature 1 */}
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H9m4 0V5" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H9m4 0V5"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 ORGANIZER HUB
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Comprehensive event management suite empowering companies and individual creators to list events, monitor real-time ticket sales, and manage check-ins effortlessly.
+                Comprehensive event management suite empowering companies and individual creators to list events,
+                monitor real-time ticket sales, and manage check-ins effortlessly.
               </p>
             </div>
 
@@ -4205,14 +4787,20 @@ function App() {
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 SMART TICKETING
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Instant digital ticket issuance with secure QR codes. Fast, hassle-free checkout experience with complete protection against ticket duplication and fraud.
+                Instant digital ticket issuance with secure QR codes. Fast, hassle-free checkout experience with
+                complete protection against ticket duplication and fraud.
               </p>
             </div>
 
@@ -4220,17 +4808,22 @@ function App() {
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 CURATED CONCERTS
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Discover Sri Lanka's finest live performances, acoustic shows, mega music festivals, and high-octane DJ nights curated specially for passionate fans.
+                Discover Sri Lanka's finest live performances, acoustic shows, mega music festivals, and high-octane DJ
+                nights curated specially for passionate fans.
               </p>
             </div>
-
           </div>
 
           {/* Live Stats Bar */}
@@ -4252,14 +4845,15 @@ function App() {
               <span className="stat-label">SUPPORT TEAM</span>
             </div>
           </div>
-
         </div>
       </section>
 
       {/* ══════════════ CONTACT US SECTION ══════════════ */}
-      <section id="contact-us" className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20">
+      <section
+        id="contact-us"
+        className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20"
+      >
         <div className="max-w-7xl mx-auto">
-
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
@@ -4276,7 +4870,6 @@ function App() {
 
           {/* Form & Info Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
             {/* Contact Form Column (7 cols) */}
             <div className="lg:col-span-7 contact-form-card">
               {contactSubmitted ? (
@@ -4287,13 +4880,17 @@ function App() {
                     </svg>
                   </div>
                   <h4 className="text-lg font-bold font-['Orbitron'] text-white uppercase">MESSAGE TRANSMITTED</h4>
-                  <p className="text-xs text-neutral-400 mt-1">Thank you for reaching out! Our team will respond to your inquiry shortly.</p>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Thank you for reaching out! Our team will respond to your inquiry shortly.
+                  </p>
                 </div>
               ) : (
                 <form onSubmit={handleContactSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">YOUR NAME</label>
+                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                        YOUR NAME
+                      </label>
                       <input
                         type="text"
                         required
@@ -4304,7 +4901,9 @@ function App() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EMAIL ADDRESS</label>
+                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                        EMAIL ADDRESS
+                      </label>
                       <input
                         type="email"
                         required
@@ -4317,7 +4916,9 @@ function App() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">INQUIRY TYPE</label>
+                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                      INQUIRY TYPE
+                    </label>
                     <select
                       value={contactForm.subject}
                       onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
@@ -4331,7 +4932,9 @@ function App() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">YOUR MESSAGE</label>
+                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                      YOUR MESSAGE
+                    </label>
                     <textarea
                       rows={4}
                       required
@@ -4342,11 +4945,7 @@ function App() {
                     />
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={contactLoading}
-                    className="contact-submit-btn"
-                  >
+                  <button type="submit" disabled={contactLoading} className="contact-submit-btn">
                     {contactLoading ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -4356,7 +4955,12 @@ function App() {
                       <span className="flex items-center justify-center gap-2">
                         SEND MESSAGE
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M14 5l7 7m0 0l-7 7m7-7H3"
+                          />
                         </svg>
                       </span>
                     )}
@@ -4370,11 +4974,18 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">EMAIL SUPPORT</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    EMAIL SUPPORT
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">infodigexa@gmail.com</p>
                   <p className="text-xs text-neutral-400">exvo@gmail.com</p>
                 </div>
@@ -4383,12 +4994,24 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">HEADQUARTERS</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    HEADQUARTERS
+                  </h4>
 
                   <p className="text-xs text-neutral-400">Colombo 03, Sri Lanka</p>
                 </div>
@@ -4397,11 +5020,18 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">DIRECT HOTLINE</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    DIRECT HOTLINE
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">+94 70 167 5173</p>
                   <p className="text-xs text-neutral-400">+94 76 641 4622</p>
                 </div>
@@ -4410,25 +5040,29 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">OPERATING HOURS</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    OPERATING HOURS
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">Monday – Sunday: 8:00 AM – 10:00 PM</p>
                   <p className="text-xs text-red-500 font-semibold mt-0.5">Instant Digital Support 24/7</p>
                 </div>
               </div>
             </div>
-
           </div>
-
         </div>
       </section>
 
       {/* ══════════════ FOOTER ══════════════ */}
       <footer className="footer-root">
-
         {/* Spark canvas background */}
         <SparkCanvas />
 
@@ -4437,7 +5071,8 @@ function App() {
           <div className="footer-ticker__track">
             {[...Array(6)].map((_, i) => (
               <span key={i} className="footer-ticker__item">
-                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp; ACOUSTIC SHOWS &nbsp;✦&nbsp;
+                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp;
+                ACOUSTIC SHOWS &nbsp;✦&nbsp;
               </span>
             ))}
           </div>
@@ -4445,7 +5080,6 @@ function App() {
 
         {/* ── Main footer body ── */}
         <div className="footer-body">
-
           {/* Brand column */}
           <div className="footer-brand">
             <div className="footer-logo-row">
@@ -4455,7 +5089,8 @@ function App() {
               </span>
             </div>
             <p className="footer-tagline">
-              Sri Lanka's premier live event discovery platform.<br />
+              Sri Lanka's premier live event discovery platform.
+              <br />
               Find your next unforgettable experience.
             </p>
 
@@ -4463,7 +5098,15 @@ function App() {
             <div className="footer-socials">
               {/* Instagram */}
               <a href="#" aria-label="Instagram" className="footer-social-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4"
+                >
                   <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
                   <circle cx="12" cy="12" r="4" />
                   <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
@@ -4495,18 +5138,50 @@ function App() {
             <div className="footer-col">
               <h3 className="footer-col__heading">Navigate</h3>
               <ul className="footer-col__list">
-                <li><button onClick={() => scrollToSection('home')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Home</button></li>
-                <li><button onClick={() => scrollToSection('events')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Upcoming Events</button></li>
-                <li><button onClick={() => scrollToSection('about-us')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">About Us</button></li>
-                <li><button onClick={() => scrollToSection('contact-us')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Contact Us</button></li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('home')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Home
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('events')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Upcoming Events
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('about-us')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    About Us
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('contact-us')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Contact Us
+                  </button>
+                </li>
               </ul>
             </div>
 
             <div className="footer-col">
               <h3 className="footer-col__heading">Connect</h3>
               <ul className="footer-col__list">
-                {['List Your Event', 'Become a Partner', 'Press & Media', 'Careers'].map(l => (
-                  <li key={l}><a href="#" className="footer-link">{l}</a></li>
+                {['List Your Event', 'Become a Partner', 'Press & Media', 'Careers'].map((l) => (
+                  <li key={l}>
+                    <a href="#" className="footer-link">
+                      {l}
+                    </a>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -4514,8 +5189,12 @@ function App() {
             <div className="footer-col">
               <h3 className="footer-col__heading">Legal</h3>
               <ul className="footer-col__list">
-                {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'Refund Policy'].map(l => (
-                  <li key={l}><a href="#" className="footer-link">{l}</a></li>
+                {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'Refund Policy'].map((l) => (
+                  <li key={l}>
+                    <a href="#" className="footer-link">
+                      {l}
+                    </a>
+                  </li>
                 ))}
               </ul>
               <div className="footer-badge">
@@ -4528,24 +5207,17 @@ function App() {
 
         {/* ── Bottom bar ── */}
         <div className="footer-bottom">
-          <span className="footer-bottom__copy">
-            © {new Date().getFullYear()} EXVO. All rights reserved.
-          </span>
+          <span className="footer-bottom__copy">© {new Date().getFullYear()} EXVO. All rights reserved.</span>
           <span className="footer-bottom__divider" />
           <span className="footer-bottom__credit">
             Crafted with ♥ by&nbsp;<strong>Digexa</strong>
           </span>
         </div>
-
       </footer>
 
       {/* ══════════════ RIGHT-SIDE ORGANIZER DASHBOARD DRAWER ══════════════ */}
       {isOrganizer && organizerDashboardOpen && (
-        <div
-          className="organizer-drawer-backdrop"
-          role="presentation"
-          onClick={() => setOrganizerDashboardOpen(false)}
-        >
+        <div className="organizer-drawer-backdrop" role="presentation" onClick={() => setOrganizerDashboardOpen(false)}>
           <aside
             className="organizer-drawer-right"
             role="dialog"
@@ -4567,9 +5239,7 @@ function App() {
                   <h2 className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase">
                     ORGANIZER DASHBOARD
                   </h2>
-                  <p className="text-[11px] text-neutral-400 font-sans">
-                    View, Edit & Delete Live Database Events
-                  </p>
+                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Live Database Events</p>
                 </div>
               </div>
               <button
@@ -4635,9 +5305,19 @@ function App() {
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                   Loading your events...
                 </div>
-              ) : myOrganizerEvents.filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase())).length > 0 ? (
+              ) : myOrganizerEvents.filter(
+                  (e) =>
+                    !dashboardSearch ||
+                    e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) ||
+                    e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()),
+                ).length > 0 ? (
                 myOrganizerEvents
-                  .filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()))
+                  .filter(
+                    (e) =>
+                      !dashboardSearch ||
+                      e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) ||
+                      e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()),
+                  )
                   .map((evt) => {
                     const isEvtHidden = Boolean(evt.isHidden || getHiddenEventIds().includes(String(evt.id)))
                     return (
@@ -4686,8 +5366,18 @@ function App() {
                                 title="Edit Event Details"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+                                  />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                                  />
                                 </svg>
                                 <span>EDIT</span>
                               </button>
@@ -4695,20 +5385,36 @@ function App() {
                               <button
                                 type="button"
                                 onClick={() => handleToggleHideEvent(evt)}
-                                className={`dash-action-btn ${isEvtHidden
-                                  ? '!bg-emerald-950/60 !border-emerald-500/50 !text-emerald-300 hover:!bg-emerald-900/60'
-                                  : '!bg-amber-950/50 !border-amber-500/50 !text-amber-300 hover:!bg-amber-900/60'
-                                  }`}
+                                className={`dash-action-btn ${
+                                  isEvtHidden
+                                    ? '!bg-emerald-950/60 !border-emerald-500/50 !text-emerald-300 hover:!bg-emerald-900/60'
+                                    : '!bg-amber-950/50 !border-amber-500/50 !text-amber-300 hover:!bg-amber-900/60'
+                                }`}
                                 title={isEvtHidden ? 'Make Event Publicly Visible' : 'Hide Event from Attendees'}
                               >
                                 {isEvtHidden ? (
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                    />
                                   </svg>
                                 ) : (
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.025 10.025 0 013.122-.063c4.478 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.122M3 3l18 18" />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.025 10.025 0 013.122-.063c4.478 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.122M3 3l18 18"
+                                    />
                                   </svg>
                                 )}
                                 <span>{isEvtHidden ? 'UNHIDE' : 'HIDE'}</span>
@@ -4721,7 +5427,12 @@ function App() {
                                 title="Delete Event from Database"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
                                 </svg>
                                 <span>DELETE</span>
                               </button>
@@ -4737,11 +5448,12 @@ function App() {
                     <div className="space-y-2">
                       <p className="text-neutral-400 font-bold">No events created by you yet.</p>
                       <p className="text-[11px] text-neutral-500 font-sans">
-                        Click the <span className="text-red-400 font-bold">+ ADD</span> button above to list your first event!
+                        Click the <span className="text-red-400 font-bold">+ ADD</span> button above to list your first
+                        event!
                       </p>
                     </div>
                   ) : (
-                    "No events matching search criteria."
+                    'No events matching search criteria.'
                   )}
                 </div>
               )}
@@ -4754,11 +5466,7 @@ function App() {
       {showEditEventModal && (
         <div className="add-event-backdrop" role="presentation" onClick={() => setShowEditEventModal(false)}>
           <div className="add-event-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="add-event-modal__close"
-              onClick={() => setShowEditEventModal(false)}
-            >
+            <button type="button" className="add-event-modal__close" onClick={() => setShowEditEventModal(false)}>
               ×
             </button>
 
@@ -4778,7 +5486,9 @@ function App() {
             <form onSubmit={handleUpdateEventSubmit} className="space-y-4 mt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT TITLE *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    EVENT TITLE *
+                  </label>
                   <input
                     type="text"
                     required
@@ -4789,7 +5499,9 @@ function App() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">ARTIST OR ORGANIZER</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    ARTIST OR ORGANIZER
+                  </label>
                   <input
                     type="text"
                     placeholder="e.g. Exvo Entertainment"
@@ -4818,7 +5530,9 @@ function App() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT DATE *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    EVENT DATE *
+                  </label>
                   <input
                     type="date"
                     required
@@ -4839,7 +5553,9 @@ function App() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">VENUE / LOCATION *</label>
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                  VENUE / LOCATION *
+                </label>
                 <input
                   type="text"
                   required
@@ -4855,7 +5571,11 @@ function App() {
                 <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">COVER IMAGE</label>
                 <div className="flex items-center gap-3">
                   {editEventForm.coverImage && (
-                    <img src={editEventForm.coverImage} alt="Cover Preview" className="w-12 h-12 rounded object-cover border border-white/20" />
+                    <img
+                      src={editEventForm.coverImage}
+                      alt="Cover Preview"
+                      className="w-12 h-12 rounded object-cover border border-white/20"
+                    />
                   )}
                   <input
                     type="file"
@@ -4869,7 +5589,9 @@ function App() {
               {/* Ticket Tiers */}
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TICKET CATEGORIES & PRICING *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    TICKET CATEGORIES & PRICING *
+                  </label>
                   <button
                     type="button"
                     onClick={handleAddTicketTierInEdit}
@@ -4922,7 +5644,9 @@ function App() {
                       <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement, zones & blocked seats</p>
+                    <p className="text-[10px] text-neutral-400">
+                      Configure interactive seat arrangement, zones & blocked seats
+                    </p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
@@ -4930,25 +5654,33 @@ function App() {
                     type="button"
                     onClick={() => {
                       const curr = editEventForm.seatingConfig || createDefaultSeatingConfig()
-                      setEditEventForm(prev => ({
+                      setEditEventForm((prev) => ({
                         ...prev,
-                        seatingConfig: { ...curr, enabled: !curr.enabled }
+                        seatingConfig: { ...curr, enabled: !curr.enabled },
                       }))
                     }}
-                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${editEventForm.seatingConfig?.enabled
-                      ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
-                      : 'bg-white/5 border border-white/10 text-neutral-400'
-                      }`}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                      editEventForm.seatingConfig?.enabled
+                        ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border border-white/10 text-neutral-400'
+                    }`}
                   >
-                    <span className={`w-2 h-2 rounded-full ${editEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
-                    {editEventForm.seatingConfig?.enabled ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)' : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                    <span
+                      className={`w-2 h-2 rounded-full ${editEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`}
+                    />
+                    {editEventForm.seatingConfig?.enabled
+                      ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
+                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
                   </button>
                 </div>
 
-                <div className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${editEventForm.seatingConfig?.enabled
-                  ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
-                  : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
-                  }`}>
+                <div
+                  className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${
+                    editEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                      : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-sm">{editEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
@@ -4970,9 +5702,9 @@ function App() {
                           value={editEventForm.seatingConfig.stageLabel || 'SCREEN'}
                           onChange={(e) => {
                             const val = e.target.value
-                            setEditEventForm(prev => ({
+                            setEditEventForm((prev) => ({
                               ...prev,
-                              seatingConfig: { ...prev.seatingConfig, stageLabel: val }
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val },
                             }))
                           }}
                           placeholder="e.g. SCREEN or MAIN STAGE"
@@ -4990,19 +5722,54 @@ function App() {
                               newZones = createDefaultSeatingConfig().zones
                             } else if (preset === 'vip_general') {
                               newZones = [
-                                { id: 'z1', name: 'VIP FRONT ROW', price: 5000, rows: ['A', 'B'], seatsPerRow: 10, occupiedSeats: [] },
-                                { id: 'z2', name: 'GENERAL ARENA', price: 2500, rows: ['C', 'D', 'E', 'F'], seatsPerRow: 12, occupiedSeats: [] }
+                                {
+                                  id: 'z1',
+                                  name: 'VIP FRONT ROW',
+                                  price: 5000,
+                                  rows: ['A', 'B'],
+                                  seatsPerRow: 10,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'GENERAL ARENA',
+                                  price: 2500,
+                                  rows: ['C', 'D', 'E', 'F'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
                               ]
                             } else if (preset === 'theater') {
                               newZones = [
-                                { id: 'z1', name: 'ORCHESTRA', price: 4000, rows: ['A', 'B', 'C', 'D'], seatsPerRow: 14, occupiedSeats: [] },
-                                { id: 'z2', name: 'MEZZANINE', price: 2500, rows: ['E', 'F', 'G'], seatsPerRow: 14, occupiedSeats: [] },
-                                { id: 'z3', name: 'BALCONY', price: 1500, rows: ['H', 'I', 'J'], seatsPerRow: 12, occupiedSeats: [] }
+                                {
+                                  id: 'z1',
+                                  name: 'ORCHESTRA',
+                                  price: 4000,
+                                  rows: ['A', 'B', 'C', 'D'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'MEZZANINE',
+                                  price: 2500,
+                                  rows: ['E', 'F', 'G'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z3',
+                                  name: 'BALCONY',
+                                  price: 1500,
+                                  rows: ['H', 'I', 'J'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
                               ]
                             }
-                            setEditEventForm(prev => ({
+                            setEditEventForm((prev) => ({
                               ...prev,
-                              seatingConfig: { ...prev.seatingConfig, zones: newZones }
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones },
                             }))
                           }}
                           className="contact-input !py-1.5 text-xs"
@@ -5022,10 +5789,13 @@ function App() {
                           <button
                             type="button"
                             onClick={() => {
-                              const synced = syncSeatingZonesWithTicketTiers(editEventForm.ticketTiers, editEventForm.seatingConfig?.zones || [])
-                              setEditEventForm(prev => ({
+                              const synced = syncSeatingZonesWithTicketTiers(
+                                editEventForm.ticketTiers,
+                                editEventForm.seatingConfig?.zones || [],
+                              )
+                              setEditEventForm((prev) => ({
                                 ...prev,
-                                seatingConfig: { ...prev.seatingConfig, zones: synced }
+                                seatingConfig: { ...prev.seatingConfig, zones: synced },
                               }))
                             }}
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
@@ -5038,14 +5808,21 @@ function App() {
                           type="button"
                           onClick={() => {
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + (editEventForm.seatingConfig.zones.length * 3))
-                            const newZone = { id: nextId, name: 'NEW ZONE', price: 2000, rows: [nextLetter], seatsPerRow: 10, occupiedSeats: [] }
-                            setEditEventForm(prev => ({
+                            const nextLetter = String.fromCharCode(65 + editEventForm.seatingConfig.zones.length * 3)
+                            const newZone = {
+                              id: nextId,
+                              name: 'NEW ZONE',
+                              price: 2000,
+                              rows: [nextLetter],
+                              seatsPerRow: 10,
+                              occupiedSeats: [],
+                            }
+                            setEditEventForm((prev) => ({
                               ...prev,
                               seatingConfig: {
                                 ...prev.seatingConfig,
-                                zones: [...prev.seatingConfig.zones, newZone]
-                              }
+                                zones: [...prev.seatingConfig.zones, newZone],
+                              },
                             }))
                           }}
                           className="text-red-400 hover:text-red-300 cursor-pointer"
@@ -5055,7 +5832,10 @@ function App() {
                       </div>
 
                       {editEventForm.seatingConfig.zones.map((zone, zIdx) => (
-                        <div key={zone.id || zIdx} className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2">
+                        <div
+                          key={zone.id || zIdx}
+                          className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2"
+                        >
                           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
                             <div>
                               <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
@@ -5064,12 +5844,12 @@ function App() {
                                 value={zone.name}
                                 onChange={(e) => {
                                   const name = e.target.value
-                                  setEditEventForm(prev => ({
+                                  setEditEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, name } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, name } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs font-bold"
@@ -5082,12 +5862,12 @@ function App() {
                                 value={zone.price}
                                 onChange={(e) => {
                                   const price = Number(e.target.value) || 0
-                                  setEditEventForm(prev => ({
+                                  setEditEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, price } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, price } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs"
@@ -5099,13 +5879,16 @@ function App() {
                                 type="text"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
-                                  const rows = e.target.value.split(',').map(r => r.trim().toUpperCase()).filter(Boolean)
-                                  setEditEventForm(prev => ({
+                                  const rows = e.target.value
+                                    .split(',')
+                                    .map((r) => r.trim().toUpperCase())
+                                    .filter(Boolean)
+                                  setEditEventForm((prev) => ({
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, rows } : z)
-                                    }
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                    },
                                   }))
                                 }}
                                 className="contact-input !py-1 text-xs"
@@ -5121,12 +5904,14 @@ function App() {
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
                                     const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
-                                    setEditEventForm(prev => ({
+                                    setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
                                         ...prev.seatingConfig,
-                                        zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, seatsPerRow } : z)
-                                      }
+                                        zones: prev.seatingConfig.zones.map((z, i) =>
+                                          i === zIdx ? { ...z, seatsPerRow } : z,
+                                        ),
+                                      },
                                     }))
                                   }}
                                   className="contact-input !py-1 text-xs"
@@ -5136,12 +5921,12 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setEditEventForm(prev => ({
+                                    setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
                                         ...prev.seatingConfig,
-                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx)
-                                      }
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx),
+                                      },
                                     }))
                                   }}
                                   className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
@@ -5165,13 +5950,13 @@ function App() {
                         seatingConfig={editEventForm.seatingConfig}
                         isOrganizerEdit={true}
                         onToggleOccupied={(seatId) => {
-                          setEditEventForm(prev => {
+                          setEditEventForm((prev) => {
                             const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map(z => {
+                            const updatedZones = currentConfig.zones.map((z) => {
                               const isOccupied = z.occupiedSeats?.includes(seatId)
                               let newOccupied
                               if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter(s => s !== seatId)
+                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
                               } else {
                                 newOccupied = [...(z.occupiedSeats || []), seatId]
                               }
@@ -5179,7 +5964,7 @@ function App() {
                             })
                             return {
                               ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones }
+                              seatingConfig: { ...currentConfig, zones: updatedZones },
                             }
                           })
                         }}
@@ -5202,7 +5987,9 @@ function App() {
               </div>
 
               {editEventFeedback.text && (
-                <div className={`p-3 rounded-xl text-xs font-bold ${editEventFeedback.type === 'error' ? 'bg-red-950/80 border border-red-500/50 text-red-300' : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'}`}>
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold ${editEventFeedback.type === 'error' ? 'bg-red-950/80 border border-red-500/50 text-red-300' : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'}`}
+                >
                   {editEventFeedback.text}
                 </div>
               )}
@@ -5236,17 +6023,13 @@ function App() {
           aria-modal="true"
           onClick={handleCloseEventDetails}
         >
-          <div
-            className="event-detail-modal-card"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="event-detail-modal-card" onClick={(e) => e.stopPropagation()}>
             {/* Cyber Brackets */}
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
 
             {/* Main Landscape Grid Container */}
             <div className="grid grid-cols-1 md:grid-cols-12 h-full max-h-[85vh] overflow-hidden min-h-0">
-
               {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
               <div
                 className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10 shrink-0"
@@ -5278,7 +6061,6 @@ function App() {
 
               {/* RIGHT COLUMN: Info & Ticket Tiers (7 cols) */}
               <div className="md:col-span-7 flex flex-col h-full bg-[#0a0a0c] overflow-hidden min-h-0">
-
                 {/* Header with Close button */}
                 <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
                   <div className="text-xs font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-2">
@@ -5297,38 +6079,57 @@ function App() {
 
                 {/* Content Body */}
                 <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar min-h-0">
-
                   {/* Info Tiles Grid */}
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="event-detail-info-tile">
                       <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
                         </svg>
                         DATE
                       </div>
                       <div className="text-xs font-bold text-white">
-                        {formatSelectedDate(selectedDetailEvent.eventDate, selectedDetailEvent.eventTime) || selectedDetailEvent.date || 'Sep 26, 2026'}
+                        {formatSelectedDate(selectedDetailEvent.eventDate, selectedDetailEvent.eventTime) ||
+                          selectedDetailEvent.date ||
+                          'Sep 26, 2026'}
                       </div>
                     </div>
 
                     <div className="event-detail-info-tile">
                       <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
                         TIME
                       </div>
-                      <div className="text-xs font-bold text-white">
-                        {extractTimeFromEvent(selectedDetailEvent)}
-                      </div>
+                      <div className="text-xs font-bold text-white">{extractTimeFromEvent(selectedDetailEvent)}</div>
                     </div>
 
                     <div className="event-detail-info-tile">
                       <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
                         </svg>
                         VENUE
                       </div>
@@ -5340,33 +6141,48 @@ function App() {
                     <div className="event-detail-info-tile">
                       <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
                         <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 010 4 2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 010-4 2 2 0 002-2V7a2 2 0 00-2-2H5z" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 010 4 2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 010-4 2 2 0 002-2V7a2 2 0 00-2-2H5z"
+                          />
                         </svg>
                         PRICE RANGE
                       </div>
                       <div className="text-xs font-bold text-red-400 font-['Orbitron']">
                         {(() => {
-                          let tiers = selectedDetailEvent.ticketTiers;
+                          let tiers = selectedDetailEvent.ticketTiers
                           if (typeof tiers === 'string') {
-                            try { tiers = JSON.parse(tiers) } catch { }
+                            try {
+                              tiers = JSON.parse(tiers)
+                            } catch {}
                           }
-                          if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && selectedDetailEvent.ticketTiersJson) {
-                            try { tiers = typeof selectedDetailEvent.ticketTiersJson === 'string' ? JSON.parse(selectedDetailEvent.ticketTiersJson) : selectedDetailEvent.ticketTiersJson } catch { }
+                          if (
+                            (!tiers || !Array.isArray(tiers) || tiers.length === 0) &&
+                            selectedDetailEvent.ticketTiersJson
+                          ) {
+                            try {
+                              tiers =
+                                typeof selectedDetailEvent.ticketTiersJson === 'string'
+                                  ? JSON.parse(selectedDetailEvent.ticketTiersJson)
+                                  : selectedDetailEvent.ticketTiersJson
+                            } catch {}
                           }
                           if (Array.isArray(tiers) && tiers.length > 0) {
-                            const prices = tiers.map(t => Number(t.price) || 0).filter(p => p > 0);
+                            const prices = tiers.map((t) => Number(t.price) || 0).filter((p) => p > 0)
                             if (prices.length > 0) {
-                              const minP = Math.min(...prices);
-                              const maxP = Math.max(...prices);
+                              const minP = Math.min(...prices)
+                              const maxP = Math.max(...prices)
                               if (minP < maxP) {
-                                return `LKR ${minP.toLocaleString()} - ${maxP.toLocaleString()}`;
+                                return `LKR ${minP.toLocaleString()} - ${maxP.toLocaleString()}`
                               }
-                              return `LKR ${minP.toLocaleString()}`;
+                              return `LKR ${minP.toLocaleString()}`
                             }
                           }
                           return selectedDetailEvent.price
                             ? `LKR ${Number(selectedDetailEvent.price).toLocaleString()}`
-                            : 'LKR 2,500';
+                            : 'LKR 2,500'
                         })()}
                       </div>
                     </div>
@@ -5393,19 +6209,38 @@ function App() {
 
                     <div className="space-y-2">
                       {(() => {
-                        let tiers = selectedDetailEvent.ticketTiers;
+                        let tiers = selectedDetailEvent.ticketTiers
                         if (typeof tiers === 'string') {
-                          try { tiers = JSON.parse(tiers) } catch { }
+                          try {
+                            tiers = JSON.parse(tiers)
+                          } catch {}
                         }
-                        if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && selectedDetailEvent.ticketTiersJson) {
-                          try { tiers = typeof selectedDetailEvent.ticketTiersJson === 'string' ? JSON.parse(selectedDetailEvent.ticketTiersJson) : selectedDetailEvent.ticketTiersJson } catch { }
+                        if (
+                          (!tiers || !Array.isArray(tiers) || tiers.length === 0) &&
+                          selectedDetailEvent.ticketTiersJson
+                        ) {
+                          try {
+                            tiers =
+                              typeof selectedDetailEvent.ticketTiersJson === 'string'
+                                ? JSON.parse(selectedDetailEvent.ticketTiersJson)
+                                : selectedDetailEvent.ticketTiersJson
+                          } catch {}
                         }
-                        const finalTiers = Array.isArray(tiers) && tiers.length > 0
-                          ? tiers
-                          : [
-                            { name: 'General Admission Pass', price: selectedDetailEvent.price || 2500, quantity: selectedDetailEvent.totalCapacity || 500 },
-                            { name: 'VIP Priority Access Pass', price: (selectedDetailEvent.price || 2500) * 2, quantity: Math.round((selectedDetailEvent.totalCapacity || 500) * 0.2) }
-                          ];
+                        const finalTiers =
+                          Array.isArray(tiers) && tiers.length > 0
+                            ? tiers
+                            : [
+                                {
+                                  name: 'General Admission Pass',
+                                  price: selectedDetailEvent.price || 2500,
+                                  quantity: selectedDetailEvent.totalCapacity || 500,
+                                },
+                                {
+                                  name: 'VIP Priority Access Pass',
+                                  price: (selectedDetailEvent.price || 2500) * 2,
+                                  quantity: Math.round((selectedDetailEvent.totalCapacity || 500) * 0.2),
+                                },
+                              ]
 
                         return finalTiers.map((tier, idx) => (
                           <div key={idx} className="event-detail-tier-card">
@@ -5429,11 +6264,10 @@ function App() {
                               <div className="text-[9px] text-emerald-400 font-bold uppercase">INSTANT ISSUANCE</div>
                             </div>
                           </div>
-                        ));
+                        ))
                       })()}
                     </div>
                   </div>
-
                 </div>
 
                 {/* ── Seating Arrangement Preview (Attendee View) ── */}
@@ -5441,14 +6275,29 @@ function App() {
                   const evt = selectedDetailEvent
                   let seatCfg = evt.seatingConfig
                   if (!seatCfg && evt.seatingConfigJson) {
-                    try { seatCfg = typeof evt.seatingConfigJson === 'string' ? JSON.parse(evt.seatingConfigJson) : evt.seatingConfigJson } catch { }
+                    try {
+                      seatCfg =
+                        typeof evt.seatingConfigJson === 'string'
+                          ? JSON.parse(evt.seatingConfigJson)
+                          : evt.seatingConfigJson
+                    } catch {}
                   }
                   if (seatCfg && seatCfg.enabled && seatCfg.zones && seatCfg.zones.length > 0) {
                     return (
                       <div className="space-y-2 mt-3">
                         <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center gap-1.5">
-                          <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                          <svg
+                            className="w-3.5 h-3.5 text-amber-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                            />
                           </svg>
                           SEATING ARRANGEMENT
                         </div>
@@ -5456,8 +6305,8 @@ function App() {
                           seatingConfig={seatCfg}
                           isOrganizerEdit={false}
                           selectedSeats={[]}
-                          onSelectSeat={() => { }}
-                          onToggleOccupied={() => { }}
+                          onSelectSeat={() => {}}
+                          onToggleOccupied={() => {}}
                         />
                       </div>
                     )
@@ -5490,15 +6339,11 @@ function App() {
                     </svg>
                   </button>
                 </div>
-
               </div>
-
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   )
 }

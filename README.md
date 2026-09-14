@@ -31,11 +31,11 @@ Exvo is an event discovery platform for finding and exploring upcoming live expe
 
 The frontend expects the authentication API at `http://localhost:5000/api/auth`.
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `POST` | `/register` | Create an attendee account |
-| `POST` | `/login` | Authenticate an existing user |
-| `GET` | `/me` | Retrieve the current authenticated profile |
+| Method | Endpoint    | Purpose                                    |
+| ------ | ----------- | ------------------------------------------ |
+| `POST` | `/register` | Create an attendee account                 |
+| `POST` | `/login`    | Authenticate an existing user              |
+| `GET`  | `/me`       | Retrieve the current authenticated profile |
 
 Registration sends the default role `Attendee`. Successful login or registration responses should include a `token`.
 
@@ -54,12 +54,12 @@ Start the authentication backend before testing login, registration, profile, an
 
 ## Available Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | Start the Vite development server with hot module replacement |
-| `npm run build` | Create a production build in `dist/` |
-| `npm run preview` | Preview the production build locally |
-| `npm run lint` | Run Oxlint checks |
+| Command           | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `npm run dev`     | Start the Vite development server with hot module replacement |
+| `npm run build`   | Create a production build in `dist/`                          |
+| `npm run preview` | Preview the production build locally                          |
+| `npm run lint`    | Run Oxlint checks                                             |
 
 ## Project Structure
 
