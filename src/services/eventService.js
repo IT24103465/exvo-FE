@@ -198,6 +198,17 @@ export const updateEvent = (id, eventData) => {
 
   const formattedEventDate = `${cleanDateVal}T${eventTimeVal}:00`
 
+  const isHiddenState = Boolean(
+    eventData.isHidden ||
+    eventData.IsHidden ||
+    eventData.is_hidden ||
+    eventData.IsHidder === 1 ||
+    eventData.IsHidder === true ||
+    eventData.isHidder === 1 ||
+    eventData.isHidder === true ||
+    eventData.status === 'hidden',
+  )
+
   const payload = {
     ...eventData,
     price: minPrice,
@@ -207,6 +218,10 @@ export const updateEvent = (id, eventData) => {
     date: cleanDateVal,
     time: eventTimeVal,
     eventTime: eventTimeVal,
+    isHidden: isHiddenState,
+    IsHidden: isHiddenState,
+    IsHidder: isHiddenState,
+    isHidder: isHiddenState,
     ticketTiersJson: JSON.stringify(tiersList),
     ticketTiers: tiersList.map((t) => ({
       id: String(t.id),

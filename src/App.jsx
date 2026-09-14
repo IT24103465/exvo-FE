@@ -1006,9 +1006,11 @@ function App() {
   const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
   const [selectedSeats, setSelectedSeats] = useState([])
-  const [ticketQuantity, setTicketQuantity] = useState(1)
+  const [, setTicketQuantity] = useState(1)
+  const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
+  const [bookingStep, setBookingStep] = useState(1)
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
   const [contactSubmitted, setContactSubmitted] = useState(false)
@@ -1304,6 +1306,20 @@ function App() {
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
+            seatingConfig:
+              e.seatingConfig ||
+              (e.seatingConfigJson
+                ? typeof e.seatingConfigJson === 'string'
+                  ? (() => {
+                      try {
+                        return JSON.parse(e.seatingConfigJson)
+                      } catch {
+                        return null
+                      }
+                    })()
+                  : e.seatingConfigJson
+                : null),
+            seatingConfigJson: e.seatingConfigJson,
             isHidden: Boolean(
               e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
             ),
@@ -1351,74 +1367,91 @@ function App() {
   const userDetails = getUserDetails(authState.user)
   const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
 
-  useEffect(() => {
-    if (!authState.isAuthenticated || !isOrganizer || !organizerDashboardOpen) return
-
-    const loadMyEvents = async () => {
-      setLoadingMyEvents(true)
-      try {
-        const dbMyEvents = await getMyEvents()
-        if (Array.isArray(dbMyEvents)) {
-          const formatted = dbMyEvents.map((e) => {
-            let parsedTiers = []
-            try {
-              if (e.ticketTiersJson) {
-                parsedTiers =
-                  typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
-              } else {
-                parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
-              }
-            } catch {
-              parsedTiers = []
+  const fetchMyEvents = async () => {
+    if (!authState.isAuthenticated || !isOrganizer) return
+    setLoadingMyEvents(true)
+    try {
+      const dbMyEvents = await getMyEvents()
+      if (Array.isArray(dbMyEvents)) {
+        const formatted = dbMyEvents.map((e) => {
+          let parsedTiers = []
+          try {
+            if (e.ticketTiersJson) {
+              parsedTiers =
+                typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
+            } else {
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
             }
-            const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
-            const catName =
-              typeof e.category === 'object' && e.category !== null
-                ? e.category.name
-                : typeof e.category === 'string'
-                  ? e.category
-                  : e.categoryName || 'Music & Concerts'
-            const eventDateVal = e.date || e.eventDate
-            return {
-              id: e.id,
-              title: e.title,
-              subtitle: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Live Event',
-              artistOrOrganizer: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Featured Artist',
-              organizerId: e.organizerId || e.OrganizerId || userDetails.id,
-              organizerName: e.organizerName || e.OrganizerName || userDetails.name,
-              createdByEmail: userDetails.email,
-              cover: e.coverImage || e.imageUrl || sarithImg,
-              year:
-                eventDateVal && !isNaN(new Date(eventDateVal).getTime())
-                  ? new Date(eventDateVal).getFullYear().toString()
-                  : '2026',
-              category: catName,
-              venue: e.venue || e.location || 'Sri Lanka',
-              minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
-              trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
-              ticketTiers: parsedTiers,
-              totalCapacity: e.totalCapacity || e.availableTickets || 500,
-              eventDate: eventDateVal,
-              eventTime: extractTimeFromEvent(e),
-              time: extractTimeFromEvent(e),
-              description: e.description,
-              isHidden: Boolean(
-                e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
-              ),
-              isDbEvent: true,
-            }
-          })
-          setMyEventsList(formatted)
-        }
-      } catch (err) {
-        console.warn('Could not fetch organizer events via API:', err)
-      } finally {
-        setLoadingMyEvents(false)
+          } catch {
+            parsedTiers = []
+          }
+          const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
+          const catName =
+            typeof e.category === 'object' && e.category !== null
+              ? e.category.name
+              : typeof e.category === 'string'
+                ? e.category
+                : e.categoryName || 'Music & Concerts'
+          const eventDateVal = e.date || e.eventDate
+          return {
+            id: e.id,
+            title: e.title,
+            subtitle: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Live Event',
+            artistOrOrganizer: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Featured Artist',
+            organizerId: e.organizerId || e.OrganizerId || userDetails.id,
+            organizerName: e.organizerName || e.OrganizerName || userDetails.name,
+            createdByEmail: userDetails.email,
+            cover: e.coverImage || e.imageUrl || sarithImg,
+            year:
+              eventDateVal && !isNaN(new Date(eventDateVal).getTime())
+                ? new Date(eventDateVal).getFullYear().toString()
+                : '2026',
+            category: catName,
+            venue: e.venue || e.location || 'Sri Lanka',
+            minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
+            ticketTiers: parsedTiers,
+            totalCapacity: e.totalCapacity || e.availableTickets || 500,
+            eventDate: eventDateVal,
+            eventTime: extractTimeFromEvent(e),
+            time: extractTimeFromEvent(e),
+            description: e.description,
+            seatingConfig:
+              e.seatingConfig ||
+              (e.seatingConfigJson
+                ? typeof e.seatingConfigJson === 'string'
+                  ? (() => {
+                      try {
+                        return JSON.parse(e.seatingConfigJson)
+                      } catch {
+                        return null
+                      }
+                    })()
+                  : e.seatingConfigJson
+                : null),
+            seatingConfigJson: e.seatingConfigJson,
+            isHidden: Boolean(
+              e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
+            ),
+            isDbEvent: true,
+          }
+        })
+        setMyEventsList(formatted)
       }
+    } catch (err) {
+      console.warn('Could not fetch organizer events via API:', err)
+    } finally {
+      setLoadingMyEvents(false)
     }
+  }
 
-    loadMyEvents()
-  }, [authState.isAuthenticated, isOrganizer, organizerDashboardOpen, userDetails.email, userDetails.id, userDetails.name])
+  useEffect(() => {
+    if (isOrganizer && organizerDashboardOpen) {
+      fetchMyEvents()
+    }
+    // fetchMyEvents closes over the current authenticated user details.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizerDashboardOpen, isOrganizer])
 
   const myOrganizerEvents = myEventsList.length > 0 ? myEventsList : albumList.filter((e) => isMyEvent(e, userDetails))
 
@@ -1772,7 +1805,12 @@ function App() {
   }
 
   const handleToggleHideEvent = async (eventToToggle) => {
-    const isCurrentlyHidden = Boolean(eventToToggle.isHidden || getHiddenEventIds().includes(String(eventToToggle.id)))
+    const isCurrentlyHidden = Boolean(
+      eventToToggle.isHidden ||
+      eventToToggle.IsHidder === 1 ||
+      eventToToggle.IsHidder === true ||
+      getHiddenEventIds().includes(String(eventToToggle.id)),
+    )
     const newHiddenState = !isCurrentlyHidden
 
     if (newHiddenState) {
@@ -1789,7 +1827,8 @@ function App() {
     )
 
     try {
-      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState })
+      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState, IsHidder: newHiddenState })
+      await fetchLiveEvents()
     } catch (err) {
       console.warn('Failed to update event visibility via backend API:', err)
     }
@@ -1925,8 +1964,20 @@ function App() {
     }
     setBookingModalEvent(event)
     setSelectedTier(event.ticketTiers?.[0] || null)
+    const initialQtys = {}
+    if (event.ticketTiers && event.ticketTiers.length > 0) {
+      event.ticketTiers.forEach((tier, idx) => {
+        const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+        initialQtys[key] = idx === 0 ? 1 : 0
+      })
+    } else {
+      initialQtys['standard'] = 1
+    }
+    setTierQuantities(initialQtys)
     setTicketQuantity(1)
+    setSelectedSeats([])
     setBookingSuccess(false)
+    setBookingStep(1)
   }
 
   // Public events visible to attendees (excludes hidden events)
@@ -3666,189 +3717,417 @@ function App() {
                   </div>
                 </div>
 
-                {/* Ticket Tiers Selection */}
-                <div className="mt-5 text-left">
-                  <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider block mb-2">
-                    Select Ticket Tier
-                  </label>
-                  {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
-                    <div className="space-y-2">
-                      {bookingModalEvent.ticketTiers.map((tier, idx) => {
-                        const isSelected =
-                          (selectedTier?.id ? selectedTier.id === tier.id : selectedTier?.name === tier.name) ||
-                          (!selectedTier && idx === 0)
-                        return (
+                {/* ── MULTI-TIER TICKET BOOKING & SEATING FLOW ── */}
+                {(() => {
+                  const totalTicketsCount =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                      : tierQuantities['standard'] || 1
+
+                  const totalBookingPrice =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                          const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                          const qty = tierQuantities[key] || 0
+                          return sum + Number(tier.price || 0) * qty
+                        }, 0)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
+
+                  const selectedTiersSummary =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers
+                          .map((tier, idx) => {
+                            const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                            const qty = tierQuantities[key] || 0
+                            return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                          })
+                          .filter(Boolean)
+                          .join(', ')
+                      : `${tierQuantities['standard'] || 1}x Standard Pass`
+
+                  return (
+                    <>
+                      {/* ── STEP INDICATOR (only if seating enabled) ── */}
+                      {bookingModalEvent.seatingConfig?.enabled && (
+                        <div className="flex items-center gap-2 mt-4 mb-1">
                           <div
-                            key={tier.id || idx}
-                            onClick={() => setSelectedTier(tier)}
-                            className={`booking-tier-card ${isSelected ? 'booking-tier-card--active' : ''}`}
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}
                           >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-bold text-sm text-white font-['Orbitron']">
-                                  {tier.name || `Tier ${idx + 1}`}
-                                </div>
-                                {tier.description && (
-                                  <div className="text-[10px] text-neutral-400 mt-0.5">{tier.description}</div>
-                                )}
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">
+                              1
+                            </span>
+                            SELECT TIERS & QTY
+                          </div>
+                          <div className="flex-1 h-px bg-white/10" />
+                          <div
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 2 ? 'bg-amber-500 text-black' : 'bg-white/10 text-neutral-400'}`}
+                          >
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">
+                              2
+                            </span>
+                            PICK SEATS
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── STEP 1: Ticket Tiers + Per-Tier Quantity ── */}
+                      {bookingStep === 1 && (
+                        <>
+                          <div className="mt-4 text-left">
+                            <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider block mb-2">
+                              Select Ticket Tiers & Quantities
+                            </label>
+                            {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
+                              <div className="space-y-2.5">
+                                {bookingModalEvent.ticketTiers.map((tier, idx) => {
+                                  const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                                  const qty = tierQuantities[key] || 0
+                                  const isSelected = qty > 0
+
+                                  const handleDecrease = (e) => {
+                                    e.stopPropagation()
+                                    setTierQuantities((prev) => ({
+                                      ...prev,
+                                      [key]: Math.max(0, (prev[key] || 0) - 1),
+                                    }))
+                                  }
+
+                                  const handleIncrease = (e) => {
+                                    e.stopPropagation()
+                                    const totalOther = Object.entries(tierQuantities)
+                                      .filter(([k]) => k !== key)
+                                      .reduce((s, [, q]) => s + q, 0)
+                                    if (totalOther + qty >= 10) return
+                                    setTierQuantities((prev) => ({
+                                      ...prev,
+                                      [key]: (prev[key] || 0) + 1,
+                                    }))
+                                  }
+
+                                  return (
+                                    <div
+                                      key={key}
+                                      onClick={() => setSelectedTier(tier)}
+                                      className={`booking-tier-card p-3 rounded-xl border transition-all ${
+                                        isSelected
+                                          ? 'border-red-500/80 bg-red-950/30'
+                                          : 'border-white/10 bg-black/40 hover:border-white/20'
+                                      }`}
+                                      style={{ cursor: 'pointer' }}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <div
+                                            className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                                              isSelected ? 'border-red-500 bg-red-500' : 'border-neutral-600'
+                                            }`}
+                                          >
+                                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                          </div>
+                                          <div>
+                                            <div className="font-bold text-sm text-white font-['Orbitron']">
+                                              {tier.name || `Tier ${idx + 1}`}
+                                            </div>
+                                            {tier.description && (
+                                              <div className="text-[10px] text-neutral-400 mt-0.5">
+                                                {tier.description}
+                                              </div>
+                                            )}
+                                            <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
+                                              LKR {Number(tier.price || 0).toLocaleString()}{' '}
+                                              <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Per-Tier Stepper */}
+                                        <div
+                                          className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={handleDecrease}
+                                            disabled={qty <= 0}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
+                                              qty > 0
+                                                ? 'bg-white/10 hover:bg-red-600 text-white'
+                                                : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                            }`}
+                                          >
+                                            -
+                                          </button>
+                                          <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
+                                            {qty}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={handleIncrease}
+                                            disabled={totalTicketsCount >= 10}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
+                                              totalTicketsCount < 10
+                                                ? 'bg-white/10 hover:bg-red-600 text-white'
+                                                : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                            }`}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
-                              <div className="text-right">
-                                <div className="font-black text-sm text-red-400 font-['Orbitron']">
-                                  LKR {Number(tier.price || 0).toLocaleString()}
+                            ) : (
+                              <div className="booking-tier-card p-3 rounded-xl border border-red-500/80 bg-red-950/30">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-bold text-sm text-white font-['Orbitron']">Standard Pass</div>
+                                    <div className="text-[10px] text-neutral-400">General admission pass</div>
+                                    <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
+                                      LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()}{' '}
+                                      <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setTierQuantities((prev) => ({
+                                          ...prev,
+                                          standard: Math.max(1, (prev.standard || 1) - 1),
+                                        }))
+                                      }
+                                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
+                                      {tierQuantities['standard'] || 1}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setTierQuantities((prev) => ({
+                                          ...prev,
+                                          standard: Math.min(10, (prev.standard || 1) + 1),
+                                        }))
+                                      }
+                                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="text-[9px] text-neutral-500 font-['Orbitron']">per pass</div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Selection breakdown summary */}
+                          {totalTicketsCount > 0 && selectedTiersSummary && (
+                            <div className="mt-3 text-left px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[11px] text-neutral-300 font-['Orbitron'] flex items-center justify-between">
+                              <span className="text-neutral-400">Selected Passes:</span>
+                              <span className="text-red-400 font-bold">{selectedTiersSummary}</span>
+                            </div>
+                          )}
+
+                          {/* Total Summary + Action */}
+                          <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-left">
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
+                                Total Payable
+                              </span>
+                              <div className="text-xl font-black text-white font-['Orbitron']">
+                                LKR {totalBookingPrice.toLocaleString()}
+                              </div>
+                              <div className="text-[10px] text-neutral-400">
+                                {totalTicketsCount} pass{totalTicketsCount !== 1 ? 'es' : ''}
                               </div>
                             </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="booking-tier-card booking-tier-card--active">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-sm text-white font-['Orbitron']">Standard Pass</div>
-                          <div className="text-[10px] text-neutral-400">General admission pass</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-black text-sm text-red-400 font-['Orbitron']">
-                            LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()}
-                          </div>
-                          <div className="text-[9px] text-neutral-500 font-['Orbitron']">per pass</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Quantity Stepper */}
-                <div className="mt-4 flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/10 text-left">
-                  <div>
-                    <span className="text-xs font-['Orbitron'] font-bold text-neutral-300">Ticket Quantity</span>
-                    <p className="text-[10px] text-neutral-500">Max 10 passes per checkout</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTicketQuantity(Math.max(1, ticketQuantity - 1))}
-                      className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-lg flex items-center justify-center transition-all cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <span className="font-bold text-base text-white font-['Orbitron'] w-6 text-center">
-                      {ticketQuantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setTicketQuantity(Math.min(10, ticketQuantity + 1))}
-                      className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-lg flex items-center justify-center transition-all cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Interactive Reserved Seating Layout (if enabled for this event) */}
-                {bookingModalEvent.seatingConfig?.enabled && (
-                  <div className="mt-5 text-left">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
-                        <span className="text-amber-400">💺</span>
-                        SELECT YOUR SEATS
-                      </label>
-                      {selectedSeats.length > 0 && (
-                        <span className="text-[10px] text-amber-400 font-mono font-bold">
-                          {selectedSeats.length} {selectedSeats.length === 1 ? 'Seat' : 'Seats'} Selected (
-                          {selectedSeats.join(', ')})
-                        </span>
+                            {bookingModalEvent.seatingConfig?.enabled ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSeats([])
+                                  setBookingStep(2)
+                                }}
+                                disabled={totalTicketsCount === 0}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                  totalTicketsCount > 0
+                                    ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+                                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                }`}
+                              >
+                                <span>💺</span>
+                                CHOOSE SEATS
+                                <span>→</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBookingSubmitting(true)
+                                  setTimeout(() => {
+                                    setBookingSubmitting(false)
+                                    setBookingSuccess(true)
+                                  }, 600)
+                                }}
+                                disabled={bookingSubmitting || totalTicketsCount === 0}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                  totalTicketsCount > 0
+                                    ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                }`}
+                              >
+                                {bookingSubmitting ? (
+                                  <>
+                                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                    PROCESSING...
+                                  </>
+                                ) : (
+                                  <>
+                                    CONFIRM RESERVATION
+                                    <span>→</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </>
                       )}
-                    </div>
 
-                    <SeatingChartComponent
-                      seatingConfig={bookingModalEvent.seatingConfig}
-                      isOrganizerEdit={false}
-                      selectedSeats={selectedSeats}
-                      onSelectSeat={(seatId) => {
-                        let next
-                        if (selectedSeats.includes(seatId)) {
-                          next = selectedSeats.filter((s) => s !== seatId)
-                        } else {
-                          next = [...selectedSeats, seatId]
-                        }
-                        setSelectedSeats(next)
-                        setTicketQuantity(Math.max(1, next.length))
-                      }}
-                    />
-                  </div>
-                )}
+                      {/* ── STEP 2: Interactive Seat Selection ── */}
+                      {bookingStep === 2 && bookingModalEvent.seatingConfig?.enabled && (
+                        <>
+                          <div className="mt-4 flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setBookingStep(1)}
+                              className="flex items-center gap-1.5 text-[10px] text-neutral-400 hover:text-white font-['Orbitron'] uppercase tracking-wider transition-colors cursor-pointer"
+                            >
+                              ← BACK
+                            </button>
+                            <div className="text-[10px] font-['Orbitron'] text-amber-400 font-bold">
+                              {totalTicketsCount} seat{totalTicketsCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
+                            </div>
+                          </div>
 
-                {/* Total Summary */}
-                <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
-                  <div className="text-left">
-                    <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
-                      Total Payable
-                    </span>
-                    <div className="text-xl font-black text-white font-['Orbitron']">
-                      LKR{' '}
-                      {bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0
-                        ? selectedSeats
-                            .reduce((total, seatId) => {
-                              let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
-                              bookingModalEvent.seatingConfig.zones?.forEach((z) => {
-                                const row = seatId.charAt(0)
-                                if (z.rows?.includes(row)) p = Number(z.price || p)
-                              })
-                              return total + p
-                            }, 0)
-                            .toLocaleString()
-                        : (
-                            Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity
-                          ).toLocaleString()}
-                    </div>
-                  </div>
+                          <div className="mt-3 flex items-center justify-between">
+                            <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="text-amber-400">💺</span>
+                              SELECT YOUR SEATS
+                            </label>
+                            {selectedSeats.length > 0 && (
+                              <span className="text-[10px] text-amber-400 font-mono font-bold animate-pulse">
+                                {selectedSeats.length} selected · {selectedSeats.join(', ')}
+                              </span>
+                            )}
+                          </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingSubmitting(true)
-                      setTimeout(() => {
-                        if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
-                          const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
-                            const newOccupied = Array.from(new Set([...(z.occupiedSeats || []), ...selectedSeats]))
-                            return { ...z, occupiedSeats: newOccupied }
-                          })
-                          const updatedSeatingConfig = { ...bookingModalEvent.seatingConfig, zones: updatedZones }
-                          setAlbumList((prev) =>
-                            prev.map((e) =>
-                              e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e,
-                            ),
-                          )
-                          setMyEventsList((prev) =>
-                            prev.map((e) =>
-                              e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e,
-                            ),
-                          )
-                        }
-                        setBookingSubmitting(false)
-                        setBookingSuccess(true)
-                      }, 600)
-                    }}
-                    disabled={bookingSubmitting}
-                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all shadow-[0_0_20px_rgba(255,0,0,0.6)] flex items-center gap-2 cursor-pointer"
-                  >
-                    {bookingSubmitting ? (
-                      <>
-                        <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                        PROCESSING...
-                      </>
-                    ) : (
-                      <>
-                        CONFIRM RESERVATION
-                        <span>→</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                          <SeatingChartComponent
+                            seatingConfig={bookingModalEvent.seatingConfig}
+                            isOrganizerEdit={false}
+                            selectedSeats={selectedSeats}
+                            onSelectSeat={(seatId) => {
+                              let next
+                              if (selectedSeats.includes(seatId)) {
+                                next = selectedSeats.filter((s) => s !== seatId)
+                              } else {
+                                next = [...selectedSeats, seatId]
+                              }
+                              setSelectedSeats(next)
+                              setTicketQuantity(Math.max(1, next.length))
+                            }}
+                          />
+
+                          <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-left">
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
+                                Total Payable
+                              </span>
+                              <div className="text-xl font-black text-white font-['Orbitron']">
+                                LKR{' '}
+                                {selectedSeats.length > 0
+                                  ? selectedSeats
+                                      .reduce((total, seatId) => {
+                                        let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
+                                        bookingModalEvent.seatingConfig.zones?.forEach((z) => {
+                                          const row = seatId.charAt(0)
+                                          if (z.rows?.includes(row)) p = Number(z.price || p)
+                                        })
+                                        return total + p
+                                      }, 0)
+                                      .toLocaleString()
+                                  : totalBookingPrice.toLocaleString()}
+                              </div>
+                              {selectedSeats.length > 0 && (
+                                <div className="text-[10px] text-amber-400 font-mono mt-0.5">
+                                  {selectedSeats.length} seat{selectedSeats.length > 1 ? 's' : ''} selected
+                                </div>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBookingSubmitting(true)
+                                setTimeout(() => {
+                                  if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
+                                    const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
+                                      const newOccupied = Array.from(
+                                        new Set([...(z.occupiedSeats || []), ...selectedSeats]),
+                                      )
+                                      return { ...z, occupiedSeats: newOccupied }
+                                    })
+                                    const updatedSeatingConfig = {
+                                      ...bookingModalEvent.seatingConfig,
+                                      zones: updatedZones,
+                                    }
+                                    setAlbumList((prev) =>
+                                      prev.map((e) =>
+                                        e.id === bookingModalEvent.id
+                                          ? { ...e, seatingConfig: updatedSeatingConfig }
+                                          : e,
+                                      ),
+                                    )
+                                    setMyEventsList((prev) =>
+                                      prev.map((e) =>
+                                        e.id === bookingModalEvent.id
+                                          ? { ...e, seatingConfig: updatedSeatingConfig }
+                                          : e,
+                                      ),
+                                    )
+                                  }
+                                  setBookingSubmitting(false)
+                                  setBookingSuccess(true)
+                                }, 600)
+                              }}
+                              disabled={bookingSubmitting || selectedSeats.length === 0}
+                              className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
+                                selectedSeats.length > 0
+                                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                  : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+                              }`}
+                            >
+                              {bookingSubmitting ? (
+                                <>
+                                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                  PROCESSING...
+                                </>
+                              ) : (
+                                <>
+                                  CONFIRM RESERVATION
+                                  <span>→</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )
+                })()}
               </>
             ) : (
               <div className="text-center py-4">
@@ -3862,66 +4141,93 @@ function App() {
                 </p>
 
                 {/* Digital Ticket Pass Card */}
-                <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
-                  <div className="cyber-bracket cyber-bracket--tl" />
-                  <div className="cyber-bracket cyber-bracket--br" />
+                {(() => {
+                  const totalTicketsCount =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                      : tierQuantities['standard'] || 1
 
-                  <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
-                    <div>
-                      <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">
-                        EXVO DIGITAL PASS
+                  const totalBookingPrice =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                          const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                          const qty = tierQuantities[key] || 0
+                          return sum + Number(tier.price || 0) * qty
+                        }, 0)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
+
+                  const selectedTiersSummary =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? bookingModalEvent.ticketTiers
+                          .map((tier, idx) => {
+                            const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
+                            const qty = tierQuantities[key] || 0
+                            return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                          })
+                          .filter(Boolean)
+                          .join(', ')
+                      : `${tierQuantities['standard'] || 1}x Standard Pass`
+
+                  return (
+                    <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
+                      <div className="cyber-bracket cyber-bracket--tl" />
+                      <div className="cyber-bracket cyber-bracket--br" />
+
+                      <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
+                        <div>
+                          <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">
+                            EXVO DIGITAL PASS
+                          </div>
+                          <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">
+                            {bookingModalEvent.title}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
+                            VALID PASS
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">
-                        {bookingModalEvent.title}
+
+                      <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER(S)</span>
+                          <strong className="text-white font-['Orbitron'] text-[11px] block truncate">
+                            {selectedTiersSummary || 'General Admission'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TOTAL PASSES</span>
+                          <strong className="text-white font-['Orbitron']">
+                            {totalTicketsCount} {totalTicketsCount === 1 ? 'Pass' : 'Passes'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
+                          <strong className="text-white text-[11px]">
+                            {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
+                              bookingModalEvent.year}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
+                          <strong className="text-white text-[11px] truncate block">
+                            {bookingModalEvent.venue || 'Colombo'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="pt-2.5 border-t border-dashed border-white/20 flex items-center justify-between">
+                        <div className="text-[10px] text-neutral-400 font-mono">
+                          REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
+                        </div>
+                        <div className="text-xs font-black text-red-400 font-['Orbitron']">
+                          LKR {totalBookingPrice.toLocaleString()}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
-                        VALID PASS
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER</span>
-                      <strong className="text-white font-['Orbitron']">
-                        {selectedTier?.name || 'General Admission'}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">QUANTITY</span>
-                      <strong className="text-white font-['Orbitron']">
-                        {ticketQuantity} {ticketQuantity === 1 ? 'Pass' : 'Passes'}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
-                      <strong className="text-white text-[11px]">
-                        {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
-                          bookingModalEvent.year}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
-                      <strong className="text-white text-[11px] truncate block">
-                        {bookingModalEvent.venue || 'Colombo'}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="pt-2.5 border-t border-dashed border-white/20 flex items-center justify-between">
-                    <div className="text-[10px] text-neutral-400 font-mono">
-                      REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
-                    </div>
-                    <div className="text-xs font-black text-red-400 font-['Orbitron']">
-                      LKR{' '}
-                      {(
-                        Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity
-                      ).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
+                  )
+                })()}
 
                 <div className="mt-5 flex items-center justify-center gap-3">
                   <button
@@ -5963,6 +6269,50 @@ function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* ── Seating Arrangement Preview (Attendee View) ── */}
+                {(() => {
+                  const evt = selectedDetailEvent
+                  let seatCfg = evt.seatingConfig
+                  if (!seatCfg && evt.seatingConfigJson) {
+                    try {
+                      seatCfg =
+                        typeof evt.seatingConfigJson === 'string'
+                          ? JSON.parse(evt.seatingConfigJson)
+                          : evt.seatingConfigJson
+                    } catch {}
+                  }
+                  if (seatCfg && seatCfg.enabled && seatCfg.zones && seatCfg.zones.length > 0) {
+                    return (
+                      <div className="space-y-2 mt-3">
+                        <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center gap-1.5">
+                          <svg
+                            className="w-3.5 h-3.5 text-amber-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="2"
+                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                            />
+                          </svg>
+                          SEATING ARRANGEMENT
+                        </div>
+                        <SeatingChartComponent
+                          seatingConfig={seatCfg}
+                          isOrganizerEdit={false}
+                          selectedSeats={[]}
+                          onSelectSeat={() => {}}
+                          onToggleOccupied={() => {}}
+                        />
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
 
                 {/* Bottom Actions Footer */}
                 <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 shrink-0 mt-auto">
