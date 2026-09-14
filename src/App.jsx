@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
-import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile } from './services/authService'
-import { getAllEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
+import {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getCurrentUserProfile,
+  updateUserProfile,
+  deleteUserAccount,
+} from './services/authService'
+import {
+  getAllEvents,
+  getMyEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  getCategories,
+} from './services/eventService'
 
 // Import local assets from src/assets
 import sarithImg from './assets/sarith.jpg'
-import wayoImg from './assets/wayo.jpg'
-import wiramayaImg from './assets/wiramaya.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -40,6 +52,7 @@ const readAuthState = () => {
 
 const getUserDetails = (user) => {
   const details = user?.user || user || {}
+  const id = details.id || details.userId || details.organizerId || details.sub || null
   const name = details.fullName || details.name || details.username || details.companyName || 'Exvo Member'
   const email = details.email || 'Email unavailable'
   const role = details.role || 'Attendee'
@@ -48,14 +61,349 @@ const getUserDetails = (user) => {
   const contactNumber = details.contactNumber || details.phoneNumber || ''
   const address = details.address || ''
   const profilePicture = details.profilePicture || ''
-  const initials = name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('') || 'E'
+  const initials =
+    name
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0].toUpperCase())
+      .join('') || 'E'
 
-  return { name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
+  return { id, name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
+}
+
+const isMyEvent = (evt, userDetails) => {
+  if (!evt || !userDetails) return false
+
+  // 1. Match organizerId / userId
+  if (userDetails.id !== null && userDetails.id !== undefined) {
+    const uId = String(userDetails.id)
+    if (evt.organizerId && String(evt.organizerId) === uId) return true
+    if (evt.OrganizerId && String(evt.OrganizerId) === uId) return true
+    if (evt.userId && String(evt.userId) === uId) return true
+    if (evt.createdByUserId && String(evt.createdByUserId) === uId) return true
+  }
+
+  // 2. Match organizerName or artistOrOrganizer with user name or company name
+  const userNameLower = userDetails.name ? userDetails.name.trim().toLowerCase() : ''
+  const companyNameLower = userDetails.companyName ? userDetails.companyName.trim().toLowerCase() : ''
+
+  const eventOrgName = (evt.organizerName || evt.OrganizerName || '').trim().toLowerCase()
+  const eventArtist = (evt.artistOrOrganizer || evt.subtitle || '').trim().toLowerCase()
+
+  if (userNameLower && userNameLower !== 'exvo member') {
+    if (eventOrgName && eventOrgName === userNameLower) return true
+    if (eventArtist && eventArtist === userNameLower) return true
+  }
+
+  if (companyNameLower) {
+    if (eventOrgName && eventOrgName === companyNameLower) return true
+    if (eventArtist && eventArtist === companyNameLower) return true
+  }
+
+  // 3. Match email
+  if (userDetails.email && userDetails.email !== 'Email unavailable') {
+    const uEmail = userDetails.email.trim().toLowerCase()
+    if (evt.createdByEmail && evt.createdByEmail.trim().toLowerCase() === uEmail) return true
+    if (evt.organizerEmail && evt.organizerEmail.trim().toLowerCase() === uEmail) return true
+  }
+
+  // 4. Session created check
+  if (evt.createdBy === userDetails.email || evt.createdById === userDetails.id) return true
+
+  return false
+}
+
+const HIDDEN_EVENTS_STORAGE_KEY = 'exvo_hidden_event_ids'
+
+const getHiddenEventIds = () => {
+  try {
+    const raw = localStorage.getItem(HIDDEN_EVENTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+const addHiddenEventId = (id) => {
+  try {
+    const ids = getHiddenEventIds()
+    const strId = String(id)
+    if (!ids.includes(strId)) {
+      const updated = [...ids, strId]
+      localStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(updated))
+    }
+  } catch (err) {
+    console.error('Failed to save hidden event ID:', err)
+  }
+}
+
+const removeHiddenEventId = (id) => {
+  try {
+    const ids = getHiddenEventIds()
+    const strId = String(id)
+    const updated = ids.filter((i) => i !== strId)
+    localStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(updated))
+  } catch (err) {
+    console.error('Failed to remove hidden event ID:', err)
+  }
+}
+
+const formatDateForInput = (rawDate) => {
+  if (!rawDate) return ''
+  const str = String(rawDate).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) {
+    const part = str.split(' ')[0]
+    if (/^\d{4}-\d{2}-\d{2}$/.test(part)) return part
+  }
+  const d = new Date(rawDate)
+  if (!isNaN(d.getTime())) {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  return ''
+}
+
+const extractTimeFromEvent = (e) => {
+  if (!e) return '19:00'
+
+  const directTime = e.time || e.eventTime
+  if (
+    directTime &&
+    typeof directTime === 'string' &&
+    directTime.trim() !== '' &&
+    directTime !== 'undefined' &&
+    directTime !== 'null'
+  ) {
+    const cleanTime = directTime.trim()
+    const match = cleanTime.match(/^(\d{1,2}):(\d{2})/)
+    if (match) {
+      const hh = match[1].padStart(2, '0')
+      const mm = match[2]
+      return `${hh}:${mm}`
+    }
+  }
+
+  const dateVal = e.eventDate || e.date
+  if (dateVal && typeof dateVal === 'string') {
+    const cleanDate = dateVal.trim()
+    let timePart = ''
+    if (cleanDate.includes('T')) {
+      timePart = cleanDate.split('T')[1]
+    } else if (cleanDate.includes(' ')) {
+      timePart = cleanDate.split(' ')[1]
+    }
+
+    if (timePart) {
+      const match = timePart.match(/^(\d{1,2}):(\d{2})/)
+      if (match) {
+        const hh = match[1].padStart(2, '0')
+        const mm = match[2]
+        return `${hh}:${mm}`
+      }
+    }
+  }
+
+  return '19:00'
+}
+
+const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
+  if (!ticketTiers || ticketTiers.length === 0) return existingZones
+  const defaultRowSets = [
+    ['A', 'B', 'C'],
+    ['D', 'E', 'F', 'G'],
+    ['H', 'I', 'J'],
+    ['K', 'L', 'M'],
+    ['N', 'O', 'P'],
+  ]
+  return ticketTiers.map((tier, idx) => {
+    const existing = existingZones[idx]
+    const name = (tier.name || `Category ${idx + 1}`).toUpperCase()
+    const price = Number(tier.price) || 0
+    const rows = existing?.rows?.length ? existing.rows : defaultRowSets[idx % defaultRowSets.length] || ['A', 'B']
+    const seatsPerRow = existing?.seatsPerRow || 12
+    const occupiedSeats = existing?.occupiedSeats || []
+    const id = existing?.id || `zone-tier-${idx + 1}`
+    return {
+      id,
+      name,
+      price,
+      rows,
+      seatsPerRow,
+      occupiedSeats,
+    }
+  })
+}
+
+const createDefaultSeatingConfig = (ticketTiers = []) => {
+  const defaultZones = [
+    {
+      id: 'z-classic',
+      name: 'GENERAL ADMISSION',
+      price: 2500,
+      rows: ['A', 'B', 'C'],
+      seatsPerRow: 13,
+      occupiedSeats: [],
+    },
+    {
+      id: 'z-premium',
+      name: 'VIP PASS',
+      price: 5000,
+      rows: ['D', 'E', 'F', 'G'],
+      seatsPerRow: 13,
+      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9'],
+    },
+  ]
+  if (ticketTiers && ticketTiers.length > 0) {
+    return {
+      enabled: true,
+      autoSyncCategories: true,
+      stageLabel: 'SCREEN',
+      zones: syncSeatingZonesWithTicketTiers(ticketTiers, defaultZones),
+    }
+  }
+  return {
+    enabled: true,
+    autoSyncCategories: true,
+    stageLabel: 'SCREEN',
+    zones: defaultZones,
+  }
+}
+
+const SeatingChartComponent = ({
+  seatingConfig,
+  isOrganizerEdit = false,
+  selectedSeats = [],
+  onSelectSeat = () => {},
+  onToggleOccupied = () => {},
+}) => {
+  if (!seatingConfig || !seatingConfig.enabled || !seatingConfig.zones || seatingConfig.zones.length === 0) return null
+
+  const stageLabel = seatingConfig.stageLabel || 'SCREEN'
+
+  return (
+    <div className="seating-chart-container bg-white text-neutral-900 rounded-2xl p-4 sm:p-6 shadow-2xl overflow-x-auto my-3 border border-neutral-200">
+      {/* ── Screen Arc Header ── */}
+      <div className="flex flex-col items-center justify-center mb-6">
+        <div className="relative w-full max-w-md h-10 flex items-center justify-center overflow-hidden">
+          <svg className="absolute inset-0 w-full h-full text-neutral-900" viewBox="0 0 400 40" fill="none">
+            <path
+              d="M 10 35 Q 200 5 390 35"
+              stroke="currentColor"
+              strokeWidth="3.5"
+              fill="none"
+              strokeLinecap="round"
+            />
+          </svg>
+          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-neutral-900 bg-white px-3">
+            {stageLabel}
+          </span>
+        </div>
+
+        {/* ── Status Legend ── */}
+        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-600 font-sans font-semibold">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded border border-neutral-400 bg-white" />
+            <span>Available</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
+            <span>Selected</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded bg-neutral-300 border border-neutral-300" />
+            <span>Occupied</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Aisle Column Headers ── */}
+      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 font-mono tracking-wider mb-3 px-2">
+        <span>CL-AIS</span>
+        <span>CL-AIS</span>
+      </div>
+
+      {/* ── Seating Zones & Rows ── */}
+      <div className="space-y-6 min-w-[500px]">
+        {seatingConfig.zones.map((zone) => (
+          <div key={zone.id || zone.name} className="space-y-2">
+            {/* Section Title */}
+            <div className="text-center font-bold text-xs text-neutral-900 uppercase font-sans tracking-wide">
+              {zone.name} ({Number(zone.price || 0).toFixed(2)})
+            </div>
+
+            {/* Zone Rows */}
+            <div className="space-y-1.5">
+              {(zone.rows || ['A']).map((rowLetter) => (
+                <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
+                  {/* Left Row Letter */}
+                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
+
+                  {/* Seat Grid */}
+                  <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
+                    {Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => i + 1).map((seatNum) => {
+                      const seatId = `${rowLetter}${seatNum}`
+                      const isOccupied = zone.occupiedSeats?.includes(seatId)
+                      const isSelected = selectedSeats.includes(seatId)
+
+                      let seatClass =
+                        'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
+
+                      if (isSelected) {
+                        seatClass +=
+                          ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
+                      } else if (isOccupied) {
+                        seatClass += ' bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75'
+                        if (!isOrganizerEdit) {
+                          seatClass += ' cursor-not-allowed'
+                        }
+                      } else {
+                        seatClass +=
+                          ' bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50'
+                      }
+
+                      return (
+                        <button
+                          key={seatId}
+                          type="button"
+                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${zone.price})`}
+                          onClick={() => {
+                            if (isOrganizerEdit) {
+                              onToggleOccupied(seatId)
+                            } else {
+                              if (!isOccupied) {
+                                onSelectSeat(seatId, zone)
+                              }
+                            }
+                          }}
+                          className={seatClass}
+                        >
+                          {seatNum}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Right Row Letter */}
+                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {isOrganizerEdit && (
+        <div className="mt-4 pt-3 border-t border-neutral-200 text-center text-[10px] text-neutral-500 font-sans">
+          💡 Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Sparkling particle canvas for footer ──
@@ -110,11 +458,7 @@ const SparkCanvas = () => {
         }
 
         const progress = s.life / s.maxLife
-        let alpha = progress < 0.2
-          ? progress / 0.2
-          : progress > 0.8
-            ? (1 - progress) / 0.2
-            : 1
+        let alpha = progress < 0.2 ? progress / 0.2 : progress > 0.8 ? (1 - progress) / 0.2 : 1
 
         const twinkle = 0.5 + 0.5 * Math.sin(s.life * s.twinkleSpeed + s.twinklePhase)
         alpha *= twinkle
@@ -171,8 +515,6 @@ const SparkCanvas = () => {
   )
 }
 
-const albums = []
-
 const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
   const [authMode, setAuthMode] = useState(initialMode) // 'login' | 'register'
   const [accountType, setAccountType] = useState('booking') // 'booking' | 'company'
@@ -227,14 +569,14 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           contactNumber,
           email: registerEmail,
           password: registerPassword,
-          role: 'Organizer'
+          role: 'Organizer',
         })
       } else {
         await registerUser({
           fullName,
           email: registerEmail,
           password: registerPassword,
-          role: 'Attendee'
+          role: 'Attendee',
         })
       }
 
@@ -262,7 +604,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           </button>
           <div className="auth-brand-badge">
             <ExvoLogo />
-            <span><span className="text-[#FF0000]">EX</span>VO</span>
+            <span>
+              <span className="text-[#FF0000]">EX</span>VO
+            </span>
           </div>
         </div>
 
@@ -271,7 +615,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           <button
             type="button"
             className={`auth-mode-tab ${authMode === 'login' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('login'); setMessage('') }}
+            onClick={() => {
+              setAuthMode('login')
+              setMessage('')
+            }}
             role="tab"
             aria-selected={authMode === 'login'}
           >
@@ -280,7 +627,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           <button
             type="button"
             className={`auth-mode-tab ${authMode === 'register' ? 'active' : ''}`}
-            onClick={() => { setAuthMode('register'); setMessage('') }}
+            onClick={() => {
+              setAuthMode('register')
+              setMessage('')
+            }}
             role="tab"
             aria-selected={authMode === 'register'}
           >
@@ -294,7 +644,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             <button
               type="button"
               className={`account-type-btn ${accountType === 'booking' ? 'active' : ''}`}
-              onClick={() => { setAccountType('booking'); setMessage('') }}
+              onClick={() => {
+                setAccountType('booking')
+                setMessage('')
+              }}
               aria-checked={accountType === 'booking'}
               role="radio"
             >
@@ -303,7 +656,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             <button
               type="button"
               className={`account-type-btn ${accountType === 'company' ? 'active' : ''}`}
-              onClick={() => { setAccountType('company'); setMessage('') }}
+              onClick={() => {
+                setAccountType('company')
+                setMessage('')
+              }}
               aria-checked={accountType === 'company'}
               role="radio"
             >
@@ -316,9 +672,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
         {authMode === 'login' && (
           <form className="auth-form" onSubmit={handleLoginSubmit}>
             <div className="auth-field-group">
-              <label className="login-field-label" htmlFor="login-email">EMAIL / USERNAME</label>
+              <label className="login-field-label" htmlFor="login-email">
+                EMAIL / USERNAME
+              </label>
               <div className="login-input-shell">
-                <span className="login-field-icon" aria-hidden="true">♙</span>
+                <span className="login-field-icon" aria-hidden="true">
+                  ♙
+                </span>
                 <input
                   id="login-email"
                   type="email"
@@ -333,7 +693,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <div className="auth-field-group">
               <div className="login-password-row">
-                <label className="login-field-label" htmlFor="login-password">PASSWORD</label>
+                <label className="login-field-label" htmlFor="login-password">
+                  PASSWORD
+                </label>
                 <button
                   className="login-forgot"
                   type="button"
@@ -343,7 +705,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </button>
               </div>
               <div className="login-input-shell">
-                <span className="login-field-icon" aria-hidden="true">▣</span>
+                <span className="login-field-icon" aria-hidden="true">
+                  ▣
+                </span>
                 <input
                   id="login-password"
                   type={showPassword ? 'text' : 'password'}
@@ -371,7 +735,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <p className="auth-bottom-switch">
               New to Exvo?
-              <button type="button" onClick={() => { setAuthMode('register'); setMessage('') }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register')
+                  setMessage('')
+                }}
+              >
                 Create an account
               </button>
             </p>
@@ -384,9 +754,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             {accountType === 'booking' ? (
               <>
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-full-name">FULL NAME</label>
+                  <label className="login-field-label" htmlFor="register-full-name">
+                    FULL NAME
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">♙</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ♙
+                    </span>
                     <input
                       id="register-full-name"
                       type="text"
@@ -400,9 +774,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-email">EMAIL ADDRESS</label>
+                  <label className="login-field-label" htmlFor="register-email">
+                    EMAIL ADDRESS
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">@</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      @
+                    </span>
                     <input
                       id="register-email"
                       type="email"
@@ -416,9 +794,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="register-password">PASSWORD</label>
+                  <label className="login-field-label" htmlFor="register-password">
+                    PASSWORD
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">▣</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ▣
+                    </span>
                     <input
                       id="register-password"
                       type={showPassword ? 'text' : 'password'}
@@ -444,9 +826,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               <>
                 <div className="auth-grid-2">
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-name">COMPANY NAME</label>
+                    <label className="login-field-label" htmlFor="company-name">
+                      COMPANY NAME
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">🏛</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        🏛
+                      </span>
                       <input
                         id="company-name"
                         type="text"
@@ -459,9 +845,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </div>
 
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-reg-no">REGISTRATION NO</label>
+                    <label className="login-field-label" htmlFor="company-reg-no">
+                      REGISTRATION NO
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">#</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        #
+                      </span>
                       <input
                         id="company-reg-no"
                         type="text"
@@ -476,9 +866,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
                 <div className="auth-grid-2">
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-email">OFFICIAL EMAIL</label>
+                    <label className="login-field-label" htmlFor="company-email">
+                      OFFICIAL EMAIL
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">@</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        @
+                      </span>
                       <input
                         id="company-email"
                         type="email"
@@ -492,9 +886,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </div>
 
                   <div className="auth-field-group">
-                    <label className="login-field-label" htmlFor="company-contact">CONTACT NO</label>
+                    <label className="login-field-label" htmlFor="company-contact">
+                      CONTACT NO
+                    </label>
                     <div className="login-input-shell">
-                      <span className="login-field-icon" aria-hidden="true">☎</span>
+                      <span className="login-field-icon" aria-hidden="true">
+                        ☎
+                      </span>
                       <input
                         id="company-contact"
                         type="tel"
@@ -509,9 +907,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 </div>
 
                 <div className="auth-field-group">
-                  <label className="login-field-label" htmlFor="company-password">PASSWORD</label>
+                  <label className="login-field-label" htmlFor="company-password">
+                    PASSWORD
+                  </label>
                   <div className="login-input-shell">
-                    <span className="login-field-icon" aria-hidden="true">▣</span>
+                    <span className="login-field-icon" aria-hidden="true">
+                      ▣
+                    </span>
                     <input
                       id="company-password"
                       type={showPassword ? 'text' : 'password'}
@@ -537,17 +939,29 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
             <label className="register-terms">
               <input type="checkbox" required />
-              <span>I agree to the <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>Terms</button> &amp; Privacy Policy.</span>
+              <span>
+                I agree to the{' '}
+                <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>
+                  Terms
+                </button>{' '}
+                &amp; Privacy Policy.
+              </span>
             </label>
 
             <button className="login-submit" type="submit" disabled={isLoading}>
-              {isLoading ? 'CREATING...' : (accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT')}{' '}
+              {isLoading ? 'CREATING...' : accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT'}{' '}
               <span aria-hidden="true">→</span>
             </button>
 
             <p className="auth-bottom-switch">
               Already have an account?
-              <button type="button" onClick={() => { setAuthMode('login'); setMessage('') }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('login')
+                  setMessage('')
+                }}
+              >
                 Sign in
               </button>
             </p>
@@ -555,7 +969,15 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
         )}
 
         {message && (
-          <p className="login-message" style={isSuccess ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#4ade80' } : {}} role="status">
+          <p
+            className="login-message"
+            style={
+              isSuccess
+                ? { background: 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.3)', color: '#4ade80' }
+                : {}
+            }
+            role="status"
+          >
             {message}
           </p>
         )}
@@ -575,13 +997,15 @@ function App() {
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [authState, setAuthState] = useState(readAuthState)
   const [activeCategory, setActiveCategory] = useState(null)
-  const [showAllEventsSection, setShowAllEventsSection] = useState(true)
+  const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
   const [isCategorySearchOpen, setIsCategorySearchOpen] = useState(false)
   const categorySearchInputRef = useRef(null)
   const categorySearchContainerRef = useRef(null)
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
+  const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
+  const [selectedSeats, setSelectedSeats] = useState([])
   const [ticketQuantity, setTicketQuantity] = useState(1)
   const [bookingSuccess, setBookingSuccess] = useState(false)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
@@ -597,10 +1021,12 @@ function App() {
     email: '',
     phoneNumber: '',
     address: '',
-    profilePicture: ''
+    profilePicture: '',
   })
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileFeedback, setProfileFeedback] = useState({ type: '', text: '' })
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false)
 
   // Add Event State
   const [dbCategories, setDbCategories] = useState([
@@ -623,8 +1049,9 @@ function App() {
     venue: '',
     ticketTiers: [
       { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
+      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
     ],
+    seatingConfig: createDefaultSeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -633,6 +1060,8 @@ function App() {
 
   // Organizer Dashboard & Edit Event State
   const [organizerDashboardOpen, setOrganizerDashboardOpen] = useState(false)
+  const [myEventsList, setMyEventsList] = useState([])
+  const [loadingMyEvents, setLoadingMyEvents] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [showEditEventModal, setShowEditEventModal] = useState(false)
   const [editingEventId, setEditingEventId] = useState(null)
@@ -644,6 +1073,7 @@ function App() {
     time: '19:00',
     venue: '',
     ticketTiers: [],
+    seatingConfig: createDefaultSeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -651,30 +1081,50 @@ function App() {
   const [editEventFeedback, setEditEventFeedback] = useState({ type: '', text: '' })
 
   const handleAddTicketTier = () => {
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: [
-        ...prev.ticketTiers,
-        { id: String(Date.now()), name: '', price: '', quantity: '100' }
-      ]
-    }))
+    setNewEventForm((prev) => {
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleRemoveTicketTier = (tierId) => {
     if (newEventForm.ticketTiers.length <= 1) return
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.filter((t) => t.id !== tierId)
-    }))
+    setNewEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleUpdateTicketTier = (tierId, field, value) => {
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.map((t) =>
-        t.id === tierId ? { ...t, [field]: value } : t
-      )
-    }))
+    setNewEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones =
+        autoSync && (field === 'name' || field === 'price')
+          ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+          : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleSetQuickDate = (daysFromNow) => {
@@ -688,8 +1138,28 @@ function App() {
     if (!dateStr) return ''
     try {
       let cleanStr = String(dateStr).trim()
+      let resolvedTime = timeStr && timeStr !== 'undefined' && timeStr !== 'null' ? String(timeStr).trim() : ''
+
       if (cleanStr.includes('T')) {
-        cleanStr = cleanStr.split('T')[0]
+        const parts = cleanStr.split('T')
+        cleanStr = parts[0]
+        if (!resolvedTime && parts[1]) {
+          const match = parts[1].match(/^(\d{1,2}):(\d{2})/)
+          if (match) {
+            resolvedTime = `${match[1].padStart(2, '0')}:${match[2]}`
+          }
+        }
+      } else if (cleanStr.includes(' ')) {
+        const parts = cleanStr.split(' ')
+        if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(parts[0])) {
+          cleanStr = parts[0]
+          if (!resolvedTime && parts[1]) {
+            const match = parts[1].match(/^(\d{1,2}):(\d{2})/)
+            if (match) {
+              resolvedTime = `${match[1].padStart(2, '0')}:${match[2]}`
+            }
+          }
+        }
       }
 
       let d
@@ -712,14 +1182,14 @@ function App() {
         weekday: 'short',
         month: 'short',
         day: 'numeric',
-        year: 'numeric'
+        year: 'numeric',
       })
 
       if (!formatted || formatted === 'Invalid Date') {
         return cleanStr
       }
 
-      return `${formatted}${timeStr ? ` @ ${timeStr}` : ''}`
+      return `${formatted}${resolvedTime ? ` @ ${resolvedTime}` : ''}`
     } catch {
       return String(dateStr)
     }
@@ -791,26 +1261,39 @@ function App() {
   const fetchLiveEvents = async () => {
     try {
       const dbEvents = await getAllEvents()
-      if (Array.isArray(dbEvents)) {
+      if (Array.isArray(dbEvents) && dbEvents.length > 0) {
         const formattedEvents = dbEvents.map((e) => {
           let parsedTiers = []
           try {
-            parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+            if (e.ticketTiersJson) {
+              parsedTiers =
+                typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
+            } else {
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
+            }
           } catch {
             parsedTiers = []
           }
           const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
-          const catName = typeof e.category === 'object' && e.category !== null
-            ? e.category.name
-            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Concert'))
+          const catName =
+            typeof e.category === 'object' && e.category !== null
+              ? e.category.name
+              : typeof e.category === 'string'
+                ? e.category
+                : e.categoryName || 'Music & Concerts'
           const eventDateVal = e.date || e.eventDate
           return {
             id: e.id,
             title: e.title,
             subtitle: e.artistOrOrganizer || e.organizerName || 'Live Event',
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
-            cover: e.coverImage || e.imageUrl || null,
-            year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            organizerId: e.organizerId || e.OrganizerId,
+            organizerName: e.organizerName || e.OrganizerName,
+            cover: e.coverImage || e.imageUrl || sarithImg,
+            year:
+              eventDateVal && !isNaN(new Date(eventDateVal).getTime())
+                ? new Date(eventDateVal).getFullYear().toString()
+                : '2026',
             category: catName,
             venue: e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
@@ -818,16 +1301,23 @@ function App() {
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
             eventDate: eventDateVal,
-            eventTime: e.time || '19:00',
+            eventTime: extractTimeFromEvent(e),
+            time: extractTimeFromEvent(e),
             description: e.description,
-            isDbEvent: true
+            isHidden: Boolean(
+              e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
+            ),
+            isDbEvent: true,
           }
         })
         setAlbumList(formattedEvents)
         setCenterIndex(0)
+      } else {
+        setAlbumList([])
       }
     } catch (err) {
       console.warn('Failed to fetch DB events:', err)
+      setAlbumList([])
     }
   }
 
@@ -854,10 +1344,83 @@ function App() {
     setProfilePanelOpen(false)
     setShowAddEventModal(false)
     setIsEditingProfile(false)
+    setOrganizerDashboardOpen(false)
+    setMyEventsList([])
   }
 
   const userDetails = getUserDetails(authState.user)
   const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
+
+  useEffect(() => {
+    if (!authState.isAuthenticated || !isOrganizer || !organizerDashboardOpen) return
+
+    const loadMyEvents = async () => {
+      setLoadingMyEvents(true)
+      try {
+        const dbMyEvents = await getMyEvents()
+        if (Array.isArray(dbMyEvents)) {
+          const formatted = dbMyEvents.map((e) => {
+            let parsedTiers = []
+            try {
+              if (e.ticketTiersJson) {
+                parsedTiers =
+                  typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : e.ticketTiersJson || []
+              } else {
+                parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : e.ticketTiers || []
+              }
+            } catch {
+              parsedTiers = []
+            }
+            const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
+            const catName =
+              typeof e.category === 'object' && e.category !== null
+                ? e.category.name
+                : typeof e.category === 'string'
+                  ? e.category
+                  : e.categoryName || 'Music & Concerts'
+            const eventDateVal = e.date || e.eventDate
+            return {
+              id: e.id,
+              title: e.title,
+              subtitle: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Live Event',
+              artistOrOrganizer: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Featured Artist',
+              organizerId: e.organizerId || e.OrganizerId || userDetails.id,
+              organizerName: e.organizerName || e.OrganizerName || userDetails.name,
+              createdByEmail: userDetails.email,
+              cover: e.coverImage || e.imageUrl || sarithImg,
+              year:
+                eventDateVal && !isNaN(new Date(eventDateVal).getTime())
+                  ? new Date(eventDateVal).getFullYear().toString()
+                  : '2026',
+              category: catName,
+              venue: e.venue || e.location || 'Sri Lanka',
+              minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
+              trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
+              ticketTiers: parsedTiers,
+              totalCapacity: e.totalCapacity || e.availableTickets || 500,
+              eventDate: eventDateVal,
+              eventTime: extractTimeFromEvent(e),
+              time: extractTimeFromEvent(e),
+              description: e.description,
+              isHidden: Boolean(
+                e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id)),
+              ),
+              isDbEvent: true,
+            }
+          })
+          setMyEventsList(formatted)
+        }
+      } catch (err) {
+        console.warn('Could not fetch organizer events via API:', err)
+      } finally {
+        setLoadingMyEvents(false)
+      }
+    }
+
+    loadMyEvents()
+  }, [authState.isAuthenticated, isOrganizer, organizerDashboardOpen, userDetails.email, userDetails.id, userDetails.name])
+
+  const myOrganizerEvents = myEventsList.length > 0 ? myEventsList : albumList.filter((e) => isMyEvent(e, userDetails))
 
   const handleEventCoverUpload = (e) => {
     const file = e.target.files?.[0]
@@ -903,15 +1466,20 @@ function App() {
 
     try {
       const selectedCategoryObj = dbCategories.find(
-        (c) => String(c.id) === String(newEventForm.categoryId) || c.name === newEventForm.category
+        (c) => String(c.id) === String(newEventForm.categoryId) || c.name === newEventForm.category,
       )
-      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : (Number(newEventForm.categoryId) || 1)
-      const categoryNameVal = selectedCategoryObj ? selectedCategoryObj.name : (newEventForm.category || 'Music & Concerts')
+      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : Number(newEventForm.categoryId) || 1
+      const categoryNameVal = selectedCategoryObj
+        ? selectedCategoryObj.name
+        : newEventForm.category || 'Music & Concerts'
 
       // 1. Persist event to backend database (events table via Gateway)
       const res = await createEvent({
         title: newEventForm.title.trim(),
         artistOrOrganizer: newEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
+        organizerId: userDetails.id || 1,
+        organizerName: userDetails.name,
+        createdByEmail: userDetails.email,
         categoryId: categoryIdVal,
         category: categoryNameVal,
         categoryName: categoryNameVal,
@@ -920,6 +1488,7 @@ function App() {
         venue: newEventForm.venue.trim(),
         location: newEventForm.venue.trim(),
         ticketTiers: validTiers,
+        seatingConfig: newEventForm.seatingConfig,
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
       })
@@ -928,25 +1497,34 @@ function App() {
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
 
       const createdItem = {
-        id: res.id || Date.now(),
-        title: res.title || newEventForm.title.trim(),
-        subtitle: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
-        artistOrOrganizer: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        id: res?.id || Date.now(),
+        title: res?.title || newEventForm.title.trim(),
+        subtitle: res?.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        artistOrOrganizer: res?.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        organizerId: res?.organizerId || userDetails.id,
+        organizerName: res?.organizerName || userDetails.name,
+        createdByEmail: userDetails.email,
+        createdBy: userDetails.email,
+        createdById: userDetails.id,
         category: categoryNameVal,
         categoryId: categoryIdVal,
         venue: newEventForm.venue.trim() || 'Colombo',
         minPrice: minPrice,
-        cover: res.coverImage || newEventForm.coverImage || null,
+        cover: res?.coverImage || newEventForm.coverImage || null,
         year: newEventForm.date ? new Date(newEventForm.date).getFullYear().toString() : '2026',
         trackCount: `${categoryNameVal} • From LKR ${minPrice.toLocaleString()} • ${newEventForm.venue}`,
         ticketTiers: validTiers,
+        seatingConfig: newEventForm.seatingConfig,
         totalCapacity: totalCap,
-        eventDate: newEventForm.date,
-        eventTime: newEventForm.time,
-        isDbEvent: true
+        eventDate: newEventForm.date ? `${newEventForm.date}T${newEventForm.time || '19:00'}:00` : '',
+        date: newEventForm.date,
+        eventTime: newEventForm.time || '19:00',
+        time: newEventForm.time || '19:00',
+        isDbEvent: true,
       }
 
       setAlbumList((prev) => [createdItem, ...prev])
+      setMyEventsList((prev) => [createdItem, ...prev])
       setCenterIndex(0)
       fetchLiveEvents()
       setEventFeedback({ type: 'success', text: 'Event successfully created in database and live on EXVO!' })
@@ -964,8 +1542,9 @@ function App() {
           venue: '',
           ticketTiers: [
             { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
+            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
           ],
+          seatingConfig: createDefaultSeatingConfig(),
           coverImage: '',
           description: '',
         })
@@ -985,17 +1564,19 @@ function App() {
       title: event.title || '',
       artistOrOrganizer: event.artistOrOrganizer || event.subtitle || '',
       category: event.category || 'Concert',
-      date: event.eventDate || '',
-      time: event.eventTime || '19:00',
+      date: formatDateForInput(event.eventDate || event.date || ''),
+      time: extractTimeFromEvent(event),
       venue: event.venue || '',
-      ticketTiers: event.ticketTiers && event.ticketTiers.length > 0 ? event.ticketTiers.map((t) => ({
-        id: String(t.id || Date.now()),
-        name: t.name || 'Pass',
-        price: String(t.price || 0),
-        quantity: String(t.quantity || 100)
-      })) : [
-        { id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }
-      ],
+      ticketTiers:
+        event.ticketTiers && event.ticketTiers.length > 0
+          ? event.ticketTiers.map((t) => ({
+              id: String(t.id || Date.now()),
+              name: t.name || 'Pass',
+              price: String(t.price || 0),
+              quantity: String(t.quantity || 100),
+            }))
+          : [{ id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }],
+      seatingConfig: event.seatingConfig || createDefaultSeatingConfig(),
       coverImage: event.cover || '',
       description: event.description || '',
     })
@@ -1004,30 +1585,50 @@ function App() {
   }
 
   const handleAddTicketTierInEdit = () => {
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: [
-        ...prev.ticketTiers,
-        { id: String(Date.now()), name: '', price: '', quantity: '100' }
-      ]
-    }))
+    setEditEventForm((prev) => {
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleRemoveTicketTierInEdit = (tierId) => {
     if (editEventForm.ticketTiers.length <= 1) return
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.filter((t) => t.id !== tierId)
-    }))
+    setEditEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleUpdateTicketTierInEdit = (tierId, field, value) => {
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.map((t) =>
-        t.id === tierId ? { ...t, [field]: value } : t
-      )
-    }))
+    setEditEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones =
+        autoSync && (field === 'name' || field === 'price')
+          ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+          : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones },
+      }
+    })
   }
 
   const handleEditEventCoverUpload = (e) => {
@@ -1085,6 +1686,7 @@ function App() {
         time: editEventForm.time || '19:00',
         venue: editEventForm.venue.trim(),
         ticketTiers: validTiers,
+        seatingConfig: editEventForm.seatingConfig,
         coverImage: editEventForm.coverImage || null,
         description: editEventForm.description?.trim() || null,
       }
@@ -1095,22 +1697,49 @@ function App() {
         prev.map((e) =>
           e.id === editingEventId
             ? {
-              ...e,
-              title: payload.title,
-              subtitle: payload.artistOrOrganizer,
-              artistOrOrganizer: payload.artistOrOrganizer,
-              category: payload.category,
-              venue: payload.venue,
-              minPrice: minPrice,
-              cover: payload.coverImage || e.cover,
-              eventDate: payload.date,
-              eventTime: payload.time,
-              description: payload.description,
-              ticketTiers: validTiers,
-              totalCapacity: totalCap,
-            }
-            : e
-        )
+                ...e,
+                title: payload.title,
+                subtitle: payload.artistOrOrganizer,
+                artistOrOrganizer: payload.artistOrOrganizer,
+                category: payload.category,
+                venue: payload.venue,
+                minPrice: minPrice,
+                cover: payload.coverImage || e.cover,
+                eventDate: `${payload.date}T${payload.time}:00`,
+                date: payload.date,
+                eventTime: payload.time,
+                time: payload.time,
+                description: payload.description,
+                ticketTiers: validTiers,
+                seatingConfig: payload.seatingConfig,
+                totalCapacity: totalCap,
+              }
+            : e,
+        ),
+      )
+      setMyEventsList((prev) =>
+        prev.map((e) =>
+          e.id === editingEventId
+            ? {
+                ...e,
+                title: payload.title,
+                subtitle: payload.artistOrOrganizer,
+                artistOrOrganizer: payload.artistOrOrganizer,
+                category: payload.category,
+                venue: payload.venue,
+                minPrice: minPrice,
+                cover: payload.coverImage || e.cover,
+                eventDate: `${payload.date}T${payload.time}:00`,
+                date: payload.date,
+                eventTime: payload.time,
+                time: payload.time,
+                description: payload.description,
+                ticketTiers: validTiers,
+                seatingConfig: payload.seatingConfig,
+                totalCapacity: totalCap,
+              }
+            : e,
+        ),
       )
 
       await fetchLiveEvents()
@@ -1135,9 +1764,34 @@ function App() {
     try {
       await deleteEvent(eventId)
       setAlbumList((prev) => prev.filter((e) => e.id !== eventId))
+      setMyEventsList((prev) => prev.filter((e) => e.id !== eventId))
       await fetchLiveEvents()
     } catch (err) {
       alert(`Could not delete event: ${err.message || 'Error occurred'}`)
+    }
+  }
+
+  const handleToggleHideEvent = async (eventToToggle) => {
+    const isCurrentlyHidden = Boolean(eventToToggle.isHidden || getHiddenEventIds().includes(String(eventToToggle.id)))
+    const newHiddenState = !isCurrentlyHidden
+
+    if (newHiddenState) {
+      addHiddenEventId(eventToToggle.id)
+    } else {
+      removeHiddenEventId(eventToToggle.id)
+    }
+
+    setAlbumList((prev) =>
+      prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
+    )
+    setMyEventsList((prev) =>
+      prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
+    )
+
+    try {
+      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState })
+    } catch (err) {
+      console.warn('Failed to update event visibility via backend API:', err)
     }
   }
 
@@ -1226,6 +1880,43 @@ function App() {
     }
   }
 
+  const handleDeleteAccount = async () => {
+    setIsDeletingAccount(true)
+    try {
+      await deleteUserAccount()
+      setAuthState(readAuthState())
+      setProfilePanelOpen(false)
+      setShowDeleteConfirm(false)
+      alert('Your account has been deleted successfully.')
+    } catch (err) {
+      alert(err.message || 'Could not delete account.')
+    } finally {
+      setIsDeletingAccount(false)
+    }
+  }
+
+  const handleOpenEventDetails = (event) => {
+    let tiers = event?.ticketTiers
+    if (typeof tiers === 'string') {
+      try {
+        tiers = JSON.parse(tiers)
+      } catch {}
+    }
+    if ((!tiers || !Array.isArray(tiers) || tiers.length === 0) && event?.ticketTiersJson) {
+      try {
+        tiers = typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson
+      } catch {}
+    }
+    setSelectedDetailEvent({
+      ...event,
+      ticketTiers: Array.isArray(tiers) ? tiers : [],
+    })
+  }
+
+  const handleCloseEventDetails = () => {
+    setSelectedDetailEvent(null)
+  }
+
   const handleOpenBooking = (event) => {
     if (!authState.isAuthenticated) {
       setAuthInitialMode('login')
@@ -1238,21 +1929,34 @@ function App() {
     setBookingSuccess(false)
   }
 
-  // Auto-advance carousel every 3.5 s; pauses on hover
+  // Public events visible to attendees (excludes hidden events)
+  const publicEvents = albumList.filter((e) => !e.isHidden && !getHiddenEventIds().includes(String(e.id)))
+
+  // Show ONLY latest public database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
+  const carouselEvents = publicEvents.slice(0, 7)
+
+  // Ensure centerIndex stays within bounds when carouselEvents changes
   useEffect(() => {
-    if (isPaused) return
+    if (carouselEvents.length > 0 && centerIndex >= carouselEvents.length) {
+      setCenterIndex(0)
+    }
+  }, [carouselEvents.length, centerIndex])
+
+  // Auto-advance carousel every 3.5 s continuously; pauses on hover
+  useEffect(() => {
+    if (isPaused || carouselEvents.length <= 1) return
     autoplayRef.current = setInterval(() => {
-      setCenterIndex((prev) => (prev < albumList.length - 1 ? prev + 1 : 0))
+      setCenterIndex((prev) => (prev < carouselEvents.length - 1 ? prev + 1 : 0))
     }, 3500)
     return () => clearInterval(autoplayRef.current)
-  }, [isPaused, albumList.length])
+  }, [isPaused, carouselEvents.length])
 
   // Reset autoplay timer on manual navigation
   const resetAutoplay = () => {
     clearInterval(autoplayRef.current)
-    if (!isPaused) {
+    if (!isPaused && carouselEvents.length > 1) {
       autoplayRef.current = setInterval(() => {
-        setCenterIndex((prev) => (prev < albumList.length - 1 ? prev + 1 : 0))
+        setCenterIndex((prev) => (prev < carouselEvents.length - 1 ? prev + 1 : 0))
       }, 3500)
     }
   }
@@ -1280,13 +1984,13 @@ function App() {
       if (video.currentTime >= endTime) {
         video.currentTime = startTime
       }
-    };
+    }
 
     const handleCanPlay = () => {
       if (video.currentTime < startTime) {
         video.currentTime = startTime
       }
-    };
+    }
 
     video.addEventListener('timeupdate', handleTimeUpdate)
     video.addEventListener('canplay', handleCanPlay)
@@ -1301,12 +2005,13 @@ function App() {
     }
   }, [])
 
-  // Show ONLY latest database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
-  const carouselEvents = albumList.slice(0, 7)
-
   const getCardClass = (index) => {
-    if (carouselEvents.length <= 1) return 'card-center'
-    const offset = index - centerIndex
+    const len = carouselEvents.length
+    if (len <= 1) return 'card-center'
+    let offset = (index - centerIndex) % len
+    if (offset > len / 2) offset -= len
+    if (offset < -len / 2) offset += len
+
     if (offset === 0) return 'card-center'
     if (offset === -1) return 'card-left-1'
     if (offset === -2) return 'card-left-2'
@@ -1329,14 +2034,12 @@ function App() {
     resetAutoplay()
   }
 
-  const activeAlbum = carouselEvents[centerIndex] || carouselEvents[0] || null
-
   const categoryDefinitions = [
-    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.5)', icon: '🔥' },
-    { id: 'Concert', label: 'Concert', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
-    { id: 'Festival', label: 'Festival', glow: 'rgba(238,9,121,0.35)', icon: '🎪' },
-    { id: 'Live Session', label: 'Live Session', glow: 'rgba(225,0,255,0.35)', icon: '🎤' },
-    { id: 'DJ Night', label: 'DJ Night', glow: 'rgba(0,180,219,0.35)', icon: '🎧' },
+    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)', icon: '🔥' },
+    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
+    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)', icon: '🎪' },
+    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)', icon: '🎤' },
+    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)', icon: '🎧' },
     { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)', icon: '🪕' },
     { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)', icon: '🎙️' },
     { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)', icon: '⚡' },
@@ -1346,12 +2049,12 @@ function App() {
     if (cat.id === 'all') {
       return {
         ...cat,
-        count: `${albumList.length} ${albumList.length === 1 ? 'Event' : 'Events'}`,
-        image: albumList[0]?.cover || null,
-        realCount: albumList.length,
+        count: `${publicEvents.length} ${publicEvents.length === 1 ? 'Event' : 'Events'}`,
+        image: publicEvents[0]?.cover || null,
+        realCount: publicEvents.length,
       }
     }
-    const matching = albumList.filter((e) => {
+    const matching = publicEvents.filter((e) => {
       const eCat = (e.category || (e.trackCount ? e.trackCount.split('•')[0].trim() : '') || '').toLowerCase()
       return eCat.includes(cat.id.toLowerCase())
     })
@@ -1363,12 +2066,17 @@ function App() {
     }
   })
 
-  const filteredEvents = albumList.filter((event) => {
-    const matchesCategory = !activeCategory || activeCategory === 'all' ||
-      (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '').toLowerCase().includes(activeCategory.toLowerCase())
+  const filteredEvents = publicEvents.filter((event) => {
+    const matchesCategory =
+      !activeCategory ||
+      activeCategory === 'all' ||
+      (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '')
+        .toLowerCase()
+        .includes(activeCategory.toLowerCase())
 
     const query = categorySearchQuery.trim().toLowerCase()
-    const matchesSearch = !query ||
+    const matchesSearch =
+      !query ||
       (event.title || '').toLowerCase().includes(query) ||
       (event.artistOrOrganizer || event.subtitle || '').toLowerCase().includes(query) ||
       (event.venue || '').toLowerCase().includes(query) ||
@@ -1392,8 +2100,10 @@ function App() {
   }
 
   return (
-    <div id="home" className="min-h-screen bg-neutral-950 text-white relative overflow-hidden flex flex-col justify-between font-sans">
-
+    <div
+      id="home"
+      className="min-h-screen bg-neutral-950 text-white relative overflow-hidden flex flex-col justify-between font-sans"
+    >
       {/* Background video - black & white, auto-play, loops from 0:06 to 0:21 */}
       <video
         ref={videoRef}
@@ -1410,7 +2120,6 @@ function App() {
 
       {/* Header / Navbar */}
       <header className="relative z-50 flex items-center justify-between px-6 md:px-12 py-6">
-
         {/* Left Side: EXVO Logo */}
         <div onClick={() => scrollToSection('home')} className="flex items-center gap-3 cursor-pointer select-none">
           <ExvoLogo />
@@ -1428,7 +2137,15 @@ function App() {
               onClick={() => setOrganizerDashboardOpen(true)}
               title="Open Organizer Dashboard"
             >
-              <svg className="w-4 h-4 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                className="w-4 h-4 text-red-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <rect x="3" y="3" width="7" height="7" />
                 <rect x="14" y="3" width="7" height="7" />
                 <rect x="14" y="14" width="7" height="7" />
@@ -1445,7 +2162,15 @@ function App() {
               onClick={() => setShowAddEventModal(true)}
               title="Create / Add New Event"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -1477,7 +2202,10 @@ function App() {
                       className="profile-compact-avatar"
                       title="View full profile"
                       aria-label="View full profile"
-                      onClick={() => { setProfilePanelOpen(true); setProfileMenuOpen(false) }}
+                      onClick={() => {
+                        setProfilePanelOpen(true)
+                        setProfileMenuOpen(false)
+                      }}
                     >
                       {userDetails.profilePicture ? (
                         <img src={userDetails.profilePicture} alt={userDetails.name} className="profile-avatar__img" />
@@ -1492,14 +2220,21 @@ function App() {
                       role="button"
                       tabIndex={0}
                       title="Click to view full profile"
-                      onClick={() => { setProfilePanelOpen(true); setProfileMenuOpen(false) }}
+                      onClick={() => {
+                        setProfilePanelOpen(true)
+                        setProfileMenuOpen(false)
+                      }}
                     >
                       <strong className="profile-compact-name">{userDetails.name}</strong>
                       <span className="profile-compact-email">{userDetails.email}</span>
                       <div className="profile-compact-badge-wrap">
-                        <span className={`role-pill ${(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'role-pill--organizer' : 'role-pill--attendee'}`}>
+                        <span
+                          className={`role-pill ${userDetails.role === 'Organizer' || userDetails.role === 'Company' ? 'role-pill--organizer' : 'role-pill--attendee'}`}
+                        >
                           <span className="role-pill__dot" />
-                          {(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'ORGANIZER' : 'TICKET BOOKING'}
+                          {userDetails.role === 'Organizer' || userDetails.role === 'Company'
+                            ? 'ORGANIZER'
+                            : 'TICKET BOOKING'}
                         </span>
                       </div>
                     </div>
@@ -1512,7 +2247,14 @@ function App() {
                       aria-label="Logout"
                       onClick={handleLogout}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                         <polyline points="16 17 21 12 16 7" />
                         <line x1="21" y1="12" x2="9" y2="12" />
@@ -1569,44 +2311,41 @@ function App() {
           {/* Overlay Menu Items */}
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
-              ? (isOrganizer
+              ? isOrganizer
                 ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
-                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT'])
-              : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']).map((link) => (
-                <button
-                  key={link}
-                  onClick={() => {
-                    if (link === 'HOME') scrollToSection('home')
-                    else if (link === 'EVENTS') scrollToSection('events')
-                    else if (link === 'DASHBOARD') {
-                      setMobileMenuOpen(false)
-                      setOrganizerDashboardOpen(true)
-                    }
-                    else if (link === 'ADD EVENT') {
-                      setMobileMenuOpen(false)
-                      setShowAddEventModal(true)
-                    }
-                    else if (link === 'ABOUT US') scrollToSection('about-us')
-                    else if (link === 'CONTACT') scrollToSection('contact-us')
-                    else if (link === 'LOGIN') {
-                      setMobileMenuOpen(false)
-                      setShowAuth(true)
-                      setAuthInitialMode('login')
-                    }
-                    else if (link === 'PROFILE') {
-                      setMobileMenuOpen(false)
-                      setProfilePanelOpen(true)
-                    }
-                    else if (link === 'LOGOUT') {
-                      setMobileMenuOpen(false)
-                      handleLogout()
-                    }
-                  }}
-                  className="nav-overlay-item group"
-                >
-                  <span className="nav-overlay-label">{link}</span>
-                </button>
-              ))}
+                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+              : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
+            ).map((link) => (
+              <button
+                key={link}
+                onClick={() => {
+                  if (link === 'HOME') scrollToSection('home')
+                  else if (link === 'EVENTS') scrollToSection('events')
+                  else if (link === 'DASHBOARD') {
+                    setMobileMenuOpen(false)
+                    setOrganizerDashboardOpen(true)
+                  } else if (link === 'ADD EVENT') {
+                    setMobileMenuOpen(false)
+                    setShowAddEventModal(true)
+                  } else if (link === 'ABOUT US') scrollToSection('about-us')
+                  else if (link === 'CONTACT') scrollToSection('contact-us')
+                  else if (link === 'LOGIN') {
+                    setMobileMenuOpen(false)
+                    setShowAuth(true)
+                    setAuthInitialMode('login')
+                  } else if (link === 'PROFILE') {
+                    setMobileMenuOpen(false)
+                    setProfilePanelOpen(true)
+                  } else if (link === 'LOGOUT') {
+                    setMobileMenuOpen(false)
+                    handleLogout()
+                  }
+                }}
+                className="nav-overlay-item group"
+              >
+                <span className="nav-overlay-label">{link}</span>
+              </button>
+            ))}
           </div>
 
           {/* Overlay Footer Ribbon */}
@@ -1621,8 +2360,21 @@ function App() {
       )}
 
       {profilePanelOpen && (
-        <div className="profile-panel-backdrop" role="presentation" onClick={() => { setProfilePanelOpen(false); setIsEditingProfile(false); }}>
-          <section className="profile-panel" role="dialog" aria-modal="true" aria-labelledby="profile-title" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="profile-panel-backdrop"
+          role="presentation"
+          onClick={() => {
+            setProfilePanelOpen(false)
+            setIsEditingProfile(false)
+          }}
+        >
+          <section
+            className="profile-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             {/* Ambient Sci-Fi Corner Brackets */}
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
@@ -1631,7 +2383,10 @@ function App() {
               className="profile-panel__close"
               type="button"
               aria-label="Close profile"
-              onClick={() => { setProfilePanelOpen(false); setIsEditingProfile(false); }}
+              onClick={() => {
+                setProfilePanelOpen(false)
+                setIsEditingProfile(false)
+              }}
             >
               ×
             </button>
@@ -1645,9 +2400,13 @@ function App() {
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping inline-block mr-1.5" />
                     EXVO ID // 2026
                   </span>
-                  <span className={`role-pill ${(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'role-pill--organizer' : 'role-pill--attendee'}`}>
+                  <span
+                    className={`role-pill ${userDetails.role === 'Organizer' || userDetails.role === 'Company' ? 'role-pill--organizer' : 'role-pill--attendee'}`}
+                  >
                     <span className="role-pill__dot" />
-                    {(userDetails.role === 'Organizer' || userDetails.role === 'Company') ? 'ORGANIZER' : 'TICKET BOOKING'}
+                    {userDetails.role === 'Organizer' || userDetails.role === 'Company'
+                      ? 'ORGANIZER'
+                      : 'TICKET BOOKING'}
                   </span>
                 </div>
 
@@ -1669,7 +2428,15 @@ function App() {
                     aria-label="Change Profile Photo"
                     onClick={handleStartEditProfile}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-3.5 h-3.5"
+                    >
                       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                       <circle cx="12" cy="13" r="4" />
                     </svg>
@@ -1678,9 +2445,19 @@ function App() {
 
                 {/* Name & Email */}
                 <div className="profile-header-info">
-                  <h2 id="profile-title" className="profile-user-name">{userDetails.name}</h2>
+                  <h2 id="profile-title" className="profile-user-name">
+                    {userDetails.name}
+                  </h2>
                   <div className="profile-email-chip">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-red-500">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-3.5 h-3.5 text-red-500"
+                    >
                       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                       <polyline points="22,6 12,13 2,6" />
                     </svg>
@@ -1692,7 +2469,15 @@ function App() {
                 <div className="profile-tiles-grid">
                   <div className="profile-tile">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                         <circle cx="12" cy="7" r="4" />
                       </svg>
@@ -1703,7 +2488,15 @@ function App() {
 
                   <div className="profile-tile">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                       </svg>
                       <span className="profile-tile-label">PHONE</span>
@@ -1719,7 +2512,15 @@ function App() {
 
                   <div className="profile-tile profile-tile--full">
                     <div className="profile-tile-header">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-tile-icon"
+                      >
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                         <circle cx="12" cy="10" r="3" />
                       </svg>
@@ -1737,7 +2538,15 @@ function App() {
                   {userDetails.companyName && userDetails.companyName !== userDetails.name && (
                     <div className="profile-tile">
                       <div className="profile-tile-header">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="profile-tile-icon"
+                        >
                           <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
                           <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
                         </svg>
@@ -1750,7 +2559,15 @@ function App() {
                   {userDetails.companyRegNumber && (
                     <div className="profile-tile">
                       <div className="profile-tile-header">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-tile-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="profile-tile-icon"
+                        >
                           <line x1="4" y1="9" x2="20" y2="9" />
                           <line x1="4" y1="15" x2="20" y2="15" />
                           <line x1="10" y1="3" x2="8" y2="21" />
@@ -1765,25 +2582,84 @@ function App() {
 
                 {/* Actions */}
                 <div className="profile-action-row">
-                  <button
-                    className="profile-btn-primary"
-                    type="button"
-                    onClick={handleStartEditProfile}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <button className="profile-btn-primary" type="button" onClick={handleStartEditProfile}>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4"
+                    >
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                     </svg>
                     <span>EDIT PROFILE</span>
                   </button>
                   <button className="profile-btn-logout" type="button" onClick={handleLogout}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4"
+                    >
                       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                       <polyline points="16 17 21 12 16 7" />
                       <line x1="21" y1="12" x2="9" y2="12" />
                     </svg>
                     <span>LOGOUT</span>
                   </button>
+                </div>
+
+                {/* Delete Account */}
+                <div className="profile-delete-zone">
+                  {!showDeleteConfirm ? (
+                    <button className="profile-btn-delete-acc" type="button" onClick={() => setShowDeleteConfirm(true)}>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                      <span>DELETE ACCOUNT</span>
+                    </button>
+                  ) : (
+                    <div className="profile-delete-confirm-box">
+                      <p className="text-xs text-red-400 font-semibold mb-2 text-center">
+                        Are you sure you want to permanently delete your account?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="profile-btn-confirm-delete"
+                          disabled={isDeletingAccount}
+                          onClick={handleDeleteAccount}
+                        >
+                          {isDeletingAccount ? 'DELETING...' : 'YES, DELETE'}
+                        </button>
+                        <button
+                          type="button"
+                          className="profile-btn-cancel-delete"
+                          disabled={isDeletingAccount}
+                          onClick={() => setShowDeleteConfirm(false)}
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1817,7 +2693,15 @@ function App() {
 
                   <div className="profile-upload-actions">
                     <label htmlFor="profile-pic-upload" className="profile-upload-trigger">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4"
+                      >
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
@@ -1832,11 +2716,7 @@ function App() {
                       onChange={handleProfileImageChange}
                     />
                     {profileForm.profilePicture && (
-                      <button
-                        type="button"
-                        className="profile-btn-clear-photo"
-                        onClick={handleRemoveProfileImage}
-                      >
+                      <button type="button" className="profile-btn-clear-photo" onClick={handleRemoveProfileImage}>
                         Remove Photo
                       </button>
                     )}
@@ -1846,9 +2726,19 @@ function App() {
                 {/* Form Fields */}
                 <div className="profile-form-grid">
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-name">FULL NAME</label>
+                    <label className="profile-field-label" htmlFor="edit-name">
+                      FULL NAME
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                         <circle cx="12" cy="7" r="4" />
                       </svg>
@@ -1864,9 +2754,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-email">EMAIL ADDRESS</label>
+                    <label className="profile-field-label" htmlFor="edit-email">
+                      EMAIL ADDRESS
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
                         <polyline points="22,6 12,13 2,6" />
                       </svg>
@@ -1882,9 +2782,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-phone">PHONE NUMBER</label>
+                    <label className="profile-field-label" htmlFor="edit-phone">
+                      PHONE NUMBER
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
                       </svg>
                       <input
@@ -1898,9 +2808,19 @@ function App() {
                   </div>
 
                   <div className="profile-field">
-                    <label className="profile-field-label" htmlFor="edit-address">ADDRESS</label>
+                    <label className="profile-field-label" htmlFor="edit-address">
+                      ADDRESS
+                    </label>
                     <div className="profile-field-input-shell">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="profile-field-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="profile-field-icon"
+                      >
                         <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                         <circle cx="12" cy="10" r="3" />
                       </svg>
@@ -1916,17 +2836,15 @@ function App() {
                 </div>
 
                 {profileFeedback.text && (
-                  <div className={`profile-feedback-badge ${profileFeedback.type === 'success' ? 'profile-feedback--success' : 'profile-feedback--error'}`}>
+                  <div
+                    className={`profile-feedback-badge ${profileFeedback.type === 'success' ? 'profile-feedback--success' : 'profile-feedback--error'}`}
+                  >
                     {profileFeedback.text}
                   </div>
                 )}
 
                 <div className="profile-action-row">
-                  <button
-                    className="profile-btn-primary"
-                    type="submit"
-                    disabled={profileSaving}
-                  >
+                  <button className="profile-btn-primary" type="submit" disabled={profileSaving}>
                     {profileSaving ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -1940,7 +2858,10 @@ function App() {
                     className="profile-btn-discard"
                     type="button"
                     disabled={profileSaving}
-                    onClick={() => { setIsEditingProfile(false); setProfileFeedback({ type: '', text: '' }); }}
+                    onClick={() => {
+                      setIsEditingProfile(false)
+                      setProfileFeedback({ type: '', text: '' })
+                    }}
                   >
                     CANCEL
                   </button>
@@ -1954,7 +2875,13 @@ function App() {
       {/* ══════════════ ORGANIZER ADD EVENT MODAL ══════════════ */}
       {showAddEventModal && (
         <div className="profile-panel-backdrop" role="presentation" onClick={() => setShowAddEventModal(false)}>
-          <section className="profile-panel add-event-panel" role="dialog" aria-modal="true" aria-labelledby="add-event-title" onClick={(e) => e.stopPropagation()}>
+          <section
+            className="profile-panel add-event-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-event-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
 
@@ -1979,14 +2906,20 @@ function App() {
             </div>
 
             <div className="add-event-header">
-              <h2 id="add-event-title" className="profile-user-name">Create Live Event</h2>
-              <p className="text-xs text-neutral-400">Publish your concert or festival directly to the EXVO ecosystem</p>
+              <h2 id="add-event-title" className="profile-user-name">
+                Create Live Event
+              </h2>
+              <p className="text-xs text-neutral-400">
+                Publish your concert or festival directly to the EXVO ecosystem
+              </p>
             </div>
 
             <form onSubmit={handleCreateEvent} className="add-event-form space-y-3 mt-4 text-left">
               {/* Event Title */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT TITLE *</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT TITLE *
+                </label>
                 <input
                   type="text"
                   required
@@ -2000,7 +2933,9 @@ function App() {
               {/* Artist / Band / Subtitle & Category Row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">PERFORMER / ARTIST</label>
+                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                    PERFORMER / ARTIST
+                  </label>
                   <input
                     type="text"
                     placeholder="e.g. Sarith Surith & News"
@@ -2010,12 +2945,16 @@ function App() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">CATEGORY</label>
+                  <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                    CATEGORY
+                  </label>
                   <select
                     value={newEventForm.categoryId || newEventForm.category}
                     onChange={(e) => {
                       const selectedVal = e.target.value
-                      const found = dbCategories.find((c) => String(c.id) === String(selectedVal) || c.name === selectedVal)
+                      const found = dbCategories.find(
+                        (c) => String(c.id) === String(selectedVal) || c.name === selectedVal,
+                      )
                       if (found) {
                         setNewEventForm({ ...newEventForm, categoryId: found.id, category: found.name })
                       } else {
@@ -2037,7 +2976,15 @@ function App() {
               <div className="add-event-section-box">
                 <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                   <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                    <svg className="w-3.5 h-3.5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      className="w-3.5 h-3.5 text-red-500"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                       <line x1="16" y1="2" x2="16" y2="6" />
                       <line x1="8" y1="2" x2="8" y2="6" />
@@ -2075,16 +3022,26 @@ function App() {
                 {/* Quick Date Presets */}
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                   <span className="text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Quick:</span>
-                  <button type="button" onClick={() => handleSetQuickDate(1)} className="add-event-quick-chip">Tomorrow</button>
-                  <button type="button" onClick={() => handleSetQuickDate(7)} className="add-event-quick-chip">+1 Week</button>
-                  <button type="button" onClick={() => handleSetQuickDate(14)} className="add-event-quick-chip">+2 Weeks</button>
-                  <button type="button" onClick={() => handleSetQuickDate(30)} className="add-event-quick-chip">+1 Month</button>
+                  <button type="button" onClick={() => handleSetQuickDate(1)} className="add-event-quick-chip">
+                    Tomorrow
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(7)} className="add-event-quick-chip">
+                    +1 Week
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(14)} className="add-event-quick-chip">
+                    +2 Weeks
+                  </button>
+                  <button type="button" onClick={() => handleSetQuickDate(30)} className="add-event-quick-chip">
+                    +1 Month
+                  </button>
                 </div>
               </div>
 
               {/* Venue / Location */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">VENUE / LOCATION *</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  VENUE / LOCATION *
+                </label>
                 <input
                   type="text"
                   required
@@ -2100,18 +3057,24 @@ function App() {
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <svg className="w-3.5 h-3.5 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        className="w-3.5 h-3.5 text-red-500"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z" />
                       </svg>
                       TICKET PRICING & CATEGORIES *
                     </label>
-                    <p className="text-[10px] text-neutral-400">Add multiple price tiers (VIP, General, Early Bird, etc.)</p>
+                    <p className="text-[10px] text-neutral-400">
+                      Add multiple price tiers (VIP, General, Early Bird, etc.)
+                    </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleAddTicketTier}
-                    className="add-event-add-tier-btn"
-                  >
+                  <button type="button" onClick={handleAddTicketTier} className="add-event-add-tier-btn">
                     + Add Category
                   </button>
                 </div>
@@ -2165,7 +3128,13 @@ function App() {
                             className="add-event-tier-remove-btn"
                             title="Remove category"
                           >
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              className="w-4 h-4"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <line x1="18" y1="6" x2="6" y2="18" />
                               <line x1="6" y1="6" x2="18" y2="18" />
                             </svg>
@@ -2196,25 +3165,373 @@ function App() {
                 {/* Tier Summary Footer */}
                 <div className="add-event-tiers-summary">
                   <span>
-                    Total Capacity: <strong>{newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets</strong>
+                    Total Capacity:{' '}
+                    <strong>
+                      {newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets
+                    </strong>
                   </span>
                   <span>
-                    Price: <strong>
-                      {newEventForm.ticketTiers.filter(t => Number(t.price) > 0).length > 0
-                        ? `LKR ${Math.min(...newEventForm.ticketTiers.map(t => Number(t.price) || 0)).toLocaleString()} - ${Math.max(...newEventForm.ticketTiers.map(t => Number(t.price) || 0)).toLocaleString()}`
+                    Price:{' '}
+                    <strong>
+                      {newEventForm.ticketTiers.filter((t) => Number(t.price) > 0).length > 0
+                        ? `LKR ${Math.min(...newEventForm.ticketTiers.map((t) => Number(t.price) || 0)).toLocaleString()} - ${Math.max(...newEventForm.ticketTiers.map((t) => Number(t.price) || 0)).toLocaleString()}`
                         : 'Set prices above'}
                     </strong>
                   </span>
                 </div>
               </div>
 
+              {/* ── Visual Reserved Seating Layout Builder ── */}
+              <div className="add-event-section-box">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
+                      <span className="text-red-500 text-sm">💺</span>
+                      RESERVED SEATING LAYOUT & PLAN
+                    </label>
+                    <p className="text-[10px] text-neutral-400">
+                      Configure interactive seat arrangement, zones & blocked seats
+                    </p>
+                  </div>
+
+                  {/* Toggle Enable/Disable */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const curr = newEventForm.seatingConfig || createDefaultSeatingConfig()
+                      setNewEventForm((prev) => ({
+                        ...prev,
+                        seatingConfig: { ...curr, enabled: !curr.enabled },
+                      }))
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                      newEventForm.seatingConfig?.enabled
+                        ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border border-white/10 text-neutral-400'
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${newEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`}
+                    />
+                    {newEventForm.seatingConfig?.enabled
+                      ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
+                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                  </button>
+                </div>
+
+                <div
+                  className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${
+                    newEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                      : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{newEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
+                    <span>
+                      {newEventForm.seatingConfig?.enabled
+                        ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
+                        : 'Seating chart is hidden from attendees. Attendees will purchase standard ticket categories.'}
+                    </span>
+                  </div>
+                </div>
+
+                {newEventForm.seatingConfig?.enabled && (
+                  <div className="space-y-4 pt-2 border-t border-white/10">
+                    {/* Configuration Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">STAGE / SCREEN LABEL</label>
+                        <input
+                          type="text"
+                          value={newEventForm.seatingConfig.stageLabel || 'SCREEN'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setNewEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val },
+                            }))
+                          }}
+                          placeholder="e.g. SCREEN or MAIN STAGE"
+                          className="contact-input !py-1.5 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
+                        <select
+                          onChange={(e) => {
+                            const preset = e.target.value
+                            let newZones = newEventForm.seatingConfig.zones
+                            if (preset === 'standard') {
+                              newZones = createDefaultSeatingConfig().zones
+                            } else if (preset === 'vip_general') {
+                              newZones = [
+                                {
+                                  id: 'z1',
+                                  name: 'VIP FRONT ROW',
+                                  price: 5000,
+                                  rows: ['A', 'B'],
+                                  seatsPerRow: 10,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'GENERAL ARENA',
+                                  price: 2500,
+                                  rows: ['C', 'D', 'E', 'F'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
+                              ]
+                            } else if (preset === 'theater') {
+                              newZones = [
+                                {
+                                  id: 'z1',
+                                  name: 'ORCHESTRA',
+                                  price: 4000,
+                                  rows: ['A', 'B', 'C', 'D'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'MEZZANINE',
+                                  price: 2500,
+                                  rows: ['E', 'F', 'G'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z3',
+                                  name: 'BALCONY',
+                                  price: 1500,
+                                  rows: ['H', 'I', 'J'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
+                              ]
+                            }
+                            setNewEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones },
+                            }))
+                          }}
+                          className="contact-input !py-1.5 text-xs"
+                        >
+                          <option value="standard">Standard Cinema (Classic / Premium / Superior)</option>
+                          <option value="vip_general">Concert Arena (VIP Front Row / General Arena)</option>
+                          <option value="theater">Theater Hall (Orchestra / Mezzanine / Balcony)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Zone Editor List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 uppercase flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>SEATING ZONES & PRICE TIERS</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const synced = syncSeatingZonesWithTicketTiers(
+                                newEventForm.ticketTiers,
+                                newEventForm.seatingConfig?.zones || [],
+                              )
+                              setNewEventForm((prev) => ({
+                                ...prev,
+                                seatingConfig: { ...prev.seatingConfig, zones: synced },
+                              }))
+                            }}
+                            className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
+                            title="Click to sync zone names and prices with Ticket Categories above"
+                          >
+                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextId = `zone-${Date.now()}`
+                            const nextLetter = String.fromCharCode(65 + newEventForm.seatingConfig.zones.length * 3)
+                            const newZone = {
+                              id: nextId,
+                              name: 'NEW ZONE',
+                              price: 2000,
+                              rows: [nextLetter],
+                              seatsPerRow: 10,
+                              occupiedSeats: [],
+                            }
+                            setNewEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: {
+                                ...prev.seatingConfig,
+                                zones: [...prev.seatingConfig.zones, newZone],
+                              },
+                            }))
+                          }}
+                          className="text-red-400 hover:text-red-300 cursor-pointer"
+                        >
+                          + Add Zone
+                        </button>
+                      </div>
+
+                      {newEventForm.seatingConfig.zones.map((zone, zIdx) => (
+                        <div
+                          key={zone.id || zIdx}
+                          className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2"
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
+                              <input
+                                type="text"
+                                value={zone.name}
+                                onChange={(e) => {
+                                  const name = e.target.value
+                                  setNewEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, name } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs font-bold"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">PRICE (LKR)</span>
+                              <input
+                                type="number"
+                                value={zone.price}
+                                onChange={(e) => {
+                                  const price = Number(e.target.value) || 0
+                                  setNewEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, price } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <input
+                                type="text"
+                                value={(zone.rows || []).join(', ')}
+                                onChange={(e) => {
+                                  const rows = e.target.value
+                                    .split(',')
+                                    .map((r) => r.trim().toUpperCase())
+                                    .filter(Boolean)
+                                  setNewEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="25"
+                                  value={zone.seatsPerRow}
+                                  onChange={(e) => {
+                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setNewEventForm((prev) => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.map((z, i) =>
+                                          i === zIdx ? { ...z, seatsPerRow } : z,
+                                        ),
+                                      },
+                                    }))
+                                  }}
+                                  className="contact-input !py-1 text-xs"
+                                />
+                              </div>
+                              {newEventForm.seatingConfig.zones.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewEventForm((prev) => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx),
+                                      },
+                                    }))
+                                  }}
+                                  className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
+                                  title="Remove Zone"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Seating Layout Visual Live Preview Component! */}
+                    <div className="mt-4 pt-3 border-t border-white/10">
+                      <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
+                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                      </span>
+                      <SeatingChartComponent
+                        seatingConfig={newEventForm.seatingConfig}
+                        isOrganizerEdit={true}
+                        onToggleOccupied={(seatId) => {
+                          setNewEventForm((prev) => {
+                            const currentConfig = prev.seatingConfig
+                            const updatedZones = currentConfig.zones.map((z) => {
+                              const isOccupied = z.occupiedSeats?.includes(seatId)
+                              let newOccupied
+                              if (isOccupied) {
+                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
+                              } else {
+                                newOccupied = [...(z.occupiedSeats || []), seatId]
+                              }
+                              return { ...z, occupiedSeats: newOccupied }
+                            })
+                            return {
+                              ...prev,
+                              seatingConfig: { ...currentConfig, zones: updatedZones },
+                            }
+                          })
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Event Cover Image Upload */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT BANNER / COVER POSTER</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT BANNER / COVER POSTER
+                </label>
                 <div className="add-event-banner-wrap">
                   {newEventForm.coverImage ? (
                     <div className="add-event-banner-preview">
-                      <img src={newEventForm.coverImage} alt="Cover preview" className="w-full h-32 object-cover rounded-xl border border-red-500/50 shadow-lg shadow-red-950/50" />
+                      <img
+                        src={newEventForm.coverImage}
+                        alt="Cover preview"
+                        className="w-full h-32 object-cover rounded-xl border border-red-500/50 shadow-lg shadow-red-950/50"
+                      />
                       <button
                         type="button"
                         onClick={() => setNewEventForm({ ...newEventForm, coverImage: '' })}
@@ -2225,19 +3542,22 @@ function App() {
                     </div>
                   ) : (
                     <label className="add-event-banner-dropzone">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6 text-red-500 mb-1.5">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        className="w-6 h-6 text-red-500 mb-1.5"
+                      >
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                         <polyline points="17 8 12 3 7 8" />
                         <line x1="12" y1="3" x2="12" y2="15" />
                       </svg>
-                      <span className="text-xs text-neutral-200 font-semibold font-['Orbitron']">Upload Event Poster</span>
+                      <span className="text-xs text-neutral-200 font-semibold font-['Orbitron']">
+                        Upload Event Poster
+                      </span>
                       <span className="text-[10px] text-neutral-400">PNG, JPG or WEBP (Optimized auto-fit)</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleEventCoverUpload}
-                        className="hidden"
-                      />
+                      <input type="file" accept="image/*" onChange={handleEventCoverUpload} className="hidden" />
                     </label>
                   )}
                 </div>
@@ -2245,7 +3565,9 @@ function App() {
 
               {/* Description */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT DESCRIPTION</label>
+                <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">
+                  EVENT DESCRIPTION
+                </label>
                 <textarea
                   rows={2}
                   placeholder="Gate opening times, special rules, VIP benefits..."
@@ -2256,17 +3578,15 @@ function App() {
               </div>
 
               {eventFeedback.text && (
-                <div className={`p-2.5 rounded-lg text-xs font-semibold ${eventFeedback.type === 'error' ? 'bg-red-950/70 border border-red-500/50 text-red-300' : 'bg-green-950/70 border border-green-500/50 text-green-300'}`}>
+                <div
+                  className={`p-2.5 rounded-lg text-xs font-semibold ${eventFeedback.type === 'error' ? 'bg-red-950/70 border border-red-500/50 text-red-300' : 'bg-green-950/70 border border-green-500/50 text-green-300'}`}
+                >
                   {eventFeedback.text}
                 </div>
               )}
 
               <div className="pt-2 flex gap-3">
-                <button
-                  type="submit"
-                  disabled={eventPublishing}
-                  className="profile-btn-primary flex-1 !py-3"
-                >
+                <button type="submit" disabled={eventPublishing} className="profile-btn-primary flex-1 !py-3">
                   {eventPublishing ? (
                     <span className="flex items-center justify-center gap-2">
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -2281,11 +3601,7 @@ function App() {
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAddEventModal(false)}
-                  className="profile-btn-logout !px-4"
-                >
+                <button type="button" onClick={() => setShowAddEventModal(false)} className="profile-btn-logout !px-4">
                   Cancel
                 </button>
               </div>
@@ -2297,7 +3613,13 @@ function App() {
       {/* ══════════════ TICKET BOOKING MODAL ══════════════ */}
       {bookingModalEvent && (
         <div className="profile-panel-backdrop" role="presentation" onClick={() => setBookingModalEvent(null)}>
-          <section className="profile-panel booking-modal-panel" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title" onClick={(e) => e.stopPropagation()}>
+          <section
+            className="profile-panel booking-modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="cyber-bracket cyber-bracket--tl" />
             <div className="cyber-bracket cyber-bracket--br" />
 
@@ -2324,11 +3646,7 @@ function App() {
                 </div>
 
                 <div className="booking-modal-hero">
-                  <img
-                    src={bookingModalEvent.cover}
-                    alt={bookingModalEvent.title}
-                    className="booking-modal-cover"
-                  />
+                  <img src={bookingModalEvent.cover} alt={bookingModalEvent.title} className="booking-modal-cover" />
                   <div className="text-left">
                     <span className="event-category-pill mb-2 inline-block">
                       {bookingModalEvent.category || 'CONCERT'}
@@ -2339,11 +3657,11 @@ function App() {
                     <p className="text-xs text-red-400 font-['Orbitron'] mt-1">
                       {bookingModalEvent.artistOrOrganizer || bookingModalEvent.subtitle}
                     </p>
-                    <p className="text-[11px] text-neutral-400 mt-1.5">
-                      📍 {bookingModalEvent.venue || 'Sri Lanka'}
-                    </p>
+                    <p className="text-[11px] text-neutral-400 mt-1.5">📍 {bookingModalEvent.venue || 'Sri Lanka'}</p>
                     <p className="text-[11px] text-neutral-400">
-                      📅 {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}
+                      📅{' '}
+                      {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
+                        bookingModalEvent.year}
                     </p>
                   </div>
                 </div>
@@ -2356,7 +3674,9 @@ function App() {
                   {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
                     <div className="space-y-2">
                       {bookingModalEvent.ticketTiers.map((tier, idx) => {
-                        const isSelected = (selectedTier?.id ? selectedTier.id === tier.id : selectedTier?.name === tier.name) || (!selectedTier && idx === 0)
+                        const isSelected =
+                          (selectedTier?.id ? selectedTier.id === tier.id : selectedTier?.name === tier.name) ||
+                          (!selectedTier && idx === 0)
                         return (
                           <div
                             key={tier.id || idx}
@@ -2365,7 +3685,9 @@ function App() {
                           >
                             <div className="flex items-center justify-between">
                               <div>
-                                <div className="font-bold text-sm text-white font-['Orbitron']">{tier.name || `Tier ${idx + 1}`}</div>
+                                <div className="font-bold text-sm text-white font-['Orbitron']">
+                                  {tier.name || `Tier ${idx + 1}`}
+                                </div>
                                 {tier.description && (
                                   <div className="text-[10px] text-neutral-400 mt-0.5">{tier.description}</div>
                                 )}
@@ -2426,12 +3748,62 @@ function App() {
                   </div>
                 </div>
 
+                {/* Interactive Reserved Seating Layout (if enabled for this event) */}
+                {bookingModalEvent.seatingConfig?.enabled && (
+                  <div className="mt-5 text-left">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="text-amber-400">💺</span>
+                        SELECT YOUR SEATS
+                      </label>
+                      {selectedSeats.length > 0 && (
+                        <span className="text-[10px] text-amber-400 font-mono font-bold">
+                          {selectedSeats.length} {selectedSeats.length === 1 ? 'Seat' : 'Seats'} Selected (
+                          {selectedSeats.join(', ')})
+                        </span>
+                      )}
+                    </div>
+
+                    <SeatingChartComponent
+                      seatingConfig={bookingModalEvent.seatingConfig}
+                      isOrganizerEdit={false}
+                      selectedSeats={selectedSeats}
+                      onSelectSeat={(seatId) => {
+                        let next
+                        if (selectedSeats.includes(seatId)) {
+                          next = selectedSeats.filter((s) => s !== seatId)
+                        } else {
+                          next = [...selectedSeats, seatId]
+                        }
+                        setSelectedSeats(next)
+                        setTicketQuantity(Math.max(1, next.length))
+                      }}
+                    />
+                  </div>
+                )}
+
                 {/* Total Summary */}
                 <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
                   <div className="text-left">
-                    <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
+                    <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">
+                      Total Payable
+                    </span>
                     <div className="text-xl font-black text-white font-['Orbitron']">
-                      LKR {(Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity).toLocaleString()}
+                      LKR{' '}
+                      {bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0
+                        ? selectedSeats
+                            .reduce((total, seatId) => {
+                              let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
+                              bookingModalEvent.seatingConfig.zones?.forEach((z) => {
+                                const row = seatId.charAt(0)
+                                if (z.rows?.includes(row)) p = Number(z.price || p)
+                              })
+                              return total + p
+                            }, 0)
+                            .toLocaleString()
+                        : (
+                            Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity
+                          ).toLocaleString()}
                     </div>
                   </div>
 
@@ -2440,6 +3812,23 @@ function App() {
                     onClick={() => {
                       setBookingSubmitting(true)
                       setTimeout(() => {
+                        if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
+                          const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
+                            const newOccupied = Array.from(new Set([...(z.occupiedSeats || []), ...selectedSeats]))
+                            return { ...z, occupiedSeats: newOccupied }
+                          })
+                          const updatedSeatingConfig = { ...bookingModalEvent.seatingConfig, zones: updatedZones }
+                          setAlbumList((prev) =>
+                            prev.map((e) =>
+                              e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e,
+                            ),
+                          )
+                          setMyEventsList((prev) =>
+                            prev.map((e) =>
+                              e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e,
+                            ),
+                          )
+                        }
                         setBookingSubmitting(false)
                         setBookingSuccess(true)
                       }, 600)
@@ -2468,7 +3857,8 @@ function App() {
                 </div>
                 <h3 className="text-xl font-black text-white font-['Orbitron'] uppercase">RESERVATION CONFIRMED!</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-                  Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved in the EXVO network.
+                  Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved
+                  in the EXVO network.
                 </p>
 
                 {/* Digital Ticket Pass Card */}
@@ -2478,8 +3868,12 @@ function App() {
 
                   <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
                     <div>
-                      <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">EXVO DIGITAL PASS</div>
-                      <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">{bookingModalEvent.title}</div>
+                      <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">
+                        EXVO DIGITAL PASS
+                      </div>
+                      <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">
+                        {bookingModalEvent.title}
+                      </div>
                     </div>
                     <div className="text-right">
                       <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
@@ -2491,19 +3885,28 @@ function App() {
                   <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
                     <div>
                       <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER</span>
-                      <strong className="text-white font-['Orbitron']">{selectedTier?.name || 'General Admission'}</strong>
+                      <strong className="text-white font-['Orbitron']">
+                        {selectedTier?.name || 'General Admission'}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-[9px] text-neutral-500 block font-['Orbitron']">QUANTITY</span>
-                      <strong className="text-white font-['Orbitron']">{ticketQuantity} {ticketQuantity === 1 ? 'Pass' : 'Passes'}</strong>
+                      <strong className="text-white font-['Orbitron']">
+                        {ticketQuantity} {ticketQuantity === 1 ? 'Pass' : 'Passes'}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
-                      <strong className="text-white text-[11px]">{formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}</strong>
+                      <strong className="text-white text-[11px]">
+                        {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
+                          bookingModalEvent.year}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
-                      <strong className="text-white text-[11px] truncate block">{bookingModalEvent.venue || 'Colombo'}</strong>
+                      <strong className="text-white text-[11px] truncate block">
+                        {bookingModalEvent.venue || 'Colombo'}
+                      </strong>
                     </div>
                   </div>
 
@@ -2512,7 +3915,10 @@ function App() {
                       REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
                     </div>
                     <div className="text-xs font-black text-red-400 font-['Orbitron']">
-                      LKR {(Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity).toLocaleString()}
+                      LKR{' '}
+                      {(
+                        Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity
+                      ).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -2534,16 +3940,13 @@ function App() {
 
       {/* Main Hero View */}
       <main className="relative z-10 flex-grow flex flex-col items-center justify-center px-4 pt-4 pb-8 max-w-7xl mx-auto w-full">
-
         {/* Central Band Title: SARITH x NEWS */}
         <div className="text-center space-y-4 mb-6 md:mb-10 select-none">
           <h1 className="flex items-center justify-center gap-4 flex-wrap">
             <span className="font-extrabold text-5xl md:text-8xl tracking-tight leading-none text-white scale-y-105">
               UPCOMING
             </span>
-            <span className="text-2xl md:text-4xl text-[#FF0000] font-light self-center">
-
-            </span>
+            <span className="text-2xl md:text-4xl text-[#FF0000] font-light self-center"></span>
             <span className="font-['Orbitron'] font-black text-5xl md:text-8xl tracking-[0.1em] leading-none text-white">
               EVENTS
             </span>
@@ -2581,14 +3984,14 @@ function App() {
                     key={album.id || index}
                     onClick={() => {
                       if (isCenter) {
-                        handleOpenBooking(album)
+                        handleOpenEventDetails(album)
                       } else {
                         setCenterIndex(index)
                         resetAutoplay()
                       }
                     }}
                     className={`carousel-card ${cardClass} group cursor-pointer`}
-                    title={isCenter ? `Click to book: ${album.title}` : album.title}
+                    title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
                     {album.cover ? (
                       <img
@@ -2652,24 +4055,31 @@ function App() {
             <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-xl flex items-center justify-center mx-auto mb-3">
               🎪
             </div>
-            <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">No Database Events Yet</h3>
-            <p className="text-[11px] text-neutral-400">Organizers can add live events using the "Add Event" button above.</p>
+            <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">
+              No Database Events Yet
+            </h3>
+            <p className="text-[11px] text-neutral-400">
+              Organizers can add live events using the "Add Event" button above.
+            </p>
           </div>
         )}
-
-
 
         {/* Event Category Explore Section */}
         <div id="events" className="w-full mt-10 md:mt-14 px-2 scroll-mt-24">
           <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
             <div>
               <p className="text-[10px] tracking-[0.3em] text-[#FF0000] uppercase font-bold mb-1">Browse</p>
-              <h2 className="text-xl md:text-2xl font-black tracking-wider uppercase text-white font-['Orbitron']">Explore by Category</h2>
+              <h2 className="text-xl md:text-2xl font-black tracking-wider uppercase text-white font-['Orbitron']">
+                Explore by Category
+              </h2>
             </div>
 
             <div className="flex items-center gap-3">
               {/* Expanding Animated Search Bar */}
-              <div ref={categorySearchContainerRef} className={`category-search-bar-wrap ${isCategorySearchOpen ? 'is-open' : ''}`}>
+              <div
+                ref={categorySearchContainerRef}
+                className={`category-search-bar-wrap ${isCategorySearchOpen ? 'is-open' : ''}`}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -2763,12 +4173,7 @@ function App() {
                 >
                   {/* Photo or Cyber Gradient Icon background */}
                   {cat.image ? (
-                    <img
-                      src={cat.image}
-                      alt={cat.label}
-                      className="category-card__photo"
-                      draggable="false"
-                    />
+                    <img src={cat.image} alt={cat.label} className="category-card__photo" draggable="false" />
                   ) : (
                     <div className="category-card__photo flex items-center justify-center bg-gradient-to-b from-[#1c0808] via-[#100505] to-[#080202]">
                       <span className="text-3xl filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
@@ -2808,41 +4213,56 @@ function App() {
               </div>
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
-                  <>EXPLORE <span className="text-[#FF0000]">{activeCategory}</span> EVENTS</>
+                  <>
+                    EXPLORE <span className="text-[#FF0000]">{activeCategory}</span> EVENTS
+                  </>
                 ) : (
-                  <>ALL UPCOMING <span className="text-[#FF0000]">EXPERIENCES</span></>
+                  <>
+                    ALL UPCOMING <span className="text-[#FF0000]">EXPERIENCES</span>
+                  </>
                 )}
               </h2>
               <p className="text-neutral-400 text-xs mt-1">
-                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
+                Showing {showAllEventsInGrid ? filteredEvents.length : Math.min(12, filteredEvents.length)} of{' '}
+                {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
                 {categorySearchQuery && (
                   <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
-                )}
-                {' '}• Real-time database sync
+                )}{' '}
+                • Real-time database sync
               </p>
             </div>
 
             {/* Category Filter Pills & Reset */}
             <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => setActiveCategory('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${!activeCategory || activeCategory === 'all'
-                  ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
-                  : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
-                  }`}
+                onClick={() => {
+                  setActiveCategory('all')
+                  setShowAllEventsInGrid(false)
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${
+                  !activeCategory || activeCategory === 'all'
+                    ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
+                    : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
+                }`}
               >
                 ALL ({albumList.length})
               </button>
               {['Concert', 'Festival', 'Live Session', 'DJ Night', 'Acoustic', 'Stand-Up'].map((catName) => {
-                const count = albumList.filter((e) => ((e.category || '').toLowerCase().includes(catName.toLowerCase()))).length
+                const count = albumList.filter((e) =>
+                  (e.category || '').toLowerCase().includes(catName.toLowerCase()),
+                ).length
                 return (
                   <button
                     key={catName}
-                    onClick={() => setActiveCategory(activeCategory === catName ? 'all' : catName)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${activeCategory === catName
-                      ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
-                      : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
-                      }`}
+                    onClick={() => {
+                      setActiveCategory(activeCategory === catName ? 'all' : catName)
+                      setShowAllEventsInGrid(false)
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${
+                      activeCategory === catName
+                        ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
+                        : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
+                    }`}
                   >
                     {catName.toUpperCase()} {count > 0 && `(${count})`}
                   </button>
@@ -2853,82 +4273,149 @@ function App() {
 
           {/* Events Grid */}
           {filteredEvents.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredEvents.map((event, idx) => {
-                const eventPrice = Number(event.minPrice || 0)
-                const dateDisplay = event.eventDate || event.year || '2026'
-                return (
-                  <div
-                    key={event.id || idx}
-                    className="event-cyber-card group"
-                  >
-                    <div className="event-cyber-card__poster-box">
-                      <img
-                        src={event.cover}
-                        alt={event.title}
-                        className="event-cyber-card__poster"
-                        loading="lazy"
-                      />
-                      <div className="event-cyber-card__poster-overlay" />
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {(showAllEventsInGrid ? filteredEvents : filteredEvents.slice(0, 12)).map((event, idx) => {
+                  const eventPrice = Number(event.minPrice || 0)
+                  const dateDisplay = event.eventDate || event.year || '2026'
+                  return (
+                    <div
+                      key={event.id || idx}
+                      onClick={() => handleOpenEventDetails(event)}
+                      className="event-cyber-card group cursor-pointer"
+                    >
+                      <div className="event-cyber-card__poster-box">
+                        <img src={event.cover} alt={event.title} className="event-cyber-card__poster" loading="lazy" />
+                        <div className="event-cyber-card__poster-overlay" />
 
-                      {/* Top Badges */}
-                      <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-                        <span className="event-category-pill">
-                          {event.category || 'CONCERT'}
-                        </span>
-                        <span className="event-live-status-pill">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                          AVAILABLE
-                        </span>
-                      </div>
-
-                      {/* Corner Accents */}
-                      <div className="cyber-bracket cyber-bracket--tl" />
-                      <div className="cyber-bracket cyber-bracket--br" />
-                    </div>
-
-                    <div className="event-cyber-card__content">
-                      <div className="text-[10px] text-red-500 font-['Orbitron'] font-bold tracking-widest uppercase mb-1">
-                        {event.artistOrOrganizer || event.subtitle}
-                      </div>
-                      <h3 className="text-lg font-bold text-white font-['Orbitron'] group-hover:text-red-400 transition-colors line-clamp-1">
-                        {event.title}
-                      </h3>
-
-                      <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
-                        <div className="flex items-center gap-2">
-                          <span className="text-red-500">📅</span>
-                          <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
+                        {/* Top Badges */}
+                        <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
+                          <span className="event-category-pill">{event.category || 'CONCERT'}</span>
+                          <span className="event-live-status-pill">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                            AVAILABLE
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-red-500">📍</span>
-                          <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
-                        </div>
+
+                        {/* Corner Accents */}
+                        <div className="cyber-bracket cyber-bracket--tl" />
+                        <div className="cyber-bracket cyber-bracket--br" />
                       </div>
 
-                      <div className="event-cyber-card__footer">
-                        <div>
-                          <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">Passes From</div>
-                          <div className="text-sm md:text-base font-black text-white font-['Orbitron']">
-                            {eventPrice > 0 ? `LKR ${eventPrice.toLocaleString()}` : 'FREE PASS'}
+                      <div className="event-cyber-card__content">
+                        <div className="text-[10px] text-red-500 font-['Orbitron'] font-bold tracking-widest uppercase mb-1">
+                          {event.artistOrOrganizer || event.subtitle}
+                        </div>
+                        <h3 className="text-lg font-bold text-white font-['Orbitron'] group-hover:text-red-400 transition-colors line-clamp-1">
+                          {event.title}
+                        </h3>
+
+                        <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
+                          <div className="flex items-center gap-2">
+                            <svg
+                              className="w-3.5 h-3.5 text-red-500 shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                              />
+                            </svg>
+                            <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <svg
+                              className="w-3.5 h-3.5 text-red-500 shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
+                            </svg>
+                            <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleOpenBooking(event)}
-                          className="event-book-btn"
-                        >
-                          <span>BOOK PASS</span>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                          </svg>
-                        </button>
+                        <div className="event-cyber-card__footer">
+                          <div>
+                            <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">
+                              Passes From
+                            </div>
+                            <div className="text-sm md:text-base font-black text-white font-['Orbitron']">
+                              {eventPrice > 0 ? `LKR ${eventPrice.toLocaleString()}` : 'FREE PASS'}
+                            </div>
+                          </div>
+
+                          <button onClick={() => handleOpenEventDetails(event)} className="event-book-btn">
+                            <span>VIEW</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+
+              {/* View All Events Button (only if more than 12 events exist) */}
+              {filteredEvents.length > 12 && (
+                <div className="flex flex-col items-center justify-center mt-10 md:mt-14">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllEventsInGrid((prev) => !prev)}
+                    className="group relative inline-flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-red-800 hover:from-red-600 hover:to-red-700 text-white font-['Orbitron'] font-extrabold text-xs tracking-widest uppercase transition-all duration-300 hover:scale-105 hover:shadow-[0_0_25px_rgba(255,0,0,0.6)] cursor-pointer border border-red-500/40 overflow-hidden"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {showAllEventsInGrid ? (
+                        <>
+                          <span>SHOW LESS</span>
+                          <svg
+                            className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 15l7-7 7 7" />
+                          </svg>
+                        </>
+                      ) : (
+                        <>
+                          <span>VIEW ALL ({filteredEvents.length}) EVENTS</span>
+                          <svg
+                            className="w-4 h-4 transition-transform duration-300 group-hover:translate-y-0.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </>
+                      )}
+                    </span>
+                    <span className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                  </button>
+                  <p className="text-[11px] text-neutral-400 font-sans mt-2.5">
+                    {showAllEventsInGrid
+                      ? `Showing all ${filteredEvents.length} events`
+                      : `Showing 12 of ${filteredEvents.length} live database events`}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-16 px-4 rounded-2xl bg-black/40 border border-white/10 my-6">
               <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-2xl flex items-center justify-center mx-auto mb-4">
@@ -2947,13 +4434,11 @@ function App() {
             </div>
           )}
         </section>
-
       </main>
 
       {/* ══════════════ ABOUT US SECTION ══════════════ */}
       <section id="about-us" className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20">
         <div className="max-w-7xl mx-auto">
-
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
@@ -2964,25 +4449,31 @@ function App() {
               REDEFINING LIVE <span className="text-[#FF0000]">EXPERIENCES</span>
             </h2>
             <p className="text-neutral-400 text-xs md:text-sm max-w-2xl mx-auto leading-relaxed tracking-wide">
-              EXVO is Sri Lanka's next-generation digital event platform. We connect music lovers, festival seekers, and artists with seamless booking and powerful organizer tools.
+              EXVO is Sri Lanka's next-generation digital event platform. We connect music lovers, festival seekers, and
+              artists with seamless booking and powerful organizer tools.
             </p>
           </div>
 
           {/* Vision & Features Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-
             {/* Feature 1 */}
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H9m4 0V5" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0h4m-4 0V11m0 0h4m-4 0H9m4 0V5"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 ORGANIZER HUB
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Comprehensive event management suite empowering companies and individual creators to list events, monitor real-time ticket sales, and manage check-ins effortlessly.
+                Comprehensive event management suite empowering companies and individual creators to list events,
+                monitor real-time ticket sales, and manage check-ins effortlessly.
               </p>
             </div>
 
@@ -2990,14 +4481,20 @@ function App() {
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 012 2 2 2 0 01-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 012-2V7a2 2 0 00-2-2H5z"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 SMART TICKETING
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Instant digital ticket issuance with secure QR codes. Fast, hassle-free checkout experience with complete protection against ticket duplication and fraud.
+                Instant digital ticket issuance with secure QR codes. Fast, hassle-free checkout experience with
+                complete protection against ticket duplication and fraud.
               </p>
             </div>
 
@@ -3005,17 +4502,22 @@ function App() {
             <div className="about-glass-card">
               <div className="about-card-icon">
                 <svg className="w-6 h-6 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                    d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"
+                  />
                 </svg>
               </div>
               <h3 className="text-lg font-bold font-['Orbitron'] text-white tracking-wide uppercase mb-2">
                 CURATED CONCERTS
               </h3>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                Discover Sri Lanka's finest live performances, acoustic shows, mega music festivals, and high-octane DJ nights curated specially for passionate fans.
+                Discover Sri Lanka's finest live performances, acoustic shows, mega music festivals, and high-octane DJ
+                nights curated specially for passionate fans.
               </p>
             </div>
-
           </div>
 
           {/* Live Stats Bar */}
@@ -3037,14 +4539,15 @@ function App() {
               <span className="stat-label">SUPPORT TEAM</span>
             </div>
           </div>
-
         </div>
       </section>
 
       {/* ══════════════ CONTACT US SECTION ══════════════ */}
-      <section id="contact-us" className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20">
+      <section
+        id="contact-us"
+        className="w-full py-16 md:py-24 px-4 border-t border-white/5 relative z-10 scroll-mt-20"
+      >
         <div className="max-w-7xl mx-auto">
-
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
@@ -3061,7 +4564,6 @@ function App() {
 
           {/* Form & Info Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
             {/* Contact Form Column (7 cols) */}
             <div className="lg:col-span-7 contact-form-card">
               {contactSubmitted ? (
@@ -3072,13 +4574,17 @@ function App() {
                     </svg>
                   </div>
                   <h4 className="text-lg font-bold font-['Orbitron'] text-white uppercase">MESSAGE TRANSMITTED</h4>
-                  <p className="text-xs text-neutral-400 mt-1">Thank you for reaching out! Our team will respond to your inquiry shortly.</p>
+                  <p className="text-xs text-neutral-400 mt-1">
+                    Thank you for reaching out! Our team will respond to your inquiry shortly.
+                  </p>
                 </div>
               ) : (
                 <form onSubmit={handleContactSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">YOUR NAME</label>
+                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                        YOUR NAME
+                      </label>
                       <input
                         type="text"
                         required
@@ -3089,7 +4595,9 @@ function App() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EMAIL ADDRESS</label>
+                      <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                        EMAIL ADDRESS
+                      </label>
                       <input
                         type="email"
                         required
@@ -3102,7 +4610,9 @@ function App() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">INQUIRY TYPE</label>
+                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                      INQUIRY TYPE
+                    </label>
                     <select
                       value={contactForm.subject}
                       onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
@@ -3116,7 +4626,9 @@ function App() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">YOUR MESSAGE</label>
+                    <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                      YOUR MESSAGE
+                    </label>
                     <textarea
                       rows={4}
                       required
@@ -3127,11 +4639,7 @@ function App() {
                     />
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={contactLoading}
-                    className="contact-submit-btn"
-                  >
+                  <button type="submit" disabled={contactLoading} className="contact-submit-btn">
                     {contactLoading ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -3141,7 +4649,12 @@ function App() {
                       <span className="flex items-center justify-center gap-2">
                         SEND MESSAGE
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M14 5l7 7m0 0l-7 7m7-7H3"
+                          />
                         </svg>
                       </span>
                     )}
@@ -3155,11 +4668,18 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">EMAIL SUPPORT</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    EMAIL SUPPORT
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">infodigexa@gmail.com</p>
                   <p className="text-xs text-neutral-400">exvo@gmail.com</p>
                 </div>
@@ -3168,12 +4688,24 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">HEADQUARTERS</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    HEADQUARTERS
+                  </h4>
 
                   <p className="text-xs text-neutral-400">Colombo 03, Sri Lanka</p>
                 </div>
@@ -3182,11 +4714,18 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">DIRECT HOTLINE</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    DIRECT HOTLINE
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">+94 70 167 5173</p>
                   <p className="text-xs text-neutral-400">+94 76 641 4622</p>
                 </div>
@@ -3195,25 +4734,29 @@ function App() {
               <div className="contact-info-card">
                 <div className="contact-info-icon">
                   <svg className="w-5 h-5 text-[#FF0000]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">OPERATING HOURS</h4>
+                  <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
+                    OPERATING HOURS
+                  </h4>
                   <p className="text-xs text-neutral-400 mt-1">Monday – Sunday: 8:00 AM – 10:00 PM</p>
                   <p className="text-xs text-red-500 font-semibold mt-0.5">Instant Digital Support 24/7</p>
                 </div>
               </div>
             </div>
-
           </div>
-
         </div>
       </section>
 
       {/* ══════════════ FOOTER ══════════════ */}
       <footer className="footer-root">
-
         {/* Spark canvas background */}
         <SparkCanvas />
 
@@ -3222,7 +4765,8 @@ function App() {
           <div className="footer-ticker__track">
             {[...Array(6)].map((_, i) => (
               <span key={i} className="footer-ticker__item">
-                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp; ACOUSTIC SHOWS &nbsp;✦&nbsp;
+                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp;
+                ACOUSTIC SHOWS &nbsp;✦&nbsp;
               </span>
             ))}
           </div>
@@ -3230,7 +4774,6 @@ function App() {
 
         {/* ── Main footer body ── */}
         <div className="footer-body">
-
           {/* Brand column */}
           <div className="footer-brand">
             <div className="footer-logo-row">
@@ -3240,7 +4783,8 @@ function App() {
               </span>
             </div>
             <p className="footer-tagline">
-              Sri Lanka's premier live event discovery platform.<br />
+              Sri Lanka's premier live event discovery platform.
+              <br />
               Find your next unforgettable experience.
             </p>
 
@@ -3248,7 +4792,15 @@ function App() {
             <div className="footer-socials">
               {/* Instagram */}
               <a href="#" aria-label="Instagram" className="footer-social-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4"
+                >
                   <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
                   <circle cx="12" cy="12" r="4" />
                   <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
@@ -3280,18 +4832,50 @@ function App() {
             <div className="footer-col">
               <h3 className="footer-col__heading">Navigate</h3>
               <ul className="footer-col__list">
-                <li><button onClick={() => scrollToSection('home')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Home</button></li>
-                <li><button onClick={() => scrollToSection('events')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Upcoming Events</button></li>
-                <li><button onClick={() => scrollToSection('about-us')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">About Us</button></li>
-                <li><button onClick={() => scrollToSection('contact-us')} className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left">Contact Us</button></li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('home')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Home
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('events')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Upcoming Events
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('about-us')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    About Us
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => scrollToSection('contact-us')}
+                    className="footer-link cursor-pointer border-0 bg-transparent p-0 text-left"
+                  >
+                    Contact Us
+                  </button>
+                </li>
               </ul>
             </div>
 
             <div className="footer-col">
               <h3 className="footer-col__heading">Connect</h3>
               <ul className="footer-col__list">
-                {['List Your Event', 'Become a Partner', 'Press & Media', 'Careers'].map(l => (
-                  <li key={l}><a href="#" className="footer-link">{l}</a></li>
+                {['List Your Event', 'Become a Partner', 'Press & Media', 'Careers'].map((l) => (
+                  <li key={l}>
+                    <a href="#" className="footer-link">
+                      {l}
+                    </a>
+                  </li>
                 ))}
               </ul>
             </div>
@@ -3299,8 +4883,12 @@ function App() {
             <div className="footer-col">
               <h3 className="footer-col__heading">Legal</h3>
               <ul className="footer-col__list">
-                {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'Refund Policy'].map(l => (
-                  <li key={l}><a href="#" className="footer-link">{l}</a></li>
+                {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'Refund Policy'].map((l) => (
+                  <li key={l}>
+                    <a href="#" className="footer-link">
+                      {l}
+                    </a>
+                  </li>
                 ))}
               </ul>
               <div className="footer-badge">
@@ -3313,24 +4901,17 @@ function App() {
 
         {/* ── Bottom bar ── */}
         <div className="footer-bottom">
-          <span className="footer-bottom__copy">
-            © {new Date().getFullYear()} EXVO. All rights reserved.
-          </span>
+          <span className="footer-bottom__copy">© {new Date().getFullYear()} EXVO. All rights reserved.</span>
           <span className="footer-bottom__divider" />
           <span className="footer-bottom__credit">
             Crafted with ♥ by&nbsp;<strong>Digexa</strong>
           </span>
         </div>
-
       </footer>
 
       {/* ══════════════ RIGHT-SIDE ORGANIZER DASHBOARD DRAWER ══════════════ */}
       {isOrganizer && organizerDashboardOpen && (
-        <div
-          className="organizer-drawer-backdrop"
-          role="presentation"
-          onClick={() => setOrganizerDashboardOpen(false)}
-        >
+        <div className="organizer-drawer-backdrop" role="presentation" onClick={() => setOrganizerDashboardOpen(false)}>
           <aside
             className="organizer-drawer-right"
             role="dialog"
@@ -3352,9 +4933,7 @@ function App() {
                   <h2 className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase">
                     ORGANIZER DASHBOARD
                   </h2>
-                  <p className="text-[11px] text-neutral-400 font-sans">
-                    View, Edit & Delete Live Database Events
-                  </p>
+                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Live Database Events</p>
                 </div>
               </div>
               <button
@@ -3371,12 +4950,12 @@ function App() {
             <div className="grid grid-cols-3 gap-2.5 my-4">
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL EVENTS</span>
-                <span className="dash-stat-val text-white">{albumList.length}</span>
+                <span className="dash-stat-val text-white">{myOrganizerEvents.length}</span>
               </div>
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL PASSES</span>
                 <span className="dash-stat-val text-red-400">
-                  {albumList.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
+                  {myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
                 </span>
               </div>
               <div className="dash-stat-card">
@@ -3415,72 +4994,161 @@ function App() {
 
             {/* Events List */}
             <div className="organizer-events-scroll space-y-3 pr-1">
-              {albumList.filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase())).length > 0 ? (
-                albumList
-                  .filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()))
-                  .map((evt) => (
-                    <div key={evt.id} className="dash-event-card group">
-                      <div className="flex items-start gap-3">
-                        {evt.cover ? (
-                          <img
-                            src={evt.cover}
-                            alt={evt.title}
-                            className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
-                            🎵
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="px-2 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-[9px] font-bold font-['Orbitron'] text-red-400 uppercase truncate">
-                              {evt.category || 'Concert'}
-                            </span>
-                            <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                              From LKR {Number(evt.minPrice || 0).toLocaleString()}
-                            </span>
-                          </div>
-                          <h4 className="text-sm font-bold text-white font-['Orbitron'] truncate group-hover:text-red-400 transition-colors">
-                            {evt.title}
-                          </h4>
-                          <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                            📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
-                          </p>
+              {loadingMyEvents ? (
+                <div className="text-center py-12 text-neutral-400 text-xs font-['Orbitron'] flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                  Loading your events...
+                </div>
+              ) : myOrganizerEvents.filter(
+                  (e) =>
+                    !dashboardSearch ||
+                    e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) ||
+                    e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()),
+                ).length > 0 ? (
+                myOrganizerEvents
+                  .filter(
+                    (e) =>
+                      !dashboardSearch ||
+                      e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) ||
+                      e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()),
+                  )
+                  .map((evt) => {
+                    const isEvtHidden = Boolean(evt.isHidden || getHiddenEventIds().includes(String(evt.id)))
+                    return (
+                      <div key={evt.id} className="dash-event-card group">
+                        <div className="flex items-start gap-3">
+                          {evt.cover ? (
+                            <img
+                              src={evt.cover}
+                              alt={evt.title}
+                              className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
+                              🎵
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                <span className="px-2 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-[9px] font-bold font-['Orbitron'] text-red-400 uppercase truncate">
+                                  {evt.category || 'Concert'}
+                                </span>
+                                {isEvtHidden && (
+                                  <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/50 text-[8.5px] font-bold font-['Orbitron'] text-amber-300 uppercase shrink-0">
+                                    HIDDEN
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-emerald-400 font-mono font-bold shrink-0">
+                                From LKR {Number(evt.minPrice || 0).toLocaleString()}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-bold text-white font-['Orbitron'] truncate group-hover:text-red-400 transition-colors">
+                              {evt.title}
+                            </h4>
+                            <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+                              📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
+                            </p>
 
-                          {/* Action Buttons: EDIT & DELETE */}
-                          <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-white/5">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEditEvent(evt)}
-                              className="dash-action-btn dash-action-btn--edit"
-                              title="Edit Event Details"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                              <span>EDIT</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEvent(evt.id, evt.title)}
-                              className="dash-action-btn dash-action-btn--delete"
-                              title="Delete Event from Database"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              <span>DELETE</span>
-                            </button>
+                            {/* Action Buttons: EDIT, HIDE/UNHIDE, & DELETE */}
+                            <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/5">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditEvent(evt)}
+                                className="dash-action-btn dash-action-btn--edit"
+                                title="Edit Event Details"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+                                  />
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                                  />
+                                </svg>
+                                <span>EDIT</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleHideEvent(evt)}
+                                className={`dash-action-btn ${
+                                  isEvtHidden
+                                    ? '!bg-emerald-950/60 !border-emerald-500/50 !text-emerald-300 hover:!bg-emerald-900/60'
+                                    : '!bg-amber-950/50 !border-amber-500/50 !text-amber-300 hover:!bg-amber-900/60'
+                                }`}
+                                title={isEvtHidden ? 'Make Event Publicly Visible' : 'Hide Event from Attendees'}
+                              >
+                                {isEvtHidden ? (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                    />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="2"
+                                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.025 10.025 0 013.122-.063c4.478 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.122M3 3l18 18"
+                                    />
+                                  </svg>
+                                )}
+                                <span>{isEvtHidden ? 'UNHIDE' : 'HIDE'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEvent(evt.id, evt.title)}
+                                className="dash-action-btn dash-action-btn--delete"
+                                title="Delete Event from Database"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="2"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                                <span>DELETE</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
               ) : (
-                <div className="text-center py-12 text-neutral-500 text-xs font-['Orbitron']">
-                  No events matching search criteria.
+                <div className="text-center py-12 text-neutral-500 text-xs font-['Orbitron'] px-4">
+                  {myOrganizerEvents.length === 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-neutral-400 font-bold">No events created by you yet.</p>
+                      <p className="text-[11px] text-neutral-500 font-sans">
+                        Click the <span className="text-red-400 font-bold">+ ADD</span> button above to list your first
+                        event!
+                      </p>
+                    </div>
+                  ) : (
+                    'No events matching search criteria.'
+                  )}
                 </div>
               )}
             </div>
@@ -3492,11 +5160,7 @@ function App() {
       {showEditEventModal && (
         <div className="add-event-backdrop" role="presentation" onClick={() => setShowEditEventModal(false)}>
           <div className="add-event-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className="add-event-modal__close"
-              onClick={() => setShowEditEventModal(false)}
-            >
+            <button type="button" className="add-event-modal__close" onClick={() => setShowEditEventModal(false)}>
               ×
             </button>
 
@@ -3516,7 +5180,9 @@ function App() {
             <form onSubmit={handleUpdateEventSubmit} className="space-y-4 mt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT TITLE *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    EVENT TITLE *
+                  </label>
                   <input
                     type="text"
                     required
@@ -3527,7 +5193,9 @@ function App() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">ARTIST OR ORGANIZER</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    ARTIST OR ORGANIZER
+                  </label>
                   <input
                     type="text"
                     placeholder="e.g. Exvo Entertainment"
@@ -3556,7 +5224,9 @@ function App() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">EVENT DATE *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    EVENT DATE *
+                  </label>
                   <input
                     type="date"
                     required
@@ -3577,7 +5247,9 @@ function App() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">VENUE / LOCATION *</label>
+                <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                  VENUE / LOCATION *
+                </label>
                 <input
                   type="text"
                   required
@@ -3593,7 +5265,11 @@ function App() {
                 <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">COVER IMAGE</label>
                 <div className="flex items-center gap-3">
                   {editEventForm.coverImage && (
-                    <img src={editEventForm.coverImage} alt="Cover Preview" className="w-12 h-12 rounded object-cover border border-white/20" />
+                    <img
+                      src={editEventForm.coverImage}
+                      alt="Cover Preview"
+                      className="w-12 h-12 rounded object-cover border border-white/20"
+                    />
                   )}
                   <input
                     type="file"
@@ -3607,7 +5283,9 @@ function App() {
               {/* Ticket Tiers */}
               <div className="space-y-2 pt-2 border-t border-white/10">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TICKET CATEGORIES & PRICING *</label>
+                  <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
+                    TICKET CATEGORIES & PRICING *
+                  </label>
                   <button
                     type="button"
                     onClick={handleAddTicketTierInEdit}
@@ -3652,6 +5330,344 @@ function App() {
                 ))}
               </div>
 
+              {/* ── Visual Reserved Seating Layout Builder (Edit Mode) ── */}
+              <div className="add-event-section-box mt-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
+                      <span className="text-red-500 text-sm">💺</span>
+                      RESERVED SEATING LAYOUT & PLAN
+                    </label>
+                    <p className="text-[10px] text-neutral-400">
+                      Configure interactive seat arrangement, zones & blocked seats
+                    </p>
+                  </div>
+
+                  {/* Toggle Enable/Disable */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const curr = editEventForm.seatingConfig || createDefaultSeatingConfig()
+                      setEditEventForm((prev) => ({
+                        ...prev,
+                        seatingConfig: { ...curr, enabled: !curr.enabled },
+                      }))
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                      editEventForm.seatingConfig?.enabled
+                        ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                        : 'bg-white/5 border border-white/10 text-neutral-400'
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${editEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`}
+                    />
+                    {editEventForm.seatingConfig?.enabled
+                      ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
+                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                  </button>
+                </div>
+
+                <div
+                  className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${
+                    editEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                      : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{editEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
+                    <span>
+                      {editEventForm.seatingConfig?.enabled
+                        ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
+                        : 'Seating chart is hidden from attendees. Attendees will purchase standard ticket categories.'}
+                    </span>
+                  </div>
+                </div>
+
+                {editEventForm.seatingConfig?.enabled && (
+                  <div className="space-y-4 pt-2 border-t border-white/10 text-left">
+                    {/* Configuration Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">STAGE / SCREEN LABEL</label>
+                        <input
+                          type="text"
+                          value={editEventForm.seatingConfig.stageLabel || 'SCREEN'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setEditEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val },
+                            }))
+                          }}
+                          placeholder="e.g. SCREEN or MAIN STAGE"
+                          className="contact-input !py-1.5 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
+                        <select
+                          onChange={(e) => {
+                            const preset = e.target.value
+                            let newZones = editEventForm.seatingConfig.zones
+                            if (preset === 'standard') {
+                              newZones = createDefaultSeatingConfig().zones
+                            } else if (preset === 'vip_general') {
+                              newZones = [
+                                {
+                                  id: 'z1',
+                                  name: 'VIP FRONT ROW',
+                                  price: 5000,
+                                  rows: ['A', 'B'],
+                                  seatsPerRow: 10,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'GENERAL ARENA',
+                                  price: 2500,
+                                  rows: ['C', 'D', 'E', 'F'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
+                              ]
+                            } else if (preset === 'theater') {
+                              newZones = [
+                                {
+                                  id: 'z1',
+                                  name: 'ORCHESTRA',
+                                  price: 4000,
+                                  rows: ['A', 'B', 'C', 'D'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z2',
+                                  name: 'MEZZANINE',
+                                  price: 2500,
+                                  rows: ['E', 'F', 'G'],
+                                  seatsPerRow: 14,
+                                  occupiedSeats: [],
+                                },
+                                {
+                                  id: 'z3',
+                                  name: 'BALCONY',
+                                  price: 1500,
+                                  rows: ['H', 'I', 'J'],
+                                  seatsPerRow: 12,
+                                  occupiedSeats: [],
+                                },
+                              ]
+                            }
+                            setEditEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones },
+                            }))
+                          }}
+                          className="contact-input !py-1.5 text-xs"
+                        >
+                          <option value="standard">Standard Cinema (Classic / Premium / Superior)</option>
+                          <option value="vip_general">Concert Arena (VIP Front Row / General Arena)</option>
+                          <option value="theater">Theater Hall (Orchestra / Mezzanine / Balcony)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Zone Editor List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 uppercase flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>SEATING ZONES & PRICE TIERS</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const synced = syncSeatingZonesWithTicketTiers(
+                                editEventForm.ticketTiers,
+                                editEventForm.seatingConfig?.zones || [],
+                              )
+                              setEditEventForm((prev) => ({
+                                ...prev,
+                                seatingConfig: { ...prev.seatingConfig, zones: synced },
+                              }))
+                            }}
+                            className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
+                            title="Click to sync zone names and prices with Ticket Categories above"
+                          >
+                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextId = `zone-${Date.now()}`
+                            const nextLetter = String.fromCharCode(65 + editEventForm.seatingConfig.zones.length * 3)
+                            const newZone = {
+                              id: nextId,
+                              name: 'NEW ZONE',
+                              price: 2000,
+                              rows: [nextLetter],
+                              seatsPerRow: 10,
+                              occupiedSeats: [],
+                            }
+                            setEditEventForm((prev) => ({
+                              ...prev,
+                              seatingConfig: {
+                                ...prev.seatingConfig,
+                                zones: [...prev.seatingConfig.zones, newZone],
+                              },
+                            }))
+                          }}
+                          className="text-red-400 hover:text-red-300 cursor-pointer"
+                        >
+                          + Add Zone
+                        </button>
+                      </div>
+
+                      {editEventForm.seatingConfig.zones.map((zone, zIdx) => (
+                        <div
+                          key={zone.id || zIdx}
+                          className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2"
+                        >
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
+                              <input
+                                type="text"
+                                value={zone.name}
+                                onChange={(e) => {
+                                  const name = e.target.value
+                                  setEditEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, name } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs font-bold"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">PRICE (LKR)</span>
+                              <input
+                                type="number"
+                                value={zone.price}
+                                onChange={(e) => {
+                                  const price = Number(e.target.value) || 0
+                                  setEditEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, price } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <input
+                                type="text"
+                                value={(zone.rows || []).join(', ')}
+                                onChange={(e) => {
+                                  const rows = e.target.value
+                                    .split(',')
+                                    .map((r) => r.trim().toUpperCase())
+                                    .filter(Boolean)
+                                  setEditEventForm((prev) => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                    },
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="25"
+                                  value={zone.seatsPerRow}
+                                  onChange={(e) => {
+                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setEditEventForm((prev) => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.map((z, i) =>
+                                          i === zIdx ? { ...z, seatsPerRow } : z,
+                                        ),
+                                      },
+                                    }))
+                                  }}
+                                  className="contact-input !py-1 text-xs"
+                                />
+                              </div>
+                              {editEventForm.seatingConfig.zones.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditEventForm((prev) => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx),
+                                      },
+                                    }))
+                                  }}
+                                  className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
+                                  title="Remove Zone"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Seating Layout Visual Live Preview Component! */}
+                    <div className="mt-4 pt-3 border-t border-white/10">
+                      <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
+                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                      </span>
+                      <SeatingChartComponent
+                        seatingConfig={editEventForm.seatingConfig}
+                        isOrganizerEdit={true}
+                        onToggleOccupied={(seatId) => {
+                          setEditEventForm((prev) => {
+                            const currentConfig = prev.seatingConfig
+                            const updatedZones = currentConfig.zones.map((z) => {
+                              const isOccupied = z.occupiedSeats?.includes(seatId)
+                              let newOccupied
+                              if (isOccupied) {
+                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
+                              } else {
+                                newOccupied = [...(z.occupiedSeats || []), seatId]
+                              }
+                              return { ...z, occupiedSeats: newOccupied }
+                            })
+                            return {
+                              ...prev,
+                              seatingConfig: { ...currentConfig, zones: updatedZones },
+                            }
+                          })
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Description */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">DESCRIPTION</label>
@@ -3665,7 +5681,9 @@ function App() {
               </div>
 
               {editEventFeedback.text && (
-                <div className={`p-3 rounded-xl text-xs font-bold ${editEventFeedback.type === 'error' ? 'bg-red-950/80 border border-red-500/50 text-red-300' : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'}`}>
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold ${editEventFeedback.type === 'error' ? 'bg-red-950/80 border border-red-500/50 text-red-300' : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300'}`}
+                >
                   {editEventFeedback.text}
                 </div>
               )}
@@ -3691,6 +5709,291 @@ function App() {
         </div>
       )}
 
+      {/* ══════════════ EVENT DETAILS VIEW MODAL ══════════════ */}
+      {selectedDetailEvent && (
+        <div
+          className="event-detail-modal-backdrop animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          onClick={handleCloseEventDetails}
+        >
+          <div className="event-detail-modal-card" onClick={(e) => e.stopPropagation()}>
+            {/* Cyber Brackets */}
+            <div className="cyber-bracket cyber-bracket--tl" />
+            <div className="cyber-bracket cyber-bracket--br" />
+
+            {/* Main Landscape Grid Container */}
+            <div className="grid grid-cols-1 md:grid-cols-12 h-full max-h-[85vh] overflow-hidden min-h-0">
+              {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
+              <div
+                className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10 shrink-0"
+                style={{ backgroundImage: `url(${selectedDetailEvent.cover || sarithImg})` }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
+
+                {/* Top Badges */}
+                <div className="relative z-10 flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-red-950/90 border border-red-500/60 text-red-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase shadow-md">
+                    {selectedDetailEvent.category || selectedDetailEvent.genre || 'LIVE EVENT'}
+                  </span>
+                  <span className="px-3 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase flex items-center gap-1.5 shadow-md">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    AVAILABLE NOW
+                  </span>
+                </div>
+
+                {/* Bottom Poster Details */}
+                <div className="relative z-10 mt-auto pt-6">
+                  <div className="text-[11px] text-red-400 font-['Orbitron'] font-bold tracking-widest uppercase mb-1 drop-shadow">
+                    FEATURED: {selectedDetailEvent.artistOrOrganizer || selectedDetailEvent.subtitle || 'EXVO LIVE'}
+                  </div>
+                  <h2 className="text-xl sm:text-3xl font-black font-['Orbitron'] text-white tracking-wide leading-tight drop-shadow-md mb-1">
+                    {selectedDetailEvent.title}
+                  </h2>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Info & Ticket Tiers (7 cols) */}
+              <div className="md:col-span-7 flex flex-col h-full bg-[#0a0a0c] overflow-hidden min-h-0">
+                {/* Header with Close button */}
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
+                  <div className="text-xs font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                    EVENT INFORMATION & PASSES
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseEventDetails}
+                    className="w-8 h-8 rounded-full bg-white/5 border border-white/10 hover:border-red-500 hover:bg-red-950/80 text-white hover:text-red-400 flex items-center justify-center text-sm transition-all cursor-pointer"
+                    aria-label="Close details"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Content Body */}
+                <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar min-h-0">
+                  {/* Info Tiles Grid */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                        DATE
+                      </div>
+                      <div className="text-xs font-bold text-white">
+                        {formatSelectedDate(selectedDetailEvent.eventDate, selectedDetailEvent.eventTime) ||
+                          selectedDetailEvent.date ||
+                          'Sep 26, 2026'}
+                      </div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        TIME
+                      </div>
+                      <div className="text-xs font-bold text-white">{extractTimeFromEvent(selectedDetailEvent)}</div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                        </svg>
+                        VENUE
+                      </div>
+                      <div className="text-xs font-bold text-white truncate" title={selectedDetailEvent.venue}>
+                        {selectedDetailEvent.venue || 'Colombo, Sri Lanka'}
+                      </div>
+                    </div>
+
+                    <div className="event-detail-info-tile">
+                      <div className="text-[10px] text-neutral-400 font-['Orbitron'] font-bold tracking-wider uppercase mb-0.5 flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2 2 2 0 010 4 2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 00-2-2 2 2 0 010-4 2 2 0 002-2V7a2 2 0 00-2-2H5z"
+                          />
+                        </svg>
+                        PRICE RANGE
+                      </div>
+                      <div className="text-xs font-bold text-red-400 font-['Orbitron']">
+                        {(() => {
+                          let tiers = selectedDetailEvent.ticketTiers
+                          if (typeof tiers === 'string') {
+                            try {
+                              tiers = JSON.parse(tiers)
+                            } catch {}
+                          }
+                          if (
+                            (!tiers || !Array.isArray(tiers) || tiers.length === 0) &&
+                            selectedDetailEvent.ticketTiersJson
+                          ) {
+                            try {
+                              tiers =
+                                typeof selectedDetailEvent.ticketTiersJson === 'string'
+                                  ? JSON.parse(selectedDetailEvent.ticketTiersJson)
+                                  : selectedDetailEvent.ticketTiersJson
+                            } catch {}
+                          }
+                          if (Array.isArray(tiers) && tiers.length > 0) {
+                            const prices = tiers.map((t) => Number(t.price) || 0).filter((p) => p > 0)
+                            if (prices.length > 0) {
+                              const minP = Math.min(...prices)
+                              const maxP = Math.max(...prices)
+                              if (minP < maxP) {
+                                return `LKR ${minP.toLocaleString()} - ${maxP.toLocaleString()}`
+                              }
+                              return `LKR ${minP.toLocaleString()}`
+                            }
+                          }
+                          return selectedDetailEvent.price
+                            ? `LKR ${Number(selectedDetailEvent.price).toLocaleString()}`
+                            : 'LKR 2,500'
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Event Overview / Description */}
+                  <div className="space-y-1.5 bg-white/[0.02] border border-white/10 rounded-xl p-3">
+                    <div className="text-[11px] font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      OVERVIEW
+                    </div>
+                    <p className="text-xs text-neutral-300 leading-relaxed font-sans whitespace-pre-line">
+                      {selectedDetailEvent.description ||
+                        `Experience an extraordinary live event featuring top performance artists, cutting-edge stage lighting, sound systems, and an unparalleled atmosphere. Secure your passes now to lock in your access to Sri Lanka's premiere event.`}
+                    </p>
+                  </div>
+
+                  {/* Ticket Categories & Pricing Tiers */}
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center justify-between">
+                      <span>AVAILABLE TICKET CATEGORIES</span>
+                      <span className="text-[9px] text-neutral-400 font-normal">LIMITED PASSES</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(() => {
+                        let tiers = selectedDetailEvent.ticketTiers
+                        if (typeof tiers === 'string') {
+                          try {
+                            tiers = JSON.parse(tiers)
+                          } catch {}
+                        }
+                        if (
+                          (!tiers || !Array.isArray(tiers) || tiers.length === 0) &&
+                          selectedDetailEvent.ticketTiersJson
+                        ) {
+                          try {
+                            tiers =
+                              typeof selectedDetailEvent.ticketTiersJson === 'string'
+                                ? JSON.parse(selectedDetailEvent.ticketTiersJson)
+                                : selectedDetailEvent.ticketTiersJson
+                          } catch {}
+                        }
+                        const finalTiers =
+                          Array.isArray(tiers) && tiers.length > 0
+                            ? tiers
+                            : [
+                                {
+                                  name: 'General Admission Pass',
+                                  price: selectedDetailEvent.price || 2500,
+                                  quantity: selectedDetailEvent.totalCapacity || 500,
+                                },
+                                {
+                                  name: 'VIP Priority Access Pass',
+                                  price: (selectedDetailEvent.price || 2500) * 2,
+                                  quantity: Math.round((selectedDetailEvent.totalCapacity || 500) * 0.2),
+                                },
+                              ]
+
+                        return finalTiers.map((tier, idx) => (
+                          <div key={idx} className="event-detail-tier-card">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-red-950/60 border border-red-500/40 flex items-center justify-center text-red-500 text-xs font-bold font-['Orbitron']">
+                                {idx + 1}
+                              </div>
+                              <div>
+                                <div className="text-xs font-bold font-['Orbitron'] text-white">
+                                  {tier.name || tier.tierName}
+                                </div>
+                                <div className="text-[10px] text-neutral-400">
+                                  Capacity: {tier.quantity || 200} passes available
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xs font-black font-['Orbitron'] text-red-400">
+                                LKR {(Number(tier.price) || 0).toLocaleString()}
+                              </div>
+                              <div className="text-[9px] text-emerald-400 font-bold uppercase">INSTANT ISSUANCE</div>
+                            </div>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bottom Actions Footer */}
+                <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 shrink-0 mt-auto">
+                  <button
+                    type="button"
+                    onClick={handleCloseEventDetails}
+                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-300 text-xs font-['Orbitron'] uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    CLOSE
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const eventToBook = selectedDetailEvent
+                      handleCloseEventDetails()
+                      handleOpenBooking(eventToBook)
+                    }}
+                    className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>GET TICKETS NOW</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
