@@ -2273,7 +2273,11 @@
 
 /* ── Add Event Modal Styles ── */
 .add-event-panel {
-  width: min(100%, 540px) !important;
+  width: min(100%, 740px) !important;
+}
+
+.booking-modal-panel {
+  width: min(100%, 740px) !important;
 }
 
 .add-event-header {
@@ -3176,6 +3180,9 @@
   position: relative;
   width: 100%;
   max-width: 1040px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   background: #0a0a0c;
   border: 1px solid rgba(255, 0, 0, 0.35);
   border-radius: 24px;
@@ -3246,6 +3253,23 @@
 .event-detail-tier-card:hover {
   border-color: rgba(255, 0, 0, 0.4);
   background: rgba(255, 0, 0, 0.04);
+}
+
+/* Custom Cyber Scrollbar for Modals and Containers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 0, 0, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 0, 0, 0.3);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {

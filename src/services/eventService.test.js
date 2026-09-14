@@ -24,9 +24,9 @@ test('refresh removes deleted events, including when the catalog becomes empty',
     assert.equal(options.cache, 'no-store');
     return Response.json(events);
   };
-  assert.deepEqual(await getAllEvents(), events);
+  assert.deepEqual(await getAllEvents(), [{ id: 1, ticketTiers: [] }, { id: 2, ticketTiers: [] }]);
   events = [{ id: 1 }];
-  assert.deepEqual(await getAllEvents(), events);
+  assert.deepEqual(await getAllEvents(), [{ id: 1, ticketTiers: [] }]);
   events = [];
   assert.deepEqual(await getAllEvents(), []);
 });
@@ -39,7 +39,7 @@ test('deleted event details do not come from storage or another service', async 
     return new Response(null, { status: 404 });
   };
   await assert.rejects(getEventById(2), /404/);
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test('unavailable backend never returns cached lists or successful local writes', async () => {

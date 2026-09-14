@@ -1,23 +1,63 @@
-const configuredApiBaseUrl = typeof import.meta.env === 'undefined' ? undefined : import.meta.env.VITE_API_BASE_URL;
-const API_BASE_URL = (configuredApiBaseUrl || 'http://localhost:5000').replace(/\/$/, '');
-const EVENTS_API_URL = `${API_BASE_URL}/api/events`;
-const CATEGORIES_API_URL = `${API_BASE_URL}/api/categories`;
+// Catalog service and gateway URLs
+const CANDIDATE_URLS = [
+  'http://localhost:5255/api/catalog/events',
+  'http://localhost:5000/api/catalog/events',
+];
+
+const CATEGORY_CANDIDATE_URLS = [
+  'http://localhost:5255/api/catalog/categories',
+  'http://localhost:5000/api/catalog/categories',
+];
+
+export const DEFAULT_CATEGORIES = [
+  { id: 1, name: 'Music & Concerts', description: 'Live music events and festivals' },
+  { id: 2, name: 'Concert', description: 'Concerts and live performances' },
+  { id: 3, name: 'Festival', description: 'Music and cultural festivals' },
+  { id: 4, name: 'Live Session', description: 'Intimate live sessions' },
+  { id: 5, name: 'DJ Night', description: 'EDM and DJ night events' },
+  { id: 6, name: 'Acoustic', description: 'Unplugged acoustic sets' },
+  { id: 7, name: 'Stand-Up', description: 'Comedy and stand-up shows' },
+  { id: 8, name: 'EDM Arena', description: 'Electronic dance music festivals' }
+];
 
 export const getCategories = async () => {
-  const response = await fetch(CATEGORIES_API_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    cache: 'no-store',
-  });
-  if (!response.ok) throw new Error(`Categories request failed (${response.status})`);
-  return response.json();
+  for (const url of CATEGORY_CANDIDATE_URLS) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        const categories = await response.json();
+        if (Array.isArray(categories) && categories.length > 0) {
+          return categories;
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not fetch categories from ${url}:`, err.message);
+    }
+  }
+  return DEFAULT_CATEGORIES;
 };
 
 const fetchWithFallback = async (endpoint = '', options = {}) => {
-  const url = `${EVENTS_API_URL}${endpoint}`;
-  const response = await fetch(url, options);
-  if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
-  return response;
+  let lastError = null;
+
+  for (const baseUrl of CANDIDATE_URLS) {
+    try {
+      const url = `${baseUrl}${endpoint}`;
+      const res = await fetch(url, options);
+
+      if (res.ok) {
+        return res;
+      }
+      lastError = new Error(`HTTP ${res.status} from ${url}`);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Backend service endpoints unreachable');
 };
 
 const getAuthHeaders = () => {
@@ -31,7 +71,6 @@ const getAuthHeaders = () => {
 
 const normalizeEvent = (ev) => {
   if (!ev) return ev;
-  const hasTierData = ev.ticketTiersJson !== undefined || ev.ticketTiers !== undefined;
   let tiers = [];
   if (ev.ticketTiersJson) {
     try {
@@ -51,7 +90,7 @@ const normalizeEvent = (ev) => {
 
   return {
     ...ev,
-    ...(hasTierData ? { ticketTiers: Array.isArray(tiers) ? tiers : [] } : {}),
+    ticketTiers: Array.isArray(tiers) ? tiers : [],
   };
 };
 
@@ -99,9 +138,13 @@ export const createEvent = async (eventData) => {
 
   const catId = Number(eventData.categoryId) || 1;
 
-  const formattedEventDate = eventData.date
-    ? `${eventData.date}T${eventData.time || '19:00'}:00`
-    : new Date().toISOString().slice(0, 19);
+  const eventTimeVal = eventData.time || eventData.eventTime || '19:00';
+  let cleanDateVal = eventData.date || eventData.eventDate || new Date().toISOString().slice(0, 10);
+  if (typeof cleanDateVal === 'string' && cleanDateVal.includes('T')) {
+    cleanDateVal = cleanDateVal.split('T')[0];
+  }
+
+  const formattedEventDate = `${cleanDateVal}T${eventTimeVal}:00`;
 
   const payload = {
     title: eventData.title,
@@ -116,8 +159,9 @@ export const createEvent = async (eventData) => {
     availableTickets: totalCap,
     artistOrOrganizer: eventData.artistOrOrganizer || 'Organizer Event',
     category: eventData.categoryName || eventData.category || 'Music & Concerts',
-    date: eventData.date,
-    time: eventData.time || '19:00',
+    date: cleanDateVal,
+    time: eventTimeVal,
+    eventTime: eventTimeVal,
     ticketTiersJson: JSON.stringify(tiersList),
     ticketTiers: tiersList.map((t) => ({
       id: String(t.id),
@@ -148,11 +192,38 @@ export const updateEvent = (id, eventData) => {
 
   const catId = Number(eventData.categoryId) || 1;
 
+  const eventTimeVal = eventData.time || eventData.eventTime || '19:00';
+  let cleanDateVal = eventData.date || eventData.eventDate || new Date().toISOString().slice(0, 10);
+  if (typeof cleanDateVal === 'string' && cleanDateVal.includes('T')) {
+    cleanDateVal = cleanDateVal.split('T')[0];
+  }
+
+  const formattedEventDate = `${cleanDateVal}T${eventTimeVal}:00`;
+
+  const isHiddenState = Boolean(
+    eventData.isHidden ||
+    eventData.IsHidden ||
+    eventData.is_hidden ||
+    eventData.IsHidder === 1 ||
+    eventData.IsHidder === true ||
+    eventData.isHidder === 1 ||
+    eventData.isHidder === true ||
+    eventData.status === 'hidden'
+  );
+
   const payload = {
     ...eventData,
     price: minPrice,
     availableTickets: totalCap,
     categoryId: catId,
+    eventDate: formattedEventDate,
+    date: cleanDateVal,
+    time: eventTimeVal,
+    eventTime: eventTimeVal,
+    isHidden: isHiddenState,
+    IsHidden: isHiddenState,
+    IsHidder: isHiddenState,
+    isHidder: isHiddenState,
     ticketTiersJson: JSON.stringify(tiersList),
     ticketTiers: tiersList.map((t) => ({
       id: String(t.id),

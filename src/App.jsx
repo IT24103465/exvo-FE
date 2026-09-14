@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
 import { registerUser, loginUser, logoutUser, getCurrentUserProfile, updateUserProfile, deleteUserAccount } from './services/authService'
-import { getAllEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
+import { getAllEvents, getMyEvents, createEvent, updateEvent, deleteEvent, getCategories } from './services/eventService'
 
+// Import local assets from src/assets
+import sarithImg from './assets/sarith.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -36,6 +38,7 @@ const readAuthState = () => {
 
 const getUserDetails = (user) => {
   const details = user?.user || user || {}
+  const id = details.id || details.userId || details.organizerId || details.sub || null
   const name = details.fullName || details.name || details.username || details.companyName || 'Exvo Member'
   const email = details.email || 'Email unavailable'
   const role = details.role || 'Attendee'
@@ -51,37 +54,329 @@ const getUserDetails = (user) => {
     .map((part) => part[0].toUpperCase())
     .join('') || 'E'
 
-  return { name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
+  return { id, name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
 }
 
-const getEventPoster = (event) => {
-  const storedPoster = event?.coverImage || event?.imageUrl || event?.ImageUrl || event?.posterUrl || event?.bannerUrl
-  return storedPoster || null
-}
+const isMyEvent = (evt, userDetails) => {
+  if (!evt || !userDetails) return false
 
-const EventPoster = ({ event, className = '', imageClassName = '' }) => {
-  const [failedPoster, setFailedPoster] = useState(null)
-  const poster = event?.cover && event.cover !== failedPoster ? event.cover : null
-
-  if (!poster) {
-    return (
-      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-neutral-950 via-red-950/40 to-black p-5 text-center ${className}`}>
-        <span className="font-['Orbitron'] text-sm font-black uppercase tracking-wider text-white drop-shadow-md">
-          {event?.title || 'Untitled Event'}
-        </span>
-      </div>
-    )
+  // 1. Match organizerId / userId
+  if (userDetails.id !== null && userDetails.id !== undefined) {
+    const uId = String(userDetails.id)
+    if (evt.organizerId && String(evt.organizerId) === uId) return true
+    if (evt.OrganizerId && String(evt.OrganizerId) === uId) return true
+    if (evt.userId && String(evt.userId) === uId) return true
+    if (evt.createdByUserId && String(evt.createdByUserId) === uId) return true
   }
 
+  // 2. Match organizerName or artistOrOrganizer with user name or company name
+  const userNameLower = userDetails.name ? userDetails.name.trim().toLowerCase() : ''
+  const companyNameLower = userDetails.companyName ? userDetails.companyName.trim().toLowerCase() : ''
+
+  const eventOrgName = (evt.organizerName || evt.OrganizerName || '').trim().toLowerCase()
+  const eventArtist = (evt.artistOrOrganizer || evt.subtitle || '').trim().toLowerCase()
+
+  if (userNameLower && userNameLower !== 'exvo member') {
+    if (eventOrgName && eventOrgName === userNameLower) return true
+    if (eventArtist && eventArtist === userNameLower) return true
+  }
+
+  if (companyNameLower) {
+    if (eventOrgName && eventOrgName === companyNameLower) return true
+    if (eventArtist && eventArtist === companyNameLower) return true
+  }
+
+  // 3. Match email
+  if (userDetails.email && userDetails.email !== 'Email unavailable') {
+    const uEmail = userDetails.email.trim().toLowerCase()
+    if (evt.createdByEmail && evt.createdByEmail.trim().toLowerCase() === uEmail) return true
+    if (evt.organizerEmail && evt.organizerEmail.trim().toLowerCase() === uEmail) return true
+  }
+
+  // 4. Session created check
+  if (evt.createdBy === userDetails.email || evt.createdById === userDetails.id) return true
+
+  return false
+}
+
+const HIDDEN_EVENTS_STORAGE_KEY = 'exvo_hidden_event_ids'
+
+const getHiddenEventIds = () => {
+  try {
+    const raw = localStorage.getItem(HIDDEN_EVENTS_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+const addHiddenEventId = (id) => {
+  try {
+    const ids = getHiddenEventIds()
+    const strId = String(id)
+    if (!ids.includes(strId)) {
+      const updated = [...ids, strId]
+      localStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(updated))
+    }
+  } catch (err) {
+    console.error('Failed to save hidden event ID:', err)
+  }
+}
+
+const removeHiddenEventId = (id) => {
+  try {
+    const ids = getHiddenEventIds()
+    const strId = String(id)
+    const updated = ids.filter((i) => i !== strId)
+    localStorage.setItem(HIDDEN_EVENTS_STORAGE_KEY, JSON.stringify(updated))
+  } catch (err) {
+    console.error('Failed to remove hidden event ID:', err)
+  }
+}
+
+const formatDateForInput = (rawDate) => {
+  if (!rawDate) return ''
+  const str = String(rawDate).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str
+  if (str.includes('T')) return str.split('T')[0]
+  if (str.includes(' ')) {
+    const part = str.split(' ')[0]
+    if (/^\d{4}-\d{2}-\d{2}$/.test(part)) return part
+  }
+  const d = new Date(rawDate)
+  if (!isNaN(d.getTime())) {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  return ''
+}
+
+const extractTimeFromEvent = (e) => {
+  if (!e) return '19:00'
+
+  const directTime = e.time || e.eventTime
+  if (directTime && typeof directTime === 'string' && directTime.trim() !== '' && directTime !== 'undefined' && directTime !== 'null') {
+    const cleanTime = directTime.trim()
+    const match = cleanTime.match(/^(\d{1,2}):(\d{2})/)
+    if (match) {
+      const hh = match[1].padStart(2, '0')
+      const mm = match[2]
+      return `${hh}:${mm}`
+    }
+  }
+
+  const dateVal = e.eventDate || e.date
+  if (dateVal && typeof dateVal === 'string') {
+    const cleanDate = dateVal.trim()
+    let timePart = ''
+    if (cleanDate.includes('T')) {
+      timePart = cleanDate.split('T')[1]
+    } else if (cleanDate.includes(' ')) {
+      timePart = cleanDate.split(' ')[1]
+    }
+
+    if (timePart) {
+      const match = timePart.match(/^(\d{1,2}):(\d{2})/)
+      if (match) {
+        const hh = match[1].padStart(2, '0')
+        const mm = match[2]
+        return `${hh}:${mm}`
+      }
+    }
+  }
+
+  return '19:00'
+}
+
+const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
+  if (!ticketTiers || ticketTiers.length === 0) return existingZones
+  const defaultRowSets = [
+    ['A', 'B', 'C'],
+    ['D', 'E', 'F', 'G'],
+    ['H', 'I', 'J'],
+    ['K', 'L', 'M'],
+    ['N', 'O', 'P']
+  ]
+  return ticketTiers.map((tier, idx) => {
+    const existing = existingZones[idx]
+    const name = (tier.name || `Category ${idx + 1}`).toUpperCase()
+    const price = Number(tier.price) || 0
+    const rows = existing?.rows?.length ? existing.rows : (defaultRowSets[idx % defaultRowSets.length] || ['A', 'B'])
+    const seatsPerRow = existing?.seatsPerRow || 12
+    const occupiedSeats = existing?.occupiedSeats || []
+    const id = existing?.id || `zone-tier-${idx + 1}`
+    return {
+      id,
+      name,
+      price,
+      rows,
+      seatsPerRow,
+      occupiedSeats
+    }
+  })
+}
+
+const createDefaultSeatingConfig = (ticketTiers = []) => {
+  const defaultZones = [
+    {
+      id: 'z-classic',
+      name: 'GENERAL ADMISSION',
+      price: 2500,
+      rows: ['A', 'B', 'C'],
+      seatsPerRow: 13,
+      occupiedSeats: []
+    },
+    {
+      id: 'z-premium',
+      name: 'VIP PASS',
+      price: 5000,
+      rows: ['D', 'E', 'F', 'G'],
+      seatsPerRow: 13,
+      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9']
+    }
+  ]
+  if (ticketTiers && ticketTiers.length > 0) {
+    return {
+      enabled: true,
+      autoSyncCategories: true,
+      stageLabel: 'SCREEN',
+      zones: syncSeatingZonesWithTicketTiers(ticketTiers, defaultZones)
+    }
+  }
+  return {
+    enabled: true,
+    autoSyncCategories: true,
+    stageLabel: 'SCREEN',
+    zones: defaultZones
+  }
+}
+
+const SeatingChartComponent = ({
+  seatingConfig,
+  isOrganizerEdit = false,
+  selectedSeats = [],
+  onSelectSeat = () => { },
+  onToggleOccupied = () => { }
+}) => {
+  if (!seatingConfig || !seatingConfig.enabled || !seatingConfig.zones || seatingConfig.zones.length === 0) return null
+
+  const stageLabel = seatingConfig.stageLabel || 'SCREEN'
+
   return (
-    <img
-      src={poster}
-      alt={event?.title || 'Event poster'}
-      className={imageClassName || className}
-      loading="lazy"
-      draggable="false"
-      onError={() => setFailedPoster(poster)}
-    />
+    <div className="seating-chart-container bg-white text-neutral-900 rounded-2xl p-4 sm:p-6 shadow-2xl overflow-x-auto my-3 border border-neutral-200">
+      {/* ── Screen Arc Header ── */}
+      <div className="flex flex-col items-center justify-center mb-6">
+        <div className="relative w-full max-w-md h-10 flex items-center justify-center overflow-hidden">
+          <svg className="absolute inset-0 w-full h-full text-neutral-900" viewBox="0 0 400 40" fill="none">
+            <path d="M 10 35 Q 200 5 390 35" stroke="currentColor" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+          </svg>
+          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-neutral-900 bg-white px-3">
+            {stageLabel}
+          </span>
+        </div>
+
+        {/* ── Status Legend ── */}
+        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-600 font-sans font-semibold">
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded border border-neutral-400 bg-white" />
+            <span>Available</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
+            <span>Selected</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-3.5 h-3.5 rounded bg-neutral-300 border border-neutral-300" />
+            <span>Occupied</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Aisle Column Headers ── */}
+      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 font-mono tracking-wider mb-3 px-2">
+        <span>CL-AIS</span>
+        <span>CL-AIS</span>
+      </div>
+
+      {/* ── Seating Zones & Rows ── */}
+      <div className="space-y-6 min-w-[500px]">
+        {seatingConfig.zones.map((zone) => (
+          <div key={zone.id || zone.name} className="space-y-2">
+            {/* Section Title */}
+            <div className="text-center font-bold text-xs text-neutral-900 uppercase font-sans tracking-wide">
+              {zone.name} ({Number(zone.price || 0).toFixed(2)})
+            </div>
+
+            {/* Zone Rows */}
+            <div className="space-y-1.5">
+              {(zone.rows || ['A']).map((rowLetter) => (
+                <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
+                  {/* Left Row Letter */}
+                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">
+                    {rowLetter}
+                  </span>
+
+                  {/* Seat Grid */}
+                  <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
+                    {Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => i + 1).map((seatNum) => {
+                      const seatId = `${rowLetter}${seatNum}`
+                      const isOccupied = zone.occupiedSeats?.includes(seatId)
+                      const isSelected = selectedSeats.includes(seatId)
+
+                      let seatClass = "w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none"
+
+                      if (isSelected) {
+                        seatClass += " bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40"
+                      } else if (isOccupied) {
+                        seatClass += " bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75"
+                        if (!isOrganizerEdit) {
+                          seatClass += " cursor-not-allowed"
+                        }
+                      } else {
+                        seatClass += " bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50"
+                      }
+
+                      return (
+                        <button
+                          key={seatId}
+                          type="button"
+                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${zone.price})`}
+                          onClick={() => {
+                            if (isOrganizerEdit) {
+                              onToggleOccupied(seatId)
+                            } else {
+                              if (!isOccupied) {
+                                onSelectSeat(seatId, zone)
+                              }
+                            }
+                          }}
+                          className={seatClass}
+                        >
+                          {seatNum}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Right Row Letter */}
+                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">
+                    {rowLetter}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {isOrganizerEdit && (
+        <div className="mt-4 pt-3 border-t border-neutral-200 text-center text-[10px] text-neutral-500 font-sans">
+          💡 Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -602,6 +897,7 @@ function App() {
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [authState, setAuthState] = useState(readAuthState)
   const [activeCategory, setActiveCategory] = useState(null)
+  const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [showAllEventsSection, setShowAllEventsSection] = useState(true)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
   const [isCategorySearchOpen, setIsCategorySearchOpen] = useState(false)
@@ -610,9 +906,12 @@ function App() {
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
   const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
   const [selectedTier, setSelectedTier] = useState(null)
+  const [selectedSeats, setSelectedSeats] = useState([])
   const [ticketQuantity, setTicketQuantity] = useState(1)
+  const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
+  const [bookingStep, setBookingStep] = useState(1)
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
   const [contactSubmitted, setContactSubmitted] = useState(false)
@@ -655,6 +954,7 @@ function App() {
       { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
       { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
     ],
+    seatingConfig: createDefaultSeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -663,6 +963,8 @@ function App() {
 
   // Organizer Dashboard & Edit Event State
   const [organizerDashboardOpen, setOrganizerDashboardOpen] = useState(false)
+  const [myEventsList, setMyEventsList] = useState([])
+  const [loadingMyEvents, setLoadingMyEvents] = useState(false)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [showEditEventModal, setShowEditEventModal] = useState(false)
   const [editingEventId, setEditingEventId] = useState(null)
@@ -674,6 +976,7 @@ function App() {
     time: '19:00',
     venue: '',
     ticketTiers: [],
+    seatingConfig: createDefaultSeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -681,30 +984,50 @@ function App() {
   const [editEventFeedback, setEditEventFeedback] = useState({ type: '', text: '' })
 
   const handleAddTicketTier = () => {
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: [
+    setNewEventForm((prev) => {
+      const nextTiers = [
         ...prev.ticketTiers,
         { id: String(Date.now()), name: '', price: '', quantity: '100' }
       ]
-    }))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleRemoveTicketTier = (tierId) => {
     if (newEventForm.ticketTiers.length <= 1) return
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.filter((t) => t.id !== tierId)
-    }))
+    setNewEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleUpdateTicketTier = (tierId, field, value) => {
-    setNewEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.map((t) =>
+    setNewEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.map((t) =>
         t.id === tierId ? { ...t, [field]: value } : t
       )
-    }))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync && (field === 'name' || field === 'price')
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleSetQuickDate = (daysFromNow) => {
@@ -718,8 +1041,28 @@ function App() {
     if (!dateStr) return ''
     try {
       let cleanStr = String(dateStr).trim()
+      let resolvedTime = (timeStr && timeStr !== 'undefined' && timeStr !== 'null') ? String(timeStr).trim() : ''
+
       if (cleanStr.includes('T')) {
-        cleanStr = cleanStr.split('T')[0]
+        const parts = cleanStr.split('T')
+        cleanStr = parts[0]
+        if (!resolvedTime && parts[1]) {
+          const match = parts[1].match(/^(\d{1,2}):(\d{2})/)
+          if (match) {
+            resolvedTime = `${match[1].padStart(2, '0')}:${match[2]}`
+          }
+        }
+      } else if (cleanStr.includes(' ')) {
+        const parts = cleanStr.split(' ')
+        if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(parts[0])) {
+          cleanStr = parts[0]
+          if (!resolvedTime && parts[1]) {
+            const match = parts[1].match(/^(\d{1,2}):(\d{2})/)
+            if (match) {
+              resolvedTime = `${match[1].padStart(2, '0')}:${match[2]}`
+            }
+          }
+        }
       }
 
       let d
@@ -749,7 +1092,7 @@ function App() {
         return cleanStr
       }
 
-      return `${formatted}${timeStr ? ` @ ${timeStr}` : ''}`
+      return `${formatted}${resolvedTime ? ` @ ${resolvedTime}` : ''}`
     } catch {
       return String(dateStr)
     }
@@ -845,17 +1188,21 @@ function App() {
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
             organizerId: e.organizerId || e.OrganizerId,
             organizerName: e.organizerName || e.OrganizerName,
-            cover: getEventPoster(e),
+            cover: e.coverImage || e.imageUrl || sarithImg,
             year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
             category: catName,
-            venue: e.venueName || e.venue || e.location || 'Sri Lanka',
+            venue: e.venue || e.location || 'Sri Lanka',
             minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
-            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venueName || e.venue || e.location || 'Sri Lanka'}`,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
-            eventDate: e.eventDate || eventDateVal,
-            eventTime: e.eventTime || e.time || '19:00',
+            eventDate: eventDateVal,
+            eventTime: extractTimeFromEvent(e),
+            time: extractTimeFromEvent(e),
             description: e.description,
+            seatingConfig: e.seatingConfig || (e.seatingConfigJson ? (typeof e.seatingConfigJson === 'string' ? (() => { try { return JSON.parse(e.seatingConfigJson) } catch { return null } })() : e.seatingConfigJson) : null),
+            seatingConfigJson: e.seatingConfigJson,
+            isHidden: Boolean(e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id))),
             isDbEvent: true
           }
         })
@@ -865,7 +1212,7 @@ function App() {
         setAlbumList([])
       }
     } catch (err) {
-      console.error('Failed to fetch catalog events:', err)
+      console.warn('Failed to fetch DB events:', err)
       setAlbumList([])
     }
   }
@@ -882,7 +1229,7 @@ function App() {
           category: prev.category || cats[0].name,
         }))
       }
-    }).catch((err) => console.error('Failed to fetch catalog categories:', err))
+    })
   }, [])
 
   const handleLogout = () => {
@@ -893,10 +1240,79 @@ function App() {
     setProfilePanelOpen(false)
     setShowAddEventModal(false)
     setIsEditingProfile(false)
+    setOrganizerDashboardOpen(false)
+    setMyEventsList([])
   }
 
   const userDetails = getUserDetails(authState.user)
   const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
+
+  const fetchMyEvents = async () => {
+    if (!authState.isAuthenticated || !isOrganizer) return
+    setLoadingMyEvents(true)
+    try {
+      const dbMyEvents = await getMyEvents()
+      if (Array.isArray(dbMyEvents)) {
+        const formatted = dbMyEvents.map((e) => {
+          let parsedTiers = []
+          try {
+            if (e.ticketTiersJson) {
+              parsedTiers = typeof e.ticketTiersJson === 'string' ? JSON.parse(e.ticketTiersJson) : (e.ticketTiersJson || [])
+            } else {
+              parsedTiers = typeof e.ticketTiers === 'string' ? JSON.parse(e.ticketTiers) : (e.ticketTiers || [])
+            }
+          } catch {
+            parsedTiers = []
+          }
+          const minTiersPrice = parsedTiers.length > 0 ? Math.min(...parsedTiers.map((t) => Number(t.price) || 0)) : 0
+          const catName = typeof e.category === 'object' && e.category !== null
+            ? e.category.name
+            : (typeof e.category === 'string' ? e.category : (e.categoryName || 'Music & Concerts'))
+          const eventDateVal = e.date || e.eventDate
+          return {
+            id: e.id,
+            title: e.title,
+            subtitle: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Live Event',
+            artistOrOrganizer: e.artistOrOrganizer || e.organizerName || userDetails.name || 'Featured Artist',
+            organizerId: e.organizerId || e.OrganizerId || userDetails.id,
+            organizerName: e.organizerName || e.OrganizerName || userDetails.name,
+            createdByEmail: userDetails.email,
+            cover: e.coverImage || e.imageUrl || sarithImg,
+            year: eventDateVal && !isNaN(new Date(eventDateVal).getTime()) ? new Date(eventDateVal).getFullYear().toString() : '2026',
+            category: catName,
+            venue: e.venue || e.location || 'Sri Lanka',
+            minPrice: Number(e.minPrice || e.price) || minTiersPrice || 0,
+            trackCount: `${catName} • From LKR ${Number(e.minPrice || e.price || minTiersPrice || 0).toLocaleString()} • ${e.venue || e.location || 'Sri Lanka'}`,
+            ticketTiers: parsedTiers,
+            totalCapacity: e.totalCapacity || e.availableTickets || 500,
+            eventDate: eventDateVal,
+            eventTime: extractTimeFromEvent(e),
+            time: extractTimeFromEvent(e),
+            description: e.description,
+            seatingConfig: e.seatingConfig || (e.seatingConfigJson ? (typeof e.seatingConfigJson === 'string' ? (() => { try { return JSON.parse(e.seatingConfigJson) } catch { return null } })() : e.seatingConfigJson) : null),
+            seatingConfigJson: e.seatingConfigJson,
+            isHidden: Boolean(e.isHidden || e.hidden || e.status === 'hidden' || getHiddenEventIds().includes(String(e.id))),
+            isDbEvent: true
+          }
+        })
+        setMyEventsList(formatted)
+      }
+    } catch (err) {
+      console.warn('Could not fetch organizer events via API:', err)
+    } finally {
+      setLoadingMyEvents(false)
+    }
+  }
+
+  useEffect(() => {
+    if (isOrganizer && organizerDashboardOpen) {
+      fetchMyEvents()
+    }
+  }, [organizerDashboardOpen, isOrganizer])
+
+  const myOrganizerEvents = myEventsList.length > 0
+    ? myEventsList
+    : albumList.filter((e) => isMyEvent(e, userDetails))
 
   const handleEventCoverUpload = (e) => {
     const file = e.target.files?.[0]
@@ -951,6 +1367,9 @@ function App() {
       const res = await createEvent({
         title: newEventForm.title.trim(),
         artistOrOrganizer: newEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
+        organizerId: userDetails.id || 1,
+        organizerName: userDetails.name,
+        createdByEmail: userDetails.email,
         categoryId: categoryIdVal,
         category: categoryNameVal,
         categoryName: categoryNameVal,
@@ -959,6 +1378,7 @@ function App() {
         venue: newEventForm.venue.trim(),
         location: newEventForm.venue.trim(),
         ticketTiers: validTiers,
+        seatingConfig: newEventForm.seatingConfig,
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
       })
@@ -967,25 +1387,34 @@ function App() {
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
 
       const createdItem = {
-        id: res.id || Date.now(),
-        title: res.title || newEventForm.title.trim(),
-        subtitle: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
-        artistOrOrganizer: res.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        id: res?.id || Date.now(),
+        title: res?.title || newEventForm.title.trim(),
+        subtitle: res?.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        artistOrOrganizer: res?.artistOrOrganizer || userDetails.name || 'Organizer Event',
+        organizerId: res?.organizerId || userDetails.id,
+        organizerName: res?.organizerName || userDetails.name,
+        createdByEmail: userDetails.email,
+        createdBy: userDetails.email,
+        createdById: userDetails.id,
         category: categoryNameVal,
         categoryId: categoryIdVal,
         venue: newEventForm.venue.trim() || 'Colombo',
         minPrice: minPrice,
-        cover: res.coverImage || newEventForm.coverImage || null,
+        cover: res?.coverImage || newEventForm.coverImage || null,
         year: newEventForm.date ? new Date(newEventForm.date).getFullYear().toString() : '2026',
         trackCount: `${categoryNameVal} • From LKR ${minPrice.toLocaleString()} • ${newEventForm.venue}`,
         ticketTiers: validTiers,
+        seatingConfig: newEventForm.seatingConfig,
         totalCapacity: totalCap,
-        eventDate: newEventForm.date,
-        eventTime: newEventForm.time,
+        eventDate: newEventForm.date ? `${newEventForm.date}T${newEventForm.time || '19:00'}:00` : '',
+        date: newEventForm.date,
+        eventTime: newEventForm.time || '19:00',
+        time: newEventForm.time || '19:00',
         isDbEvent: true
       }
 
       setAlbumList((prev) => [createdItem, ...prev])
+      setMyEventsList((prev) => [createdItem, ...prev])
       setCenterIndex(0)
       fetchLiveEvents()
       setEventFeedback({ type: 'success', text: 'Event successfully created in database and live on EXVO!' })
@@ -1005,6 +1434,7 @@ function App() {
             { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
             { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' }
           ],
+          seatingConfig: createDefaultSeatingConfig(),
           coverImage: '',
           description: '',
         })
@@ -1024,8 +1454,8 @@ function App() {
       title: event.title || '',
       artistOrOrganizer: event.artistOrOrganizer || event.subtitle || '',
       category: event.category || 'Concert',
-      date: event.eventDate || '',
-      time: event.eventTime || '19:00',
+      date: formatDateForInput(event.eventDate || event.date || ''),
+      time: extractTimeFromEvent(event),
       venue: event.venue || '',
       ticketTiers: event.ticketTiers && event.ticketTiers.length > 0 ? event.ticketTiers.map((t) => ({
         id: String(t.id || Date.now()),
@@ -1035,6 +1465,7 @@ function App() {
       })) : [
         { id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }
       ],
+      seatingConfig: event.seatingConfig || createDefaultSeatingConfig(),
       coverImage: event.cover || '',
       description: event.description || '',
     })
@@ -1043,30 +1474,50 @@ function App() {
   }
 
   const handleAddTicketTierInEdit = () => {
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: [
+    setEditEventForm((prev) => {
+      const nextTiers = [
         ...prev.ticketTiers,
         { id: String(Date.now()), name: '', price: '', quantity: '100' }
       ]
-    }))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleRemoveTicketTierInEdit = (tierId) => {
     if (editEventForm.ticketTiers.length <= 1) return
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.filter((t) => t.id !== tierId)
-    }))
+    setEditEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || []) : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleUpdateTicketTierInEdit = (tierId, field, value) => {
-    setEditEventForm((prev) => ({
-      ...prev,
-      ticketTiers: prev.ticketTiers.map((t) =>
+    setEditEventForm((prev) => {
+      const nextTiers = prev.ticketTiers.map((t) =>
         t.id === tierId ? { ...t, [field]: value } : t
       )
-    }))
+      const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
+      const updatedZones = autoSync && (field === 'name' || field === 'price')
+        ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
+        : prev.seatingConfig?.zones
+      return {
+        ...prev,
+        ticketTiers: nextTiers,
+        seatingConfig: { ...prev.seatingConfig, zones: updatedZones }
+      }
+    })
   }
 
   const handleEditEventCoverUpload = (e) => {
@@ -1124,6 +1575,7 @@ function App() {
         time: editEventForm.time || '19:00',
         venue: editEventForm.venue.trim(),
         ticketTiers: validTiers,
+        seatingConfig: editEventForm.seatingConfig,
         coverImage: editEventForm.coverImage || null,
         description: editEventForm.description?.trim() || null,
       }
@@ -1142,10 +1594,37 @@ function App() {
               venue: payload.venue,
               minPrice: minPrice,
               cover: payload.coverImage || e.cover,
-              eventDate: payload.date,
+              eventDate: `${payload.date}T${payload.time}:00`,
+              date: payload.date,
               eventTime: payload.time,
+              time: payload.time,
               description: payload.description,
               ticketTiers: validTiers,
+              seatingConfig: payload.seatingConfig,
+              totalCapacity: totalCap,
+            }
+            : e
+        )
+      )
+      setMyEventsList((prev) =>
+        prev.map((e) =>
+          e.id === editingEventId
+            ? {
+              ...e,
+              title: payload.title,
+              subtitle: payload.artistOrOrganizer,
+              artistOrOrganizer: payload.artistOrOrganizer,
+              category: payload.category,
+              venue: payload.venue,
+              minPrice: minPrice,
+              cover: payload.coverImage || e.cover,
+              eventDate: `${payload.date}T${payload.time}:00`,
+              date: payload.date,
+              eventTime: payload.time,
+              time: payload.time,
+              description: payload.description,
+              ticketTiers: validTiers,
+              seatingConfig: payload.seatingConfig,
               totalCapacity: totalCap,
             }
             : e
@@ -1174,9 +1653,33 @@ function App() {
     try {
       await deleteEvent(eventId)
       setAlbumList((prev) => prev.filter((e) => e.id !== eventId))
+      setMyEventsList((prev) => prev.filter((e) => e.id !== eventId))
       await fetchLiveEvents()
     } catch (err) {
       alert(`Could not delete event: ${err.message || 'Error occurred'}`)
+    }
+  }
+
+  const handleToggleHideEvent = async (eventToToggle) => {
+    const isCurrentlyHidden = Boolean(
+      eventToToggle.isHidden || eventToToggle.IsHidder === 1 || eventToToggle.IsHidder === true || getHiddenEventIds().includes(String(eventToToggle.id))
+    )
+    const newHiddenState = !isCurrentlyHidden
+
+    if (newHiddenState) {
+      addHiddenEventId(eventToToggle.id)
+    } else {
+      removeHiddenEventId(eventToToggle.id)
+    }
+
+    setAlbumList((prev) => prev.map((e) => String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e))
+    setMyEventsList((prev) => prev.map((e) => String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e))
+
+    try {
+      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState, IsHidder: newHiddenState })
+      await fetchLiveEvents()
+    } catch (err) {
+      console.warn('Failed to update event visibility via backend API:', err)
     }
   }
 
@@ -1306,25 +1809,50 @@ function App() {
     }
     setBookingModalEvent(event)
     setSelectedTier(event.ticketTiers?.[0] || null)
+    const initialQtys = {}
+    if (event.ticketTiers && event.ticketTiers.length > 0) {
+      event.ticketTiers.forEach((tier, idx) => {
+        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+        initialQtys[key] = idx === 0 ? 1 : 0
+      })
+    } else {
+      initialQtys['standard'] = 1
+    }
+    setTierQuantities(initialQtys)
     setTicketQuantity(1)
+    setSelectedSeats([])
     setBookingSuccess(false)
+    setBookingStep(1)
   }
 
-  // Auto-advance carousel every 3.5 s; pauses on hover
+  // Public events visible to attendees (excludes hidden events)
+  const publicEvents = albumList.filter((e) => !e.isHidden && !getHiddenEventIds().includes(String(e.id)))
+
+  // Show ONLY latest public database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
+  const carouselEvents = publicEvents.slice(0, 7)
+
+  // Ensure centerIndex stays within bounds when carouselEvents changes
   useEffect(() => {
-    if (isPaused) return
+    if (carouselEvents.length > 0 && centerIndex >= carouselEvents.length) {
+      setCenterIndex(0)
+    }
+  }, [carouselEvents.length, centerIndex])
+
+  // Auto-advance carousel every 3.5 s continuously; pauses on hover
+  useEffect(() => {
+    if (isPaused || carouselEvents.length <= 1) return
     autoplayRef.current = setInterval(() => {
-      setCenterIndex((prev) => (prev < albumList.length - 1 ? prev + 1 : 0))
+      setCenterIndex((prev) => (prev < carouselEvents.length - 1 ? prev + 1 : 0))
     }, 3500)
     return () => clearInterval(autoplayRef.current)
-  }, [isPaused, albumList.length])
+  }, [isPaused, carouselEvents.length])
 
   // Reset autoplay timer on manual navigation
   const resetAutoplay = () => {
     clearInterval(autoplayRef.current)
-    if (!isPaused) {
+    if (!isPaused && carouselEvents.length > 1) {
       autoplayRef.current = setInterval(() => {
-        setCenterIndex((prev) => (prev < albumList.length - 1 ? prev + 1 : 0))
+        setCenterIndex((prev) => (prev < carouselEvents.length - 1 ? prev + 1 : 0))
       }, 3500)
     }
   }
@@ -1373,12 +1901,13 @@ function App() {
     }
   }, [])
 
-  // Show ONLY latest database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
-  const carouselEvents = albumList.slice(0, 7)
-
   const getCardClass = (index) => {
-    if (carouselEvents.length <= 1) return 'card-center'
-    const offset = index - centerIndex
+    const len = carouselEvents.length
+    if (len <= 1) return 'card-center'
+    let offset = (index - centerIndex) % len
+    if (offset > len / 2) offset -= len
+    if (offset < -len / 2) offset += len
+
     if (offset === 0) return 'card-center'
     if (offset === -1) return 'card-left-1'
     if (offset === -2) return 'card-left-2'
@@ -1403,12 +1932,14 @@ function App() {
 
   const activeAlbum = carouselEvents[centerIndex] || carouselEvents[0] || null
 
+
+
   const categoryDefinitions = [
-    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.5)', icon: '🔥' },
-    { id: 'Concert', label: 'Concert', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
-    { id: 'Festival', label: 'Festival', glow: 'rgba(238,9,121,0.35)', icon: '🎪' },
-    { id: 'Live Session', label: 'Live Session', glow: 'rgba(225,0,255,0.35)', icon: '🎤' },
-    { id: 'DJ Night', label: 'DJ Night', glow: 'rgba(0,180,219,0.35)', icon: '🎧' },
+    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)', icon: '🔥' },
+    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
+    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)', icon: '🎪' },
+    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)', icon: '🎤' },
+    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)', icon: '🎧' },
     { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)', icon: '🪕' },
     { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)', icon: '🎙️' },
     { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)', icon: '⚡' },
@@ -1418,12 +1949,12 @@ function App() {
     if (cat.id === 'all') {
       return {
         ...cat,
-        count: `${albumList.length} ${albumList.length === 1 ? 'Event' : 'Events'}`,
-        image: albumList[0]?.cover || null,
-        realCount: albumList.length,
+        count: `${publicEvents.length} ${publicEvents.length === 1 ? 'Event' : 'Events'}`,
+        image: publicEvents[0]?.cover || null,
+        realCount: publicEvents.length,
       }
     }
-    const matching = albumList.filter((e) => {
+    const matching = publicEvents.filter((e) => {
       const eCat = (e.category || (e.trackCount ? e.trackCount.split('•')[0].trim() : '') || '').toLowerCase()
       return eCat.includes(cat.id.toLowerCase())
     })
@@ -1435,7 +1966,7 @@ function App() {
     }
   })
 
-  const filteredEvents = albumList.filter((event) => {
+  const filteredEvents = publicEvents.filter((event) => {
     const matchesCategory = !activeCategory || activeCategory === 'all' ||
       (event.category || (event.trackCount ? event.trackCount.split('•')[0].trim() : '') || '').toLowerCase().includes(activeCategory.toLowerCase())
 
@@ -2323,6 +2854,281 @@ function App() {
                 </div>
               </div>
 
+              {/* ── Visual Reserved Seating Layout Builder ── */}
+              <div className="add-event-section-box">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
+                      <span className="text-red-500 text-sm">💺</span>
+                      RESERVED SEATING LAYOUT & PLAN
+                    </label>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement, zones & blocked seats</p>
+                  </div>
+
+                  {/* Toggle Enable/Disable */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const curr = newEventForm.seatingConfig || createDefaultSeatingConfig()
+                      setNewEventForm(prev => ({
+                        ...prev,
+                        seatingConfig: { ...curr, enabled: !curr.enabled }
+                      }))
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${newEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                      : 'bg-white/5 border border-white/10 text-neutral-400'
+                      }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${newEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+                    {newEventForm.seatingConfig?.enabled ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)' : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                  </button>
+                </div>
+
+                <div className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${newEventForm.seatingConfig?.enabled
+                  ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                  : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{newEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
+                    <span>
+                      {newEventForm.seatingConfig?.enabled
+                        ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
+                        : 'Seating chart is hidden from attendees. Attendees will purchase standard ticket categories.'}
+                    </span>
+                  </div>
+                </div>
+
+                {newEventForm.seatingConfig?.enabled && (
+                  <div className="space-y-4 pt-2 border-t border-white/10">
+                    {/* Configuration Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">STAGE / SCREEN LABEL</label>
+                        <input
+                          type="text"
+                          value={newEventForm.seatingConfig.stageLabel || 'SCREEN'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setNewEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val }
+                            }))
+                          }}
+                          placeholder="e.g. SCREEN or MAIN STAGE"
+                          className="contact-input !py-1.5 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
+                        <select
+                          onChange={(e) => {
+                            const preset = e.target.value
+                            let newZones = newEventForm.seatingConfig.zones
+                            if (preset === 'standard') {
+                              newZones = createDefaultSeatingConfig().zones
+                            } else if (preset === 'vip_general') {
+                              newZones = [
+                                { id: 'z1', name: 'VIP FRONT ROW', price: 5000, rows: ['A', 'B'], seatsPerRow: 10, occupiedSeats: [] },
+                                { id: 'z2', name: 'GENERAL ARENA', price: 2500, rows: ['C', 'D', 'E', 'F'], seatsPerRow: 12, occupiedSeats: [] }
+                              ]
+                            } else if (preset === 'theater') {
+                              newZones = [
+                                { id: 'z1', name: 'ORCHESTRA', price: 4000, rows: ['A', 'B', 'C', 'D'], seatsPerRow: 14, occupiedSeats: [] },
+                                { id: 'z2', name: 'MEZZANINE', price: 2500, rows: ['E', 'F', 'G'], seatsPerRow: 14, occupiedSeats: [] },
+                                { id: 'z3', name: 'BALCONY', price: 1500, rows: ['H', 'I', 'J'], seatsPerRow: 12, occupiedSeats: [] }
+                              ]
+                            }
+                            setNewEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones }
+                            }))
+                          }}
+                          className="contact-input !py-1.5 text-xs"
+                        >
+                          <option value="standard">Standard Cinema (Classic / Premium / Superior)</option>
+                          <option value="vip_general">Concert Arena (VIP Front Row / General Arena)</option>
+                          <option value="theater">Theater Hall (Orchestra / Mezzanine / Balcony)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Zone Editor List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 uppercase flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>SEATING ZONES & PRICE TIERS</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const synced = syncSeatingZonesWithTicketTiers(newEventForm.ticketTiers, newEventForm.seatingConfig?.zones || [])
+                              setNewEventForm(prev => ({
+                                ...prev,
+                                seatingConfig: { ...prev.seatingConfig, zones: synced }
+                              }))
+                            }}
+                            className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
+                            title="Click to sync zone names and prices with Ticket Categories above"
+                          >
+                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextId = `zone-${Date.now()}`
+                            const nextLetter = String.fromCharCode(65 + (newEventForm.seatingConfig.zones.length * 3))
+                            const newZone = { id: nextId, name: 'NEW ZONE', price: 2000, rows: [nextLetter], seatsPerRow: 10, occupiedSeats: [] }
+                            setNewEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: {
+                                ...prev.seatingConfig,
+                                zones: [...prev.seatingConfig.zones, newZone]
+                              }
+                            }))
+                          }}
+                          className="text-red-400 hover:text-red-300 cursor-pointer"
+                        >
+                          + Add Zone
+                        </button>
+                      </div>
+
+                      {newEventForm.seatingConfig.zones.map((zone, zIdx) => (
+                        <div key={zone.id || zIdx} className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
+                              <input
+                                type="text"
+                                value={zone.name}
+                                onChange={(e) => {
+                                  const name = e.target.value
+                                  setNewEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, name } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs font-bold"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">PRICE (LKR)</span>
+                              <input
+                                type="number"
+                                value={zone.price}
+                                onChange={(e) => {
+                                  const price = Number(e.target.value) || 0
+                                  setNewEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, price } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <input
+                                type="text"
+                                value={(zone.rows || []).join(', ')}
+                                onChange={(e) => {
+                                  const rows = e.target.value.split(',').map(r => r.trim().toUpperCase()).filter(Boolean)
+                                  setNewEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, rows } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="25"
+                                  value={zone.seatsPerRow}
+                                  onChange={(e) => {
+                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setNewEventForm(prev => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, seatsPerRow } : z)
+                                      }
+                                    }))
+                                  }}
+                                  className="contact-input !py-1 text-xs"
+                                />
+                              </div>
+                              {newEventForm.seatingConfig.zones.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewEventForm(prev => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx)
+                                      }
+                                    }))
+                                  }}
+                                  className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
+                                  title="Remove Zone"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Seating Layout Visual Live Preview Component! */}
+                    <div className="mt-4 pt-3 border-t border-white/10">
+                      <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
+                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                      </span>
+                      <SeatingChartComponent
+                        seatingConfig={newEventForm.seatingConfig}
+                        isOrganizerEdit={true}
+                        onToggleOccupied={(seatId) => {
+                          setNewEventForm(prev => {
+                            const currentConfig = prev.seatingConfig
+                            const updatedZones = currentConfig.zones.map(z => {
+                              const isOccupied = z.occupiedSeats?.includes(seatId)
+                              let newOccupied
+                              if (isOccupied) {
+                                newOccupied = z.occupiedSeats.filter(s => s !== seatId)
+                              } else {
+                                newOccupied = [...(z.occupiedSeats || []), seatId]
+                              }
+                              return { ...z, occupiedSeats: newOccupied }
+                            })
+                            return {
+                              ...prev,
+                              seatingConfig: { ...currentConfig, zones: updatedZones }
+                            }
+                          })
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Event Cover Image Upload */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron']">EVENT BANNER / COVER POSTER</label>
@@ -2463,118 +3269,341 @@ function App() {
                   </div>
                 </div>
 
-                {/* Ticket Tiers Selection */}
-                <div className="mt-5 text-left">
-                  <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider block mb-2">
-                    Select Ticket Tier
-                  </label>
-                  {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
-                    <div className="space-y-2">
-                      {bookingModalEvent.ticketTiers.map((tier, idx) => {
-                        const isSelected = (selectedTier?.id ? selectedTier.id === tier.id : selectedTier?.name === tier.name) || (!selectedTier && idx === 0)
-                        return (
-                          <div
-                            key={tier.id || idx}
-                            onClick={() => setSelectedTier(tier)}
-                            className={`booking-tier-card ${isSelected ? 'booking-tier-card--active' : ''}`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-bold text-sm text-white font-['Orbitron']">{tier.name || `Tier ${idx + 1}`}</div>
-                                {tier.description && (
-                                  <div className="text-[10px] text-neutral-400 mt-0.5">{tier.description}</div>
-                                )}
+                {/* ── MULTI-TIER TICKET BOOKING & SEATING FLOW ── */}
+                {(() => {
+                  const totalTicketsCount = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                    : (tierQuantities['standard'] || 1)
+
+                  const totalBookingPrice = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                      const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                      const qty = tierQuantities[key] || 0
+                      return sum + (Number(tier.price || 0) * qty)
+                    }, 0)
+                    : (Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1))
+
+                  const selectedTiersSummary = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? bookingModalEvent.ticketTiers
+                      .map((tier, idx) => {
+                        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                        const qty = tierQuantities[key] || 0
+                        return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                      })
+                      .filter(Boolean)
+                      .join(', ')
+                    : `${tierQuantities['standard'] || 1}x Standard Pass`
+
+                  return (
+                    <>
+                      {/* ── STEP INDICATOR (only if seating enabled) ── */}
+                      {bookingModalEvent.seatingConfig?.enabled && (
+                        <div className="flex items-center gap-2 mt-4 mb-1">
+                          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}>
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">1</span>
+                            SELECT TIERS & QTY
+                          </div>
+                          <div className="flex-1 h-px bg-white/10" />
+                          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 2 ? 'bg-amber-500 text-black' : 'bg-white/10 text-neutral-400'}`}>
+                            <span className="w-4 h-4 rounded-full border-2 border-current flex items-center justify-center text-[9px]">2</span>
+                            PICK SEATS
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ── STEP 1: Ticket Tiers + Per-Tier Quantity ── */}
+                      {bookingStep === 1 && (
+                        <>
+                          <div className="mt-4 text-left">
+                            <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider block mb-2">
+                              Select Ticket Tiers & Quantities
+                            </label>
+                            {bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0 ? (
+                              <div className="space-y-2.5">
+                                {bookingModalEvent.ticketTiers.map((tier, idx) => {
+                                  const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                                  const qty = tierQuantities[key] || 0
+                                  const isSelected = qty > 0
+
+                                  const handleDecrease = (e) => {
+                                    e.stopPropagation()
+                                    setTierQuantities((prev) => ({
+                                      ...prev,
+                                      [key]: Math.max(0, (prev[key] || 0) - 1)
+                                    }))
+                                  }
+
+                                  const handleIncrease = (e) => {
+                                    e.stopPropagation()
+                                    const totalOther = Object.entries(tierQuantities)
+                                      .filter(([k]) => k !== key)
+                                      .reduce((s, [, q]) => s + q, 0)
+                                    if (totalOther + qty >= 10) return
+                                    setTierQuantities((prev) => ({
+                                      ...prev,
+                                      [key]: (prev[key] || 0) + 1
+                                    }))
+                                  }
+
+                                  return (
+                                    <div
+                                      key={key}
+                                      onClick={() => setSelectedTier(tier)}
+                                      className={`booking-tier-card p-3 rounded-xl border transition-all ${isSelected ? 'border-red-500/80 bg-red-950/30' : 'border-white/10 bg-black/40 hover:border-white/20'
+                                        }`}
+                                      style={{ cursor: 'pointer' }}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? 'border-red-500 bg-red-500' : 'border-neutral-600'
+                                            }`}>
+                                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                          </div>
+                                          <div>
+                                            <div className="font-bold text-sm text-white font-['Orbitron']">{tier.name || `Tier ${idx + 1}`}</div>
+                                            {tier.description && (
+                                              <div className="text-[10px] text-neutral-400 mt-0.5">{tier.description}</div>
+                                            )}
+                                            <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
+                                              LKR {Number(tier.price || 0).toLocaleString()} <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Per-Tier Stepper */}
+                                        <div className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+                                          <button
+                                            type="button"
+                                            onClick={handleDecrease}
+                                            disabled={qty <= 0}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${qty > 0 ? 'bg-white/10 hover:bg-red-600 text-white' : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                              }`}
+                                          >
+                                            -
+                                          </button>
+                                          <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
+                                            {qty}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={handleIncrease}
+                                            disabled={totalTicketsCount >= 10}
+                                            className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${totalTicketsCount < 10 ? 'bg-white/10 hover:bg-red-600 text-white' : 'bg-white/5 text-neutral-600 cursor-not-allowed'
+                                              }`}
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
-                              <div className="text-right">
-                                <div className="font-black text-sm text-red-400 font-['Orbitron']">
-                                  LKR {Number(tier.price || 0).toLocaleString()}
+                            ) : (
+                              <div className="booking-tier-card p-3 rounded-xl border border-red-500/80 bg-red-950/30">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <div className="font-bold text-sm text-white font-['Orbitron']">Standard Pass</div>
+                                    <div className="text-[10px] text-neutral-400">General admission pass</div>
+                                    <div className="font-bold text-xs text-red-400 font-['Orbitron'] mt-1">
+                                      LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()} <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-black/70 p-1.5 rounded-xl border border-white/10">
+                                    <button
+                                      type="button"
+                                      onClick={() => setTierQuantities(prev => ({ ...prev, standard: Math.max(1, (prev.standard || 1) - 1) }))}
+                                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
+                                      {tierQuantities['standard'] || 1}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setTierQuantities(prev => ({ ...prev, standard: Math.min(10, (prev.standard || 1) + 1) }))}
+                                      className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="text-[9px] text-neutral-500 font-['Orbitron']">per pass</div>
                               </div>
+                            )}
+                          </div>
+
+                          {/* Selection breakdown summary */}
+                          {totalTicketsCount > 0 && selectedTiersSummary && (
+                            <div className="mt-3 text-left px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-[11px] text-neutral-300 font-['Orbitron'] flex items-center justify-between">
+                              <span className="text-neutral-400">Selected Passes:</span>
+                              <span className="text-red-400 font-bold">{selectedTiersSummary}</span>
+                            </div>
+                          )}
+
+                          {/* Total Summary + Action */}
+                          <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-left">
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
+                              <div className="text-xl font-black text-white font-['Orbitron']">
+                                LKR {totalBookingPrice.toLocaleString()}
+                              </div>
+                              <div className="text-[10px] text-neutral-400">{totalTicketsCount} pass{totalTicketsCount !== 1 ? 'es' : ''}</div>
+                            </div>
+
+                            {bookingModalEvent.seatingConfig?.enabled ? (
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedSeats([]); setBookingStep(2) }}
+                                disabled={totalTicketsCount === 0}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${totalTicketsCount > 0
+                                  ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(245,158,11,0.5)]'
+                                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                  }`}
+                              >
+                                <span>💺</span>
+                                CHOOSE SEATS
+                                <span>→</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBookingSubmitting(true)
+                                  setTimeout(() => {
+                                    setBookingSubmitting(false)
+                                    setBookingSuccess(true)
+                                  }, 600)
+                                }}
+                                disabled={bookingSubmitting || totalTicketsCount === 0}
+                                className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${totalTicketsCount > 0
+                                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+                                  }`}
+                              >
+                                {bookingSubmitting ? (
+                                  <>
+                                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                    PROCESSING...
+                                  </>
+                                ) : (
+                                  <>
+                                    CONFIRM RESERVATION
+                                    <span>→</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* ── STEP 2: Interactive Seat Selection ── */}
+                      {bookingStep === 2 && bookingModalEvent.seatingConfig?.enabled && (
+                        <>
+                          <div className="mt-4 flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => setBookingStep(1)}
+                              className="flex items-center gap-1.5 text-[10px] text-neutral-400 hover:text-white font-['Orbitron'] uppercase tracking-wider transition-colors cursor-pointer"
+                            >
+                              ← BACK
+                            </button>
+                            <div className="text-[10px] font-['Orbitron'] text-amber-400 font-bold">
+                              {totalTicketsCount} seat{totalTicketsCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="booking-tier-card booking-tier-card--active">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-sm text-white font-['Orbitron']">Standard Pass</div>
-                          <div className="text-[10px] text-neutral-400">General admission pass</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-black text-sm text-red-400 font-['Orbitron']">
-                            LKR {Number(bookingModalEvent.minPrice || 0).toLocaleString()}
+
+                          <div className="mt-3 flex items-center justify-between">
+                            <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
+                              <span className="text-amber-400">💺</span>
+                              SELECT YOUR SEATS
+                            </label>
+                            {selectedSeats.length > 0 && (
+                              <span className="text-[10px] text-amber-400 font-mono font-bold animate-pulse">
+                                {selectedSeats.length} selected · {selectedSeats.join(', ')}
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[9px] text-neutral-500 font-['Orbitron']">per pass</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Quantity Stepper */}
-                <div className="mt-4 flex items-center justify-between p-3 rounded-xl bg-black/40 border border-white/10 text-left">
-                  <div>
-                    <span className="text-xs font-['Orbitron'] font-bold text-neutral-300">Ticket Quantity</span>
-                    <p className="text-[10px] text-neutral-500">Max 10 passes per checkout</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTicketQuantity(Math.max(1, ticketQuantity - 1))}
-                      className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-lg flex items-center justify-center transition-all cursor-pointer"
-                    >
-                      -
-                    </button>
-                    <span className="font-bold text-base text-white font-['Orbitron'] w-6 text-center">
-                      {ticketQuantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setTicketQuantity(Math.min(10, ticketQuantity + 1))}
-                      className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-lg flex items-center justify-center transition-all cursor-pointer"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
+                          <SeatingChartComponent
+                            seatingConfig={bookingModalEvent.seatingConfig}
+                            isOrganizerEdit={false}
+                            selectedSeats={selectedSeats}
+                            onSelectSeat={(seatId) => {
+                              let next
+                              if (selectedSeats.includes(seatId)) {
+                                next = selectedSeats.filter((s) => s !== seatId)
+                              } else {
+                                next = [...selectedSeats, seatId]
+                              }
+                              setSelectedSeats(next)
+                              setTicketQuantity(Math.max(1, next.length))
+                            }}
+                          />
 
-                {/* Total Summary */}
-                <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
-                  <div className="text-left">
-                    <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
-                    <div className="text-xl font-black text-white font-['Orbitron']">
-                      LKR {(Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity).toLocaleString()}
-                    </div>
-                  </div>
+                          <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+                            <div className="text-left">
+                              <span className="text-[10px] uppercase tracking-widest text-neutral-400 font-['Orbitron']">Total Payable</span>
+                              <div className="text-xl font-black text-white font-['Orbitron']">
+                                LKR {selectedSeats.length > 0
+                                  ? selectedSeats.reduce((total, seatId) => {
+                                    let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
+                                    bookingModalEvent.seatingConfig.zones?.forEach(z => {
+                                      const row = seatId.charAt(0)
+                                      if (z.rows?.includes(row)) p = Number(z.price || p)
+                                    })
+                                    return total + p
+                                  }, 0).toLocaleString()
+                                  : totalBookingPrice.toLocaleString()}
+                              </div>
+                              {selectedSeats.length > 0 && (
+                                <div className="text-[10px] text-amber-400 font-mono mt-0.5">{selectedSeats.length} seat{selectedSeats.length > 1 ? 's' : ''} selected</div>
+                              )}
+                            </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBookingSubmitting(true)
-                      setTimeout(() => {
-                        setBookingSubmitting(false)
-                        setBookingSuccess(true)
-                      }, 600)
-                    }}
-                    disabled={bookingSubmitting}
-                    className="px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all shadow-[0_0_20px_rgba(255,0,0,0.6)] flex items-center gap-2 cursor-pointer"
-                  >
-                    {bookingSubmitting ? (
-                      <>
-                        <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                        PROCESSING...
-                      </>
-                    ) : (
-                      <>
-                        CONFIRM RESERVATION
-                        <span>→</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBookingSubmitting(true)
+                                setTimeout(() => {
+                                  if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
+                                    const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
+                                      const newOccupied = Array.from(new Set([...(z.occupiedSeats || []), ...selectedSeats]))
+                                      return { ...z, occupiedSeats: newOccupied }
+                                    })
+                                    const updatedSeatingConfig = { ...bookingModalEvent.seatingConfig, zones: updatedZones }
+                                    setAlbumList((prev) => prev.map((e) => e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e))
+                                    setMyEventsList((prev) => prev.map((e) => e.id === bookingModalEvent.id ? { ...e, seatingConfig: updatedSeatingConfig } : e))
+                                  }
+                                  setBookingSubmitting(false)
+                                  setBookingSuccess(true)
+                                }, 600)
+                              }}
+                              disabled={bookingSubmitting || selectedSeats.length === 0}
+                              className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${selectedSeats.length > 0
+                                ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
+                                : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+                                }`}
+                            >
+                              {bookingSubmitting ? (
+                                <>
+                                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                  PROCESSING...
+                                </>
+                              ) : (
+                                <>
+                                  CONFIRM RESERVATION
+                                  <span>→</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )
+                })()}
               </>
             ) : (
               <div className="text-center py-4">
@@ -2587,50 +3616,77 @@ function App() {
                 </p>
 
                 {/* Digital Ticket Pass Card */}
-                <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
-                  <div className="cyber-bracket cyber-bracket--tl" />
-                  <div className="cyber-bracket cyber-bracket--br" />
+                {(() => {
+                  const totalTicketsCount = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
+                    : (tierQuantities['standard'] || 1)
 
-                  <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
-                    <div>
-                      <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">EXVO DIGITAL PASS</div>
-                      <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">{bookingModalEvent.title}</div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
-                        VALID PASS
-                      </span>
-                    </div>
-                  </div>
+                  const totalBookingPrice = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
+                      const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                      const qty = tierQuantities[key] || 0
+                      return sum + (Number(tier.price || 0) * qty)
+                    }, 0)
+                    : (Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1))
 
-                  <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER</span>
-                      <strong className="text-white font-['Orbitron']">{selectedTier?.name || 'General Admission'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">QUANTITY</span>
-                      <strong className="text-white font-['Orbitron']">{ticketQuantity} {ticketQuantity === 1 ? 'Pass' : 'Passes'}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
-                      <strong className="text-white text-[11px]">{formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
-                      <strong className="text-white text-[11px] truncate block">{bookingModalEvent.venue || 'Colombo'}</strong>
-                    </div>
-                  </div>
+                  const selectedTiersSummary = bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                    ? bookingModalEvent.ticketTiers
+                      .map((tier, idx) => {
+                        const key = tier.id ? String(tier.id) : (tier.name || `tier-${idx}`)
+                        const qty = tierQuantities[key] || 0
+                        return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
+                      })
+                      .filter(Boolean)
+                      .join(', ')
+                    : `${tierQuantities['standard'] || 1}x Standard Pass`
 
-                  <div className="pt-2.5 border-t border-dashed border-white/20 flex items-center justify-between">
-                    <div className="text-[10px] text-neutral-400 font-mono">
-                      REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
+                  return (
+                    <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
+                      <div className="cyber-bracket cyber-bracket--tl" />
+                      <div className="cyber-bracket cyber-bracket--br" />
+
+                      <div className="flex items-center justify-between pb-2.5 border-b border-white/10">
+                        <div>
+                          <div className="text-[9px] text-red-500 font-bold font-['Orbitron'] tracking-widest">EXVO DIGITAL PASS</div>
+                          <div className="text-sm font-bold text-white font-['Orbitron'] truncate max-w-[200px]">{bookingModalEvent.title}</div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold font-['Orbitron']">
+                            VALID PASS
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER(S)</span>
+                          <strong className="text-white font-['Orbitron'] text-[11px] block truncate">{selectedTiersSummary || 'General Admission'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TOTAL PASSES</span>
+                          <strong className="text-white font-['Orbitron']">{totalTicketsCount} {totalTicketsCount === 1 ? 'Pass' : 'Passes'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">DATE & TIME</span>
+                          <strong className="text-white text-[11px]">{formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) || bookingModalEvent.year}</strong>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 block font-['Orbitron']">VENUE</span>
+                          <strong className="text-white text-[11px] truncate block">{bookingModalEvent.venue || 'Colombo'}</strong>
+                        </div>
+                      </div>
+
+                      <div className="pt-2.5 border-t border-dashed border-white/20 flex items-center justify-between">
+                        <div className="text-[10px] text-neutral-400 font-mono">
+                          REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
+                        </div>
+                        <div className="text-xs font-black text-red-400 font-['Orbitron']">
+                          LKR {totalBookingPrice.toLocaleString()}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs font-black text-red-400 font-['Orbitron']">
-                      LKR {(Number(selectedTier?.price || bookingModalEvent.minPrice || 0) * ticketQuantity).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
+                  )
+                })()}
 
                 <div className="mt-5 flex items-center justify-center gap-3">
                   <button
@@ -2705,7 +3761,18 @@ function App() {
                     className={`carousel-card ${cardClass} group cursor-pointer`}
                     title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
-                    <EventPoster event={album} imageClassName="w-full h-full object-cover select-none" />
+                    {album.cover ? (
+                      <img
+                        src={album.cover}
+                        alt={album.title}
+                        className="w-full h-full object-cover select-none"
+                        draggable="false"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center p-4 text-center">
+                        <span className="text-3xl opacity-50">🎵</span>
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-80" />
 
                     {/* Center Card Title and Tag Overlay */}
@@ -2918,7 +3985,7 @@ function App() {
                 )}
               </h2>
               <p className="text-neutral-400 text-xs mt-1">
-                Showing {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
+                Showing {showAllEventsInGrid ? filteredEvents.length : Math.min(12, filteredEvents.length)} of {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'}
                 {categorySearchQuery && (
                   <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
                 )}
@@ -2929,7 +3996,10 @@ function App() {
             {/* Category Filter Pills & Reset */}
             <div className="flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => setActiveCategory('all')}
+                onClick={() => {
+                  setActiveCategory('all')
+                  setShowAllEventsInGrid(false)
+                }}
                 className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${!activeCategory || activeCategory === 'all'
                   ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
                   : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
@@ -2942,7 +4012,10 @@ function App() {
                 return (
                   <button
                     key={catName}
-                    onClick={() => setActiveCategory(activeCategory === catName ? 'all' : catName)}
+                    onClick={() => {
+                      setActiveCategory(activeCategory === catName ? 'all' : catName)
+                      setShowAllEventsInGrid(false)
+                    }}
                     className={`px-3 py-1.5 rounded-full text-xs font-['Orbitron'] font-bold transition-all cursor-pointer ${activeCategory === catName
                       ? 'bg-red-600 text-white shadow-[0_0_12px_rgba(255,0,0,0.6)]'
                       : 'bg-white/5 text-neutral-400 hover:text-white hover:bg-white/10 border border-white/10'
@@ -2957,80 +4030,120 @@ function App() {
 
           {/* Events Grid */}
           {filteredEvents.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredEvents.map((event, idx) => {
-                const eventPrice = Number(event.minPrice || 0)
-                const dateDisplay = event.eventDate || event.year || '2026'
-                return (
-                  <div
-                    key={event.id || idx}
-                    onClick={() => handleOpenEventDetails(event)}
-                    className="event-cyber-card group cursor-pointer"
-                  >
-                    <div className="event-cyber-card__poster-box">
-                      <EventPoster event={event} imageClassName="event-cyber-card__poster" />
-                      <div className="event-cyber-card__poster-overlay" />
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {(showAllEventsInGrid ? filteredEvents : filteredEvents.slice(0, 12)).map((event, idx) => {
+                  const eventPrice = Number(event.minPrice || 0)
+                  const dateDisplay = event.eventDate || event.year || '2026'
+                  return (
+                    <div
+                      key={event.id || idx}
+                      onClick={() => handleOpenEventDetails(event)}
+                      className="event-cyber-card group cursor-pointer"
+                    >
+                      <div className="event-cyber-card__poster-box">
+                        <img
+                          src={event.cover}
+                          alt={event.title}
+                          className="event-cyber-card__poster"
+                          loading="lazy"
+                        />
+                        <div className="event-cyber-card__poster-overlay" />
 
-                      {/* Top Badges */}
-                      <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
-                        <span className="event-category-pill">
-                          {event.category || 'CONCERT'}
-                        </span>
-                        <span className="event-live-status-pill">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                          AVAILABLE
-                        </span>
-                      </div>
-
-                      {/* Corner Accents */}
-                      <div className="cyber-bracket cyber-bracket--tl" />
-                      <div className="cyber-bracket cyber-bracket--br" />
-                    </div>
-
-                    <div className="event-cyber-card__content">
-                      <div className="text-[10px] text-red-500 font-['Orbitron'] font-bold tracking-widest uppercase mb-1">
-                        {event.artistOrOrganizer || event.subtitle}
-                      </div>
-                      <h3 className="text-lg font-bold text-white font-['Orbitron'] group-hover:text-red-400 transition-colors line-clamp-1">
-                        {event.title}
-                      </h3>
-
-                      <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
+                        {/* Top Badges */}
+                        <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
+                          <span className="event-category-pill">
+                            {event.category || 'CONCERT'}
+                          </span>
+                          <span className="event-live-status-pill">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                            AVAILABLE
+                          </span>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                          <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
-                        </div>
+
+                        {/* Corner Accents */}
+                        <div className="cyber-bracket cyber-bracket--tl" />
+                        <div className="cyber-bracket cyber-bracket--br" />
                       </div>
 
-                      <div className="event-cyber-card__footer">
-                        <div>
-                          <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">Passes From</div>
-                          <div className="text-sm md:text-base font-black text-white font-['Orbitron']">
-                            {eventPrice > 0 ? `LKR ${eventPrice.toLocaleString()}` : 'FREE PASS'}
+                      <div className="event-cyber-card__content">
+                        <div className="text-[10px] text-red-500 font-['Orbitron'] font-bold tracking-widest uppercase mb-1">
+                          {event.artistOrOrganizer || event.subtitle}
+                        </div>
+                        <h3 className="text-lg font-bold text-white font-['Orbitron'] group-hover:text-red-400 transition-colors line-clamp-1">
+                          {event.title}
+                        </h3>
+
+                        <div className="mt-3 space-y-1.5 text-xs text-neutral-300 font-sans">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span>{formatSelectedDate(event.eventDate, event.eventTime) || dateDisplay}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <svg className="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span className="truncate">{event.venue || 'Colombo, Sri Lanka'}</span>
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => handleOpenEventDetails(event)}
-                          className="event-book-btn"
-                        >
-                          <span>VIEW</span>
-                        </button>
+                        <div className="event-cyber-card__footer">
+                          <div>
+                            <div className="text-[9px] text-neutral-500 uppercase tracking-widest font-['Orbitron']">Passes From</div>
+                            <div className="text-sm md:text-base font-black text-white font-['Orbitron']">
+                              {eventPrice > 0 ? `LKR ${eventPrice.toLocaleString()}` : 'FREE PASS'}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleOpenEventDetails(event)}
+                            className="event-book-btn"
+                          >
+                            <span>VIEW</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+
+              {/* View All Events Button (only if more than 12 events exist) */}
+              {filteredEvents.length > 12 && (
+                <div className="flex flex-col items-center justify-center mt-10 md:mt-14">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllEventsInGrid((prev) => !prev)}
+                    className="group relative inline-flex items-center gap-3 px-8 py-3.5 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-red-800 hover:from-red-600 hover:to-red-700 text-white font-['Orbitron'] font-extrabold text-xs tracking-widest uppercase transition-all duration-300 hover:scale-105 hover:shadow-[0_0_25px_rgba(255,0,0,0.6)] cursor-pointer border border-red-500/40 overflow-hidden"
+                  >
+                    <span className="relative z-10 flex items-center gap-2">
+                      {showAllEventsInGrid ? (
+                        <>
+                          <span>SHOW LESS</span>
+                          <svg className="w-4 h-4 transition-transform duration-300 group-hover:-translate-y-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 15l7-7 7 7" />
+                          </svg>
+                        </>
+                      ) : (
+                        <>
+                          <span>VIEW ALL ({filteredEvents.length}) EVENTS</span>
+                          <svg className="w-4 h-4 transition-transform duration-300 group-hover:translate-y-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </>
+                      )}
+                    </span>
+                    <span className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                  </button>
+                  <p className="text-[11px] text-neutral-400 font-sans mt-2.5">
+                    {showAllEventsInGrid ? `Showing all ${filteredEvents.length} events` : `Showing 12 of ${filteredEvents.length} live database events`}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-16 px-4 rounded-2xl bg-black/40 border border-white/10 my-6">
               <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-2xl flex items-center justify-center mx-auto mb-4">
@@ -3473,12 +4586,12 @@ function App() {
             <div className="grid grid-cols-3 gap-2.5 my-4">
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL EVENTS</span>
-                <span className="dash-stat-val text-white">{albumList.length}</span>
+                <span className="dash-stat-val text-white">{myOrganizerEvents.length}</span>
               </div>
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL PASSES</span>
                 <span className="dash-stat-val text-red-400">
-                  {albumList.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
+                  {myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
                 </span>
               </div>
               <div className="dash-stat-card">
@@ -3517,72 +4630,119 @@ function App() {
 
             {/* Events List */}
             <div className="organizer-events-scroll space-y-3 pr-1">
-              {albumList.filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase())).length > 0 ? (
-                albumList
+              {loadingMyEvents ? (
+                <div className="text-center py-12 text-neutral-400 text-xs font-['Orbitron'] flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                  Loading your events...
+                </div>
+              ) : myOrganizerEvents.filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase())).length > 0 ? (
+                myOrganizerEvents
                   .filter(e => !dashboardSearch || e.title?.toLowerCase().includes(dashboardSearch.toLowerCase()) || e.venue?.toLowerCase().includes(dashboardSearch.toLowerCase()))
-                  .map((evt) => (
-                    <div key={evt.id} className="dash-event-card group">
-                      <div className="flex items-start gap-3">
-                        {evt.cover ? (
-                          <img
-                            src={evt.cover}
-                            alt={evt.title}
-                            className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
-                            🎵
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1 mb-1">
-                            <span className="px-2 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-[9px] font-bold font-['Orbitron'] text-red-400 uppercase truncate">
-                              {evt.category || 'Concert'}
-                            </span>
-                            <span className="text-[10px] text-emerald-400 font-mono font-bold">
-                              From LKR {Number(evt.minPrice || 0).toLocaleString()}
-                            </span>
-                          </div>
-                          <h4 className="text-sm font-bold text-white font-['Orbitron'] truncate group-hover:text-red-400 transition-colors">
-                            {evt.title}
-                          </h4>
-                          <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                            📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
-                          </p>
+                  .map((evt) => {
+                    const isEvtHidden = Boolean(evt.isHidden || getHiddenEventIds().includes(String(evt.id)))
+                    return (
+                      <div key={evt.id} className="dash-event-card group">
+                        <div className="flex items-start gap-3">
+                          {evt.cover ? (
+                            <img
+                              src={evt.cover}
+                              alt={evt.title}
+                              className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
+                              🎵
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-1">
+                              <div className="flex items-center gap-1.5 overflow-hidden">
+                                <span className="px-2 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-[9px] font-bold font-['Orbitron'] text-red-400 uppercase truncate">
+                                  {evt.category || 'Concert'}
+                                </span>
+                                {isEvtHidden && (
+                                  <span className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/50 text-[8.5px] font-bold font-['Orbitron'] text-amber-300 uppercase shrink-0">
+                                    HIDDEN
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-emerald-400 font-mono font-bold shrink-0">
+                                From LKR {Number(evt.minPrice || 0).toLocaleString()}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-bold text-white font-['Orbitron'] truncate group-hover:text-red-400 transition-colors">
+                              {evt.title}
+                            </h4>
+                            <p className="text-[11px] text-neutral-400 truncate mt-0.5">
+                              📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
+                            </p>
 
-                          {/* Action Buttons: EDIT & DELETE */}
-                          <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-white/5">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEditEvent(evt)}
-                              className="dash-action-btn dash-action-btn--edit"
-                              title="Edit Event Details"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                              <span>EDIT</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteEvent(evt.id, evt.title)}
-                              className="dash-action-btn dash-action-btn--delete"
-                              title="Delete Event from Database"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              <span>DELETE</span>
-                            </button>
+                            {/* Action Buttons: EDIT, HIDE/UNHIDE, & DELETE */}
+                            <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/5">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditEvent(evt)}
+                                className="dash-action-btn dash-action-btn--edit"
+                                title="Edit Event Details"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                                <span>EDIT</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleHideEvent(evt)}
+                                className={`dash-action-btn ${isEvtHidden
+                                  ? '!bg-emerald-950/60 !border-emerald-500/50 !text-emerald-300 hover:!bg-emerald-900/60'
+                                  : '!bg-amber-950/50 !border-amber-500/50 !text-amber-300 hover:!bg-amber-900/60'
+                                  }`}
+                                title={isEvtHidden ? 'Make Event Publicly Visible' : 'Hide Event from Attendees'}
+                              >
+                                {isEvtHidden ? (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.025 10.025 0 013.122-.063c4.478 0 8.268 2.943 9.542 7a9.97 9.97 0 01-4.043 5.122M3 3l18 18" />
+                                  </svg>
+                                )}
+                                <span>{isEvtHidden ? 'UNHIDE' : 'HIDE'}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteEvent(evt.id, evt.title)}
+                                className="dash-action-btn dash-action-btn--delete"
+                                title="Delete Event from Database"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span>DELETE</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
               ) : (
-                <div className="text-center py-12 text-neutral-500 text-xs font-['Orbitron']">
-                  No events matching search criteria.
+                <div className="text-center py-12 text-neutral-500 text-xs font-['Orbitron'] px-4">
+                  {myOrganizerEvents.length === 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-neutral-400 font-bold">No events created by you yet.</p>
+                      <p className="text-[11px] text-neutral-500 font-sans">
+                        Click the <span className="text-red-400 font-bold">+ ADD</span> button above to list your first event!
+                      </p>
+                    </div>
+                  ) : (
+                    "No events matching search criteria."
+                  )}
                 </div>
               )}
             </div>
@@ -3754,6 +4914,281 @@ function App() {
                 ))}
               </div>
 
+              {/* ── Visual Reserved Seating Layout Builder (Edit Mode) ── */}
+              <div className="add-event-section-box mt-3">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
+                      <span className="text-red-500 text-sm">💺</span>
+                      RESERVED SEATING LAYOUT & PLAN
+                    </label>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement, zones & blocked seats</p>
+                  </div>
+
+                  {/* Toggle Enable/Disable */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const curr = editEventForm.seatingConfig || createDefaultSeatingConfig()
+                      setEditEventForm(prev => ({
+                        ...prev,
+                        seatingConfig: { ...curr, enabled: !curr.enabled }
+                      }))
+                    }}
+                    className={`px-3.5 py-1.5 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all cursor-pointer flex items-center gap-2 ${editEventForm.seatingConfig?.enabled
+                      ? 'bg-emerald-600/30 border border-emerald-500/60 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                      : 'bg-white/5 border border-white/10 text-neutral-400'
+                      }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${editEventForm.seatingConfig?.enabled ? 'bg-emerald-400 animate-pulse' : 'bg-neutral-500'}`} />
+                    {editEventForm.seatingConfig?.enabled ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)' : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                  </button>
+                </div>
+
+                <div className={`p-2.5 rounded-xl text-[10px] flex items-center justify-between border mb-3 ${editEventForm.seatingConfig?.enabled
+                  ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300'
+                  : 'bg-neutral-900/50 border-neutral-800 text-neutral-400'
+                  }`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{editEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
+                    <span>
+                      {editEventForm.seatingConfig?.enabled
+                        ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
+                        : 'Seating chart is hidden from attendees. Attendees will purchase standard ticket categories.'}
+                    </span>
+                  </div>
+                </div>
+
+                {editEventForm.seatingConfig?.enabled && (
+                  <div className="space-y-4 pt-2 border-t border-white/10 text-left">
+                    {/* Configuration Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">STAGE / SCREEN LABEL</label>
+                        <input
+                          type="text"
+                          value={editEventForm.seatingConfig.stageLabel || 'SCREEN'}
+                          onChange={(e) => {
+                            const val = e.target.value
+                            setEditEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, stageLabel: val }
+                            }))
+                          }}
+                          placeholder="e.g. SCREEN or MAIN STAGE"
+                          className="contact-input !py-1.5 text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
+                        <select
+                          onChange={(e) => {
+                            const preset = e.target.value
+                            let newZones = editEventForm.seatingConfig.zones
+                            if (preset === 'standard') {
+                              newZones = createDefaultSeatingConfig().zones
+                            } else if (preset === 'vip_general') {
+                              newZones = [
+                                { id: 'z1', name: 'VIP FRONT ROW', price: 5000, rows: ['A', 'B'], seatsPerRow: 10, occupiedSeats: [] },
+                                { id: 'z2', name: 'GENERAL ARENA', price: 2500, rows: ['C', 'D', 'E', 'F'], seatsPerRow: 12, occupiedSeats: [] }
+                              ]
+                            } else if (preset === 'theater') {
+                              newZones = [
+                                { id: 'z1', name: 'ORCHESTRA', price: 4000, rows: ['A', 'B', 'C', 'D'], seatsPerRow: 14, occupiedSeats: [] },
+                                { id: 'z2', name: 'MEZZANINE', price: 2500, rows: ['E', 'F', 'G'], seatsPerRow: 14, occupiedSeats: [] },
+                                { id: 'z3', name: 'BALCONY', price: 1500, rows: ['H', 'I', 'J'], seatsPerRow: 12, occupiedSeats: [] }
+                              ]
+                            }
+                            setEditEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: { ...prev.seatingConfig, zones: newZones }
+                            }))
+                          }}
+                          className="contact-input !py-1.5 text-xs"
+                        >
+                          <option value="standard">Standard Cinema (Classic / Premium / Superior)</option>
+                          <option value="vip_general">Concert Arena (VIP Front Row / General Arena)</option>
+                          <option value="theater">Theater Hall (Orchestra / Mezzanine / Balcony)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Zone Editor List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[9px] font-bold text-neutral-400 uppercase flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span>SEATING ZONES & PRICE TIERS</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const synced = syncSeatingZonesWithTicketTiers(editEventForm.ticketTiers, editEventForm.seatingConfig?.zones || [])
+                              setEditEventForm(prev => ({
+                                ...prev,
+                                seatingConfig: { ...prev.seatingConfig, zones: synced }
+                              }))
+                            }}
+                            className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
+                            title="Click to sync zone names and prices with Ticket Categories above"
+                          >
+                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextId = `zone-${Date.now()}`
+                            const nextLetter = String.fromCharCode(65 + (editEventForm.seatingConfig.zones.length * 3))
+                            const newZone = { id: nextId, name: 'NEW ZONE', price: 2000, rows: [nextLetter], seatsPerRow: 10, occupiedSeats: [] }
+                            setEditEventForm(prev => ({
+                              ...prev,
+                              seatingConfig: {
+                                ...prev.seatingConfig,
+                                zones: [...prev.seatingConfig.zones, newZone]
+                              }
+                            }))
+                          }}
+                          className="text-red-400 hover:text-red-300 cursor-pointer"
+                        >
+                          + Add Zone
+                        </button>
+                      </div>
+
+                      {editEventForm.seatingConfig.zones.map((zone, zIdx) => (
+                        <div key={zone.id || zIdx} className="bg-black/30 p-2.5 rounded-xl border border-white/10 text-left space-y-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ZONE NAME</span>
+                              <input
+                                type="text"
+                                value={zone.name}
+                                onChange={(e) => {
+                                  const name = e.target.value
+                                  setEditEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, name } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs font-bold"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">PRICE (LKR)</span>
+                              <input
+                                type="number"
+                                value={zone.price}
+                                onChange={(e) => {
+                                  const price = Number(e.target.value) || 0
+                                  setEditEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, price } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <input
+                                type="text"
+                                value={(zone.rows || []).join(', ')}
+                                onChange={(e) => {
+                                  const rows = e.target.value.split(',').map(r => r.trim().toUpperCase()).filter(Boolean)
+                                  setEditEventForm(prev => ({
+                                    ...prev,
+                                    seatingConfig: {
+                                      ...prev.seatingConfig,
+                                      zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, rows } : z)
+                                    }
+                                  }))
+                                }}
+                                className="contact-input !py-1 text-xs"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="25"
+                                  value={zone.seatsPerRow}
+                                  onChange={(e) => {
+                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setEditEventForm(prev => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.map((z, i) => i === zIdx ? { ...z, seatsPerRow } : z)
+                                      }
+                                    }))
+                                  }}
+                                  className="contact-input !py-1 text-xs"
+                                />
+                              </div>
+                              {editEventForm.seatingConfig.zones.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditEventForm(prev => ({
+                                      ...prev,
+                                      seatingConfig: {
+                                        ...prev.seatingConfig,
+                                        zones: prev.seatingConfig.zones.filter((_, i) => i !== zIdx)
+                                      }
+                                    }))
+                                  }}
+                                  className="text-red-500 hover:text-red-400 p-1 mt-3 cursor-pointer"
+                                  title="Remove Zone"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Seating Layout Visual Live Preview Component! */}
+                    <div className="mt-4 pt-3 border-t border-white/10">
+                      <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
+                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                      </span>
+                      <SeatingChartComponent
+                        seatingConfig={editEventForm.seatingConfig}
+                        isOrganizerEdit={true}
+                        onToggleOccupied={(seatId) => {
+                          setEditEventForm(prev => {
+                            const currentConfig = prev.seatingConfig
+                            const updatedZones = currentConfig.zones.map(z => {
+                              const isOccupied = z.occupiedSeats?.includes(seatId)
+                              let newOccupied
+                              if (isOccupied) {
+                                newOccupied = z.occupiedSeats.filter(s => s !== seatId)
+                              } else {
+                                newOccupied = [...(z.occupiedSeats || []), seatId]
+                              }
+                              return { ...z, occupiedSeats: newOccupied }
+                            })
+                            return {
+                              ...prev,
+                              seatingConfig: { ...currentConfig, zones: updatedZones }
+                            }
+                          })
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Description */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">DESCRIPTION</label>
@@ -3810,12 +5245,12 @@ function App() {
             <div className="cyber-bracket cyber-bracket--br" />
 
             {/* Main Landscape Grid Container */}
-            <div className="grid grid-cols-1 md:grid-cols-12 min-h-[460px] max-h-[85vh] md:max-h-[80vh] overflow-hidden">
+            <div className="grid grid-cols-1 md:grid-cols-12 h-full max-h-[85vh] overflow-hidden min-h-0">
 
               {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
               <div
-                className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10"
-                style={selectedDetailEvent.cover ? { backgroundImage: `url(${selectedDetailEvent.cover})` } : undefined}
+                className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10 shrink-0"
+                style={{ backgroundImage: `url(${selectedDetailEvent.cover || sarithImg})` }}
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
 
@@ -3835,32 +5270,17 @@ function App() {
                   <div className="text-[11px] text-red-400 font-['Orbitron'] font-bold tracking-widest uppercase mb-1 drop-shadow">
                     FEATURED: {selectedDetailEvent.artistOrOrganizer || selectedDetailEvent.subtitle || 'EXVO LIVE'}
                   </div>
-                  <h2 className="text-xl sm:text-3xl font-black font-['Orbitron'] text-white tracking-wide leading-tight drop-shadow-md mb-4">
+                  <h2 className="text-xl sm:text-3xl font-black font-['Orbitron'] text-white tracking-wide leading-tight drop-shadow-md mb-1">
                     {selectedDetailEvent.title}
                   </h2>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const eventToBook = selectedDetailEvent
-                      handleCloseEventDetails()
-                      handleOpenBooking(eventToBook)
-                    }}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-red-700 hover:from-red-600 hover:to-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-widest uppercase transition-all shadow-[0_0_20px_rgba(255,0,0,0.5)] cursor-pointer flex items-center justify-center gap-2 border border-red-400/30"
-                  >
-                    <span>GET TICKETS NOW</span>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
-                  </button>
                 </div>
               </div>
 
               {/* RIGHT COLUMN: Info & Ticket Tiers (7 cols) */}
-              <div className="md:col-span-7 flex flex-col h-full bg-[#0a0a0c] overflow-hidden">
+              <div className="md:col-span-7 flex flex-col h-full bg-[#0a0a0c] overflow-hidden min-h-0">
 
                 {/* Header with Close button */}
-                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.02] shrink-0">
                   <div className="text-xs font-bold font-['Orbitron'] text-red-400 tracking-widest uppercase flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                     EVENT INFORMATION & PASSES
@@ -3876,7 +5296,7 @@ function App() {
                 </div>
 
                 {/* Content Body */}
-                <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+                <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar min-h-0">
 
                   {/* Info Tiles Grid */}
                   <div className="grid grid-cols-2 gap-2.5">
@@ -3900,7 +5320,7 @@ function App() {
                         TIME
                       </div>
                       <div className="text-xs font-bold text-white">
-                        {selectedDetailEvent.eventTime || selectedDetailEvent.time || '19:00 Onwards'}
+                        {extractTimeFromEvent(selectedDetailEvent)}
                       </div>
                     </div>
 
@@ -3958,7 +5378,7 @@ function App() {
                       <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                       OVERVIEW
                     </div>
-                    <p className="text-xs text-neutral-300 leading-relaxed font-sans line-clamp-3 hover:line-clamp-none transition-all">
+                    <p className="text-xs text-neutral-300 leading-relaxed font-sans whitespace-pre-line">
                       {selectedDetailEvent.description ||
                         `Experience an extraordinary live event featuring top performance artists, cutting-edge stage lighting, sound systems, and an unparalleled atmosphere. Secure your passes now to lock in your access to Sri Lanka's premiere event.`}
                     </p>
@@ -4016,8 +5436,37 @@ function App() {
 
                 </div>
 
+                {/* ── Seating Arrangement Preview (Attendee View) ── */}
+                {(() => {
+                  const evt = selectedDetailEvent
+                  let seatCfg = evt.seatingConfig
+                  if (!seatCfg && evt.seatingConfigJson) {
+                    try { seatCfg = typeof evt.seatingConfigJson === 'string' ? JSON.parse(evt.seatingConfigJson) : evt.seatingConfigJson } catch { }
+                  }
+                  if (seatCfg && seatCfg.enabled && seatCfg.zones && seatCfg.zones.length > 0) {
+                    return (
+                      <div className="space-y-2 mt-3">
+                        <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                          </svg>
+                          SEATING ARRANGEMENT
+                        </div>
+                        <SeatingChartComponent
+                          seatingConfig={seatCfg}
+                          isOrganizerEdit={false}
+                          selectedSeats={[]}
+                          onSelectSeat={() => { }}
+                          onToggleOccupied={() => { }}
+                        />
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
+
                 {/* Bottom Actions Footer */}
-                <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 mt-auto">
+                <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 shrink-0 mt-auto">
                   <button
                     type="button"
                     onClick={handleCloseEventDetails}
@@ -4035,7 +5484,7 @@ function App() {
                     }}
                     className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer flex items-center gap-1.5"
                   >
-                    <span>BOOK PASSES NOW</span>
+                    <span>GET TICKETS NOW</span>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
