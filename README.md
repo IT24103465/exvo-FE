@@ -27,9 +27,12 @@ Exvo is an event discovery platform for finding and exploring upcoming live expe
 
 - Node.js 18 or newer
 - npm
-- Exvo authentication API running locally on port `5000`
+- Exvo API Gateway available for authentication and catalog requests
 
-The frontend expects the authentication API at `http://localhost:5000/api/auth`.
+Copy `.env.example` to `.env` for local development, or set `VITE_API_BASE_URL`
+to the deployed API Gateway URL for a hosted build. Production requests use only
+the configured API Gateway; direct AuthService and CatalogService URLs are not
+used.
 
 | Method | Endpoint    | Purpose                                    |
 | ------ | ----------- | ------------------------------------------ |
@@ -50,7 +53,9 @@ npm run dev
 
 Vite will print the local development URL, normally `http://localhost:5173`.
 
-Start the authentication backend before testing login, registration, profile, and logout behavior.
+Start the API Gateway before testing login, registration, profile, and logout
+behavior. The frontend still loads when the backend is unavailable and reports a
+concise service availability message for backend-dependent actions.
 
 ## Available Scripts
 

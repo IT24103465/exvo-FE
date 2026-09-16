@@ -1,15 +1,7 @@
-// Point to API Gateway or direct AuthService port
-const PRIMARY_API_URL = 'http://localhost:5000/api/auth'
-const FALLBACK_API_URL = 'http://localhost:5284/api/auth'
+import { fetchApi } from './apiConfig.js'
 
 const fetchWithFallback = async (endpoint, options = {}) => {
-  try {
-    const res = await fetch(`${PRIMARY_API_URL}${endpoint}`, options)
-    return res
-  } catch (err) {
-    // If gateway connection fails, automatically route to direct AuthService port
-    return await fetch(`${FALLBACK_API_URL}${endpoint}`, options)
-  }
+  return fetchApi(`/api/auth${endpoint}`, options)
 }
 
 export const registerUser = async (
