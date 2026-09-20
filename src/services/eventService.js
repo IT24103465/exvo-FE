@@ -1,10 +1,4 @@
-// Catalog service and gateway URLs
-const CANDIDATE_URLS = ['http://localhost:5255/api/catalog/events', 'http://localhost:5000/api/catalog/events']
-
-const CATEGORY_CANDIDATE_URLS = [
-  'http://localhost:5255/api/catalog/categories',
-  'http://localhost:5000/api/catalog/categories',
-]
+import { fetchApi } from './apiConfig.js'
 
 export const DEFAULT_CATEGORIES = [
   { id: 1, name: 'Music & Concerts', description: 'Live music events and festivals' },
@@ -18,43 +12,25 @@ export const DEFAULT_CATEGORIES = [
 ]
 
 export const getCategories = async () => {
-  for (const url of CATEGORY_CANDIDATE_URLS) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      if (response.ok) {
-        const categories = await response.json()
-        if (Array.isArray(categories) && categories.length > 0) {
-          return categories
-        }
+  try {
+    const response = await fetchApi('/api/catalog/categories', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    if (response.ok) {
+      const categories = await response.json()
+      if (Array.isArray(categories) && categories.length > 0) {
+        return categories
       }
-    } catch (err) {
-      console.warn(`Could not fetch categories from ${url}:`, err.message)
     }
+  } catch (error) {
+    console.warn('Could not fetch categories:', error.message)
   }
   return DEFAULT_CATEGORIES
 }
 
 const fetchWithFallback = async (endpoint = '', options = {}) => {
-  let lastError = null
-
-  for (const baseUrl of CANDIDATE_URLS) {
-    try {
-      const url = `${baseUrl}${endpoint}`
-      const res = await fetch(url, options)
-
-      if (res.ok) {
-        return res
-      }
-      lastError = new Error(`HTTP ${res.status} from ${url}`)
-    } catch (err) {
-      lastError = err
-    }
-  }
-
-  throw lastError || new Error('Backend service endpoints unreachable')
+  return fetchApi(`/api/catalog/events${endpoint}`, options)
 }
 
 const getAuthHeaders = () => {

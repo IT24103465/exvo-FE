@@ -45,7 +45,7 @@ test('deleted event details do not come from storage or another service', async 
     return new Response(null, { status: 404 })
   }
   await expect(getEventById(2)).rejects.toThrow(/404/)
-  expect(calls).toBe(2)
+  expect(calls).toBe(1)
 })
 
 test('unavailable backend never returns cached lists or successful local writes', async () => {
@@ -60,7 +60,7 @@ test('unavailable backend never returns cached lists or successful local writes'
     () => updateEvent(1, { title: 'Changed' }),
     () => deleteEvent(1),
   ]) {
-    await expect(operation()).rejects.toThrow(/offline/)
+    await expect(operation()).rejects.toThrow('Backend service is not currently available')
   }
 })
 
