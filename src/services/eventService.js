@@ -1,3 +1,4 @@
+import { localDate } from './eventDateTime.js'
 import { fetchApi } from './apiConfig.js'
 
 export const DEFAULT_CATEGORIES = [
@@ -71,7 +72,14 @@ const normalizeEvent = (ev) => {
 const requestEvent = async (endpoint, options) => {
   const response = await fetchWithFallback(endpoint, { cache: 'no-store', ...options })
   if (!response.ok) {
-    throw new Error(`Catalog request failed (${response.status}). Please try again.`)
+    if (response.status === 400) {
+      const error = await response.json().catch(() => null)
+      const message = error?.message || error?.Message
+      if (message?.startsWith('Event date and time') || message?.startsWith('Please provide a valid local event')) {
+        throw new Error(message)
+      }
+    }
+    throw new Error(`Unable to complete the event request (${response.status}). Please try again.`)
   }
   if (response.status === 204) return null
   const text = await response.text()
@@ -82,18 +90,18 @@ const requestEvent = async (endpoint, options) => {
 
 const requestEventList = async (endpoint, headers) => {
   const events = await requestEvent(endpoint, { method: 'GET', headers })
-  if (!Array.isArray(events)) throw new Error('Invalid event list from Catalog API')
+  if (!Array.isArray(events)) throw new Error('Unable to load events. Please try again.')
   return events
 }
 
 // GET all published events (Public)
-export const getAllEvents = () => requestEventList('', { 'Content-Type': 'application/json' })
+export const getAllEvents = () => requestEventList('', getAuthHeaders())
 
 // GET event by ID
 export const getEventById = (id) =>
   requestEvent(`/${id}`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
   })
 
 // GET logged-in organizer's events
@@ -113,7 +121,7 @@ export const createEvent = async (eventData) => {
   const catId = Number(eventData.categoryId) || 1
 
   const eventTimeVal = eventData.time || eventData.eventTime || '19:00'
-  let cleanDateVal = eventData.date || eventData.eventDate || new Date().toISOString().slice(0, 10)
+  let cleanDateVal = eventData.date || eventData.eventDate || localDate()
   if (typeof cleanDateVal === 'string' && cleanDateVal.includes('T')) {
     cleanDateVal = cleanDateVal.split('T')[0]
   }
@@ -127,8 +135,8 @@ export const createEvent = async (eventData) => {
     venue: eventData.venue || eventData.location || 'Colombo',
     price: minPrice,
     eventDate: formattedEventDate,
+    utcOffsetMinutes: -new Date(formattedEventDate).getTimezoneOffset(),
     categoryId: catId,
-    organizerId: Number(eventData.organizerId) || 1,
     imageUrl: eventData.coverImage || null,
     availableTickets: totalCap,
     artistOrOrganizer: eventData.artistOrOrganizer || 'Organizer Event',
@@ -167,7 +175,7 @@ export const updateEvent = (id, eventData) => {
   const catId = Number(eventData.categoryId) || 1
 
   const eventTimeVal = eventData.time || eventData.eventTime || '19:00'
-  let cleanDateVal = eventData.date || eventData.eventDate || new Date().toISOString().slice(0, 10)
+  let cleanDateVal = eventData.date || eventData.eventDate || localDate()
   if (typeof cleanDateVal === 'string' && cleanDateVal.includes('T')) {
     cleanDateVal = cleanDateVal.split('T')[0]
   }
@@ -191,6 +199,7 @@ export const updateEvent = (id, eventData) => {
     availableTickets: totalCap,
     categoryId: catId,
     eventDate: formattedEventDate,
+    utcOffsetMinutes: -new Date(formattedEventDate).getTimezoneOffset(),
     date: cleanDateVal,
     time: eventTimeVal,
     eventTime: eventTimeVal,
@@ -215,6 +224,13 @@ export const updateEvent = (id, eventData) => {
 }
 
 // DELETE event
+export const setEventVisibility = (id, isHidden) =>
+  requestEvent(`/${id}/visibility`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ isHidden }),
+  })
+
 export const deleteEvent = (id) =>
   requestEvent(`/${id}`, {
     method: 'DELETE',

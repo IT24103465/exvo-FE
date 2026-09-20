@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import './App.css'
+import { EventSkeleton, EventLoadError } from './components/EventListState'
+import { localDate, minimumEventTime, validateEventSchedule, isEventExpired } from './services/eventDateTime'
+import { useEventExpiry } from './components/useEventExpiry'
 import {
   registerUser,
   loginUser,
@@ -13,12 +16,11 @@ import {
   getMyEvents,
   createEvent,
   updateEvent,
+  setEventVisibility,
   deleteEvent,
   getCategories,
 } from './services/eventService'
 
-// Import local assets from src/assets
-import sarithImg from './assets/sarith.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -36,6 +38,15 @@ const ExvoLogo = () => (
     <path d="M 24 85.4 L 60 107 L 60 117 L 24 95.4 Z" fill="#FF0000" />
   </svg>
 )
+
+const EventPoster = ({ src, title, className = '', loading }) =>
+  src ? (
+    <img src={src} alt={title} className={className} loading={loading} draggable="false" />
+  ) : (
+    <div className={`event-title-poster ${className}`} role="img" aria-label={`${title || 'Untitled Event'} poster`}>
+      <span>{title || 'Untitled Event'}</span>
+    </div>
+  )
 
 const readAuthState = () => {
   const token = localStorage.getItem('token')
@@ -70,48 +81,6 @@ const getUserDetails = (user) => {
       .join('') || 'E'
 
   return { id, name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
-}
-
-const isMyEvent = (evt, userDetails) => {
-  if (!evt || !userDetails) return false
-
-  // 1. Match organizerId / userId
-  if (userDetails.id !== null && userDetails.id !== undefined) {
-    const uId = String(userDetails.id)
-    if (evt.organizerId && String(evt.organizerId) === uId) return true
-    if (evt.OrganizerId && String(evt.OrganizerId) === uId) return true
-    if (evt.userId && String(evt.userId) === uId) return true
-    if (evt.createdByUserId && String(evt.createdByUserId) === uId) return true
-  }
-
-  // 2. Match organizerName or artistOrOrganizer with user name or company name
-  const userNameLower = userDetails.name ? userDetails.name.trim().toLowerCase() : ''
-  const companyNameLower = userDetails.companyName ? userDetails.companyName.trim().toLowerCase() : ''
-
-  const eventOrgName = (evt.organizerName || evt.OrganizerName || '').trim().toLowerCase()
-  const eventArtist = (evt.artistOrOrganizer || evt.subtitle || '').trim().toLowerCase()
-
-  if (userNameLower && userNameLower !== 'exvo member') {
-    if (eventOrgName && eventOrgName === userNameLower) return true
-    if (eventArtist && eventArtist === userNameLower) return true
-  }
-
-  if (companyNameLower) {
-    if (eventOrgName && eventOrgName === companyNameLower) return true
-    if (eventArtist && eventArtist === companyNameLower) return true
-  }
-
-  // 3. Match email
-  if (userDetails.email && userDetails.email !== 'Email unavailable') {
-    const uEmail = userDetails.email.trim().toLowerCase()
-    if (evt.createdByEmail && evt.createdByEmail.trim().toLowerCase() === uEmail) return true
-    if (evt.organizerEmail && evt.organizerEmail.trim().toLowerCase() === uEmail) return true
-  }
-
-  // 4. Session created check
-  if (evt.createdBy === userDetails.email || evt.createdById === userDetails.id) return true
-
-  return false
 }
 
 const HIDDEN_EVENTS_STORAGE_KEY = 'exvo_hidden_event_ids'
@@ -399,7 +368,7 @@ const SeatingChartComponent = ({
 
       {isOrganizerEdit && (
         <div className="mt-4 pt-3 border-t border-neutral-200 text-center text-[10px] text-neutral-500 font-sans">
-          💡 Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
+          Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
         </div>
       )}
     </div>
@@ -677,7 +646,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               </label>
               <div className="login-input-shell">
                 <span className="login-field-icon" aria-hidden="true">
-                  ♙
+                  @
                 </span>
                 <input
                   id="login-email"
@@ -696,13 +665,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 <label className="login-field-label" htmlFor="login-password">
                   PASSWORD
                 </label>
-                <button
-                  className="login-forgot"
-                  type="button"
-                  onClick={() => setMessage('Password reset instructions are coming soon.')}
-                >
-                  Forgot Password?
-                </button>
               </div>
               <div className="login-input-shell">
                 <span className="login-field-icon" aria-hidden="true">
@@ -759,7 +721,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </label>
                   <div className="login-input-shell">
                     <span className="login-field-icon" aria-hidden="true">
-                      ♙
+                      ID
                     </span>
                     <input
                       id="register-full-name"
@@ -831,7 +793,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                     </label>
                     <div className="login-input-shell">
                       <span className="login-field-icon" aria-hidden="true">
-                        🏛
+                        CO
                       </span>
                       <input
                         id="company-name"
@@ -891,7 +853,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                     </label>
                     <div className="login-input-shell">
                       <span className="login-field-icon" aria-hidden="true">
-                        ☎
+                        TEL
                       </span>
                       <input
                         id="company-contact"
@@ -937,17 +899,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               </>
             )}
 
-            <label className="register-terms">
-              <input type="checkbox" required />
-              <span>
-                I agree to the{' '}
-                <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>
-                  Terms
-                </button>{' '}
-                &amp; Privacy Policy.
-              </span>
-            </label>
-
             <button className="login-submit" type="submit" disabled={isLoading}>
               {isLoading ? 'CREATING...' : accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT'}{' '}
               <span aria-hidden="true">→</span>
@@ -988,6 +939,14 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
 function App() {
   const [albumList, setAlbumList] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState(false)
+  const [myEventsError, setMyEventsError] = useState(false)
+  const profileMenuRef = useRef(null)
+  const profilePanelRef = useRef(null)
+  const liveRequestRef = useRef(0)
+  const myRequestRef = useRef(0)
+  const [scheduleNow, setScheduleNow] = useState(() => new Date())
   const [centerIndex, setCenterIndex] = useState(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
@@ -996,6 +955,8 @@ function App() {
   const [profilePanelOpen, setProfilePanelOpen] = useState(false)
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [authState, setAuthState] = useState(readAuthState)
+  const userDetails = getUserDetails(authState.user)
+  const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
@@ -1063,7 +1024,8 @@ function App() {
   // Organizer Dashboard & Edit Event State
   const [organizerDashboardOpen, setOrganizerDashboardOpen] = useState(false)
   const [myEventsList, setMyEventsList] = useState([])
-  const [loadingMyEvents, setLoadingMyEvents] = useState(false)
+  const eventNow = useEventExpiry(albumList, myEventsList)
+  const [loadingMyEvents, setLoadingMyEvents] = useState(true)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [showEditEventModal, setShowEditEventModal] = useState(false)
   const [editingEventId, setEditingEventId] = useState(null)
@@ -1081,6 +1043,53 @@ function App() {
   })
   const [editEventPublishing, setEditEventPublishing] = useState(false)
   const [editEventFeedback, setEditEventFeedback] = useState({ type: '', text: '' })
+
+  useEffect(() => {
+    if (selectedDetailEvent && isEventExpired(selectedDetailEvent, eventNow)) setSelectedDetailEvent(null)
+    if (bookingModalEvent && isEventExpired(bookingModalEvent, eventNow)) setBookingModalEvent(null)
+  }, [eventNow, selectedDetailEvent, bookingModalEvent])
+
+  useEffect(() => {
+    const closeProfile = () => {
+      setProfileMenuOpen(false)
+      setProfilePanelOpen(false)
+      setIsEditingProfile(false)
+    }
+    const outside = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) setProfileMenuOpen(false)
+      if (profilePanelRef.current && !profilePanelRef.current.contains(event.target)) {
+        setProfilePanelOpen(false)
+        setIsEditingProfile(false)
+      }
+      if (event.target.closest?.('a[href]')) closeProfile()
+    }
+    const escape = (event) => {
+      if (event.key === 'Escape') closeProfile()
+    }
+    document.addEventListener('click', outside)
+    document.addEventListener('keydown', escape)
+    window.addEventListener('popstate', closeProfile)
+    window.addEventListener('hashchange', closeProfile)
+    return () => {
+      document.removeEventListener('click', outside)
+      document.removeEventListener('keydown', escape)
+      window.removeEventListener('popstate', closeProfile)
+      window.removeEventListener('hashchange', closeProfile)
+    }
+  }, [])
+
+  useEffect(() => {
+    setProfileMenuOpen(false)
+    setProfilePanelOpen(false)
+    setIsEditingProfile(false)
+  }, [showAuth, organizerDashboardOpen, selectedDetailEvent, showAddEventModal, activeCategory])
+
+  useEffect(() => {
+    if (!showAddEventModal && !showEditEventModal) return
+    setScheduleNow(new Date())
+    const timer = setInterval(() => setScheduleNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [showAddEventModal, showEditEventModal])
 
   const handleAddTicketTier = () => {
     setNewEventForm((prev) => {
@@ -1132,7 +1141,7 @@ function App() {
   const handleSetQuickDate = (daysFromNow) => {
     const d = new Date()
     d.setDate(d.getDate() + daysFromNow)
-    const formatted = d.toISOString().split('T')[0]
+    const formatted = localDate(d)
     setNewEventForm((prev) => ({ ...prev, date: formatted }))
   }
 
@@ -1261,8 +1270,12 @@ function App() {
   }, [authState.isAuthenticated, profilePanelOpen])
 
   const fetchLiveEvents = async () => {
+    const request = ++liveRequestRef.current
+    setEventsLoading(true)
+    setEventsError(false)
     try {
       const dbEvents = await getAllEvents()
+      if (request !== liveRequestRef.current) return
       if (Array.isArray(dbEvents) && dbEvents.length > 0) {
         const formattedEvents = dbEvents.map((e) => {
           let parsedTiers = []
@@ -1291,7 +1304,7 @@ function App() {
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
             organizerId: e.organizerId || e.OrganizerId,
             organizerName: e.organizerName || e.OrganizerName,
-            cover: e.coverImage || e.imageUrl || sarithImg,
+            cover: e.coverImage || e.imageUrl || null,
             year:
               eventDateVal && !isNaN(new Date(eventDateVal).getTime())
                 ? new Date(eventDateVal).getFullYear().toString()
@@ -1303,6 +1316,8 @@ function App() {
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
             eventDate: eventDateVal,
+            startsAtUtc: e.startsAtUtc,
+            utcOffsetMinutes: e.utcOffsetMinutes,
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
@@ -1331,14 +1346,18 @@ function App() {
       } else {
         setAlbumList([])
       }
-    } catch (err) {
-      console.warn('Failed to fetch DB events:', err)
+    } catch {
+      if (request !== liveRequestRef.current) return
+      setEventsError(true)
       setAlbumList([])
+    } finally {
+      if (request === liveRequestRef.current) setEventsLoading(false)
     }
   }
 
   // Fetch published events from database on mount & categories from Catalog API
   useEffect(() => {
+    setAlbumList([])
     fetchLiveEvents()
     getCategories().then((cats) => {
       if (Array.isArray(cats) && cats.length > 0) {
@@ -1350,7 +1369,12 @@ function App() {
         }))
       }
     })
-  }, [])
+    const requests = liveRequestRef
+    return () => {
+      requests.current++
+    }
+    // Refresh scoped results whenever the signed-in identity changes.
+  }, [authState.isAuthenticated, userDetails.id, userDetails.role])
 
   const handleLogout = () => {
     logoutUser()
@@ -1364,14 +1388,15 @@ function App() {
     setMyEventsList([])
   }
 
-  const userDetails = getUserDetails(authState.user)
-  const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
-
   const fetchMyEvents = async () => {
     if (!authState.isAuthenticated || !isOrganizer) return
+    const request = ++myRequestRef.current
     setLoadingMyEvents(true)
+    setMyEventsError(false)
+    setMyEventsList([])
     try {
       const dbMyEvents = await getMyEvents()
+      if (request !== myRequestRef.current) return
       if (Array.isArray(dbMyEvents)) {
         const formatted = dbMyEvents.map((e) => {
           let parsedTiers = []
@@ -1401,7 +1426,7 @@ function App() {
             organizerId: e.organizerId || e.OrganizerId || userDetails.id,
             organizerName: e.organizerName || e.OrganizerName || userDetails.name,
             createdByEmail: userDetails.email,
-            cover: e.coverImage || e.imageUrl || sarithImg,
+            cover: e.coverImage || e.imageUrl || null,
             year:
               eventDateVal && !isNaN(new Date(eventDateVal).getTime())
                 ? new Date(eventDateVal).getFullYear().toString()
@@ -1413,6 +1438,8 @@ function App() {
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
             eventDate: eventDateVal,
+            startsAtUtc: e.startsAtUtc,
+            utcOffsetMinutes: e.utcOffsetMinutes,
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
@@ -1438,10 +1465,12 @@ function App() {
         })
         setMyEventsList(formatted)
       }
-    } catch (err) {
-      console.warn('Could not fetch organizer events via API:', err)
+    } catch {
+      if (request !== myRequestRef.current) return
+      setMyEventsList([])
+      setMyEventsError(true)
     } finally {
-      setLoadingMyEvents(false)
+      if (request === myRequestRef.current) setLoadingMyEvents(false)
     }
   }
 
@@ -1449,11 +1478,25 @@ function App() {
     if (isOrganizer && organizerDashboardOpen) {
       fetchMyEvents()
     }
+    const requests = myRequestRef
+    return () => {
+      requests.current++
+    }
     // fetchMyEvents closes over the current authenticated user details.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizerDashboardOpen, isOrganizer])
+  }, [organizerDashboardOpen, isOrganizer, userDetails.id])
 
-  const myOrganizerEvents = myEventsList.length > 0 ? myEventsList : albumList.filter((e) => isMyEvent(e, userDetails))
+  const myOrganizerEvents = myEventsList.map((event) => ({
+    ...event,
+    isHidden: event.isHidden || isEventExpired(event, eventNow),
+  }))
+
+  const openOrganizerDashboard = () => {
+    setLoadingMyEvents(true)
+    setMyEventsError(false)
+    setMyEventsList([])
+    setOrganizerDashboardOpen(true)
+  }
 
   const handleEventCoverUpload = (e) => {
     const file = e.target.files?.[0]
@@ -1483,6 +1526,11 @@ function App() {
 
   const handleCreateEvent = async (e) => {
     e.preventDefault()
+    const scheduleError = validateEventSchedule(newEventForm.date, newEventForm.time)
+    if (scheduleError) {
+      setEventFeedback({ type: 'error', text: scheduleError })
+      return
+    }
     if (!newEventForm.title.trim() || !newEventForm.venue.trim() || !newEventForm.date) {
       setEventFeedback({ type: 'error', text: 'Please enter Event Title, Date, and Venue.' })
       return
@@ -1550,6 +1598,7 @@ function App() {
         seatingConfig: newEventForm.seatingConfig,
         totalCapacity: totalCap,
         eventDate: newEventForm.date ? `${newEventForm.date}T${newEventForm.time || '19:00'}:00` : '',
+        utcOffsetMinutes: -new Date(`${newEventForm.date}T${newEventForm.time}:00`).getTimezoneOffset(),
         date: newEventForm.date,
         eventTime: newEventForm.time || '19:00',
         time: newEventForm.time || '19:00',
@@ -1560,7 +1609,7 @@ function App() {
       setMyEventsList((prev) => [createdItem, ...prev])
       setCenterIndex(0)
       fetchLiveEvents()
-      setEventFeedback({ type: 'success', text: 'Event successfully created in database and live on EXVO!' })
+      setEventFeedback({ type: 'success', text: 'Event successfully created and live on EXVO!' })
 
       setTimeout(() => {
         setShowAddEventModal(false)
@@ -1584,7 +1633,7 @@ function App() {
         scrollToSection('home')
       }, 1000)
     } catch (err) {
-      setEventFeedback({ type: 'error', text: err.message || 'Failed to publish event to backend.' })
+      setEventFeedback({ type: 'error', text: err.message || 'Failed to publish event. Please try again.' })
     } finally {
       setEventPublishing(false)
     }
@@ -1692,6 +1741,11 @@ function App() {
 
   const handleUpdateEventSubmit = async (e) => {
     e.preventDefault()
+    const scheduleError = validateEventSchedule(editEventForm.date, editEventForm.time)
+    if (scheduleError) {
+      setEditEventFeedback({ type: 'error', text: scheduleError })
+      return
+    }
     if (!editEventForm.title.trim() || !editEventForm.venue.trim() || !editEventForm.date) {
       setEditEventFeedback({ type: 'error', text: 'Please enter Event Title, Date, and Venue.' })
       return
@@ -1739,6 +1793,8 @@ function App() {
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
                 eventDate: `${payload.date}T${payload.time}:00`,
+                startsAtUtc: undefined,
+                utcOffsetMinutes: -new Date(`${payload.date}T${payload.time}:00`).getTimezoneOffset(),
                 date: payload.date,
                 eventTime: payload.time,
                 time: payload.time,
@@ -1763,6 +1819,8 @@ function App() {
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
                 eventDate: `${payload.date}T${payload.time}:00`,
+                startsAtUtc: undefined,
+                utcOffsetMinutes: -new Date(`${payload.date}T${payload.time}:00`).getTimezoneOffset(),
                 date: payload.date,
                 eventTime: payload.time,
                 time: payload.time,
@@ -1776,7 +1834,7 @@ function App() {
       )
 
       await fetchLiveEvents()
-      setEditEventFeedback({ type: 'success', text: 'Event updated successfully in Database!' })
+      setEditEventFeedback({ type: 'success', text: 'Event updated successfully!' })
 
       setTimeout(() => {
         setShowEditEventModal(false)
@@ -1790,7 +1848,7 @@ function App() {
   }
 
   const handleDeleteEvent = async (eventId, eventTitle) => {
-    if (!window.confirm(`Are you sure you want to delete "${eventTitle || 'this event'}" from the database?`)) {
+    if (!window.confirm(`Are you sure you want to delete "${eventTitle || 'this event'}"?`)) {
       return
     }
 
@@ -1813,6 +1871,13 @@ function App() {
     )
     const newHiddenState = !isCurrentlyHidden
 
+    try {
+      await setEventVisibility(eventToToggle.id, newHiddenState)
+    } catch {
+      alert('Could not update event visibility. Please try again.')
+      return
+    }
+
     if (newHiddenState) {
       addHiddenEventId(eventToToggle.id)
     } else {
@@ -1826,12 +1891,7 @@ function App() {
       prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
     )
 
-    try {
-      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState, IsHidder: newHiddenState })
-      await fetchLiveEvents()
-    } catch (err) {
-      console.warn('Failed to update event visibility via backend API:', err)
-    }
+    await fetchLiveEvents()
   }
 
   const handleStartEditProfile = () => {
@@ -1935,6 +1995,7 @@ function App() {
   }
 
   const handleOpenEventDetails = (event) => {
+    if (isEventExpired(event)) return
     let tiers = event?.ticketTiers
     if (typeof tiers === 'string') {
       try {
@@ -1957,6 +2018,7 @@ function App() {
   }
 
   const handleOpenBooking = (event) => {
+    if (isEventExpired(event)) return
     if (!authState.isAuthenticated) {
       setAuthInitialMode('login')
       setShowAuth(true)
@@ -1981,7 +2043,9 @@ function App() {
   }
 
   // Public events visible to attendees (excludes hidden events)
-  const publicEvents = albumList.filter((e) => !e.isHidden && !getHiddenEventIds().includes(String(e.id)))
+  const publicEvents = albumList.filter(
+    (e) => !e.isHidden && !isEventExpired(e, eventNow) && !getHiddenEventIds().includes(String(e.id)),
+  )
 
   // Show ONLY latest public database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
   const carouselEvents = publicEvents.slice(0, 7)
@@ -2086,14 +2150,14 @@ function App() {
   }
 
   const categoryDefinitions = [
-    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)', icon: '🔥' },
-    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
-    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)', icon: '🎪' },
-    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)', icon: '🎤' },
-    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)', icon: '🎧' },
-    { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)', icon: '🪕' },
-    { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)', icon: '🎙️' },
-    { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)', icon: '⚡' },
+    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)' },
+    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)' },
+    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)' },
+    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)' },
+    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)' },
+    { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)' },
+    { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)' },
+    { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)' },
   ]
 
   const eventCategories = categoryDefinitions.map((cat) => {
@@ -2185,7 +2249,7 @@ function App() {
             <button
               type="button"
               className="nav-dash-btn"
-              onClick={() => setOrganizerDashboardOpen(true)}
+              onClick={openOrganizerDashboard}
               title="Open Organizer Dashboard"
             >
               <svg
@@ -2230,7 +2294,7 @@ function App() {
           )}
 
           {authState.isAuthenticated && (
-            <div className="profile-menu-wrap">
+            <div className="profile-menu-wrap" ref={profileMenuRef}>
               <button
                 className="profile-avatar"
                 type="button"
@@ -2374,7 +2438,7 @@ function App() {
                   else if (link === 'EVENTS') scrollToSection('events')
                   else if (link === 'DASHBOARD') {
                     setMobileMenuOpen(false)
-                    setOrganizerDashboardOpen(true)
+                    openOrganizerDashboard()
                   } else if (link === 'ADD EVENT') {
                     setMobileMenuOpen(false)
                     setShowAddEventModal(true)
@@ -2421,6 +2485,7 @@ function App() {
         >
           <section
             className="profile-panel"
+            ref={profilePanelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="profile-title"
@@ -3055,16 +3120,31 @@ function App() {
                     <input
                       type="date"
                       required
+                      min={localDate(scheduleNow)}
+                      aria-label="Event date"
                       value={newEventForm.date}
-                      onChange={(e) => setNewEventForm({ ...newEventForm, date: e.target.value })}
+                      onChange={(e) => {
+                        const next = { ...newEventForm, date: e.target.value }
+                        setNewEventForm(next)
+                        const text = validateEventSchedule(next.date, next.time)
+                        setEventFeedback({ type: text ? 'error' : '', text })
+                      }}
                       className="contact-input add-event-calendar-input"
                     />
                   </div>
                   <div>
                     <input
                       type="time"
+                      required
+                      aria-label="Event time"
+                      min={minimumEventTime(newEventForm.date, scheduleNow)}
                       value={newEventForm.time}
-                      onChange={(e) => setNewEventForm({ ...newEventForm, time: e.target.value })}
+                      onChange={(e) => {
+                        const next = { ...newEventForm, time: e.target.value }
+                        setNewEventForm(next)
+                        const text = validateEventSchedule(next.date, next.time)
+                        setEventFeedback({ type: text ? 'error' : '', text })
+                      }}
                       className="contact-input add-event-time-input"
                     />
                   </div>
@@ -3237,7 +3317,6 @@ function App() {
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
                     <p className="text-[10px] text-neutral-400">
@@ -3278,7 +3357,6 @@ function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{newEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
                       {newEventForm.seatingConfig?.enabled
                         ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
@@ -3397,7 +3475,7 @@ function App() {
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
                             title="Click to sync zone names and prices with Ticket Categories above"
                           >
-                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                            SYNC WITH TICKET CATEGORIES
                           </button>
                         </div>
                         <button
@@ -3697,7 +3775,11 @@ function App() {
                 </div>
 
                 <div className="booking-modal-hero">
-                  <img src={bookingModalEvent.cover} alt={bookingModalEvent.title} className="booking-modal-cover" />
+                  <EventPoster
+                    src={bookingModalEvent.cover}
+                    title={bookingModalEvent.title}
+                    className="booking-modal-cover"
+                  />
                   <div className="text-left">
                     <span className="event-category-pill mb-2 inline-block">
                       {bookingModalEvent.category || 'CONCERT'}
@@ -3708,9 +3790,11 @@ function App() {
                     <p className="text-xs text-red-400 font-['Orbitron'] mt-1">
                       {bookingModalEvent.artistOrOrganizer || bookingModalEvent.subtitle}
                     </p>
-                    <p className="text-[11px] text-neutral-400 mt-1.5">📍 {bookingModalEvent.venue || 'Sri Lanka'}</p>
+                    <p className="text-[11px] text-neutral-400 mt-1.5">
+                      Venue: {bookingModalEvent.venue || 'Sri Lanka'}
+                    </p>
                     <p className="text-[11px] text-neutral-400">
-                      📅{' '}
+                      Date:{' '}
                       {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
                         bookingModalEvent.year}
                     </p>
@@ -3959,7 +4043,6 @@ function App() {
                                     : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                                 }`}
                               >
-                                <span>💺</span>
                                 CHOOSE SEATS
                                 <span>→</span>
                               </button>
@@ -4015,7 +4098,6 @@ function App() {
 
                           <div className="mt-3 flex items-center justify-between">
                             <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
-                              <span className="text-amber-400">💺</span>
                               SELECT YOUR SEATS
                             </label>
                             {selectedSeats.length > 0 && (
@@ -4132,7 +4214,7 @@ function App() {
             ) : (
               <div className="text-center py-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-2xl flex items-center justify-center mx-auto mb-3 animate-bounce">
-                  ✓
+                  Complete
                 </div>
                 <h3 className="text-xl font-black text-white font-['Orbitron'] uppercase">RESERVATION CONFIRMED!</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
@@ -4275,7 +4357,11 @@ function App() {
         </div>
 
         {/* 3D Cover Flow Carousel */}
-        {carouselEvents.length > 0 ? (
+        {eventsLoading ? (
+          <EventSkeleton />
+        ) : eventsError ? (
+          <EventLoadError onRetry={fetchLiveEvents} />
+        ) : carouselEvents.length > 0 ? (
           <div
             className="w-full relative py-6 flex items-center justify-center perspective-container overflow-hidden"
             onMouseEnter={() => setIsPaused(true)}
@@ -4299,18 +4385,11 @@ function App() {
                     className={`carousel-card ${cardClass} group cursor-pointer`}
                     title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
-                    {album.cover ? (
-                      <img
-                        src={album.cover}
-                        alt={album.title}
-                        className="w-full h-full object-cover select-none"
-                        draggable="false"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center p-4 text-center">
-                        <span className="text-3xl opacity-50">🎵</span>
-                      </div>
-                    )}
+                    <EventPoster
+                      src={album.cover}
+                      title={album.title}
+                      className="w-full h-full object-cover select-none"
+                    />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-80" />
 
                     {/* Center Card Title and Tag Overlay */}
@@ -4358,11 +4437,11 @@ function App() {
           </div>
         ) : (
           <div className="text-center py-10 px-4 my-6 rounded-2xl bg-black/40 border border-white/10 max-w-md mx-auto">
-            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-xl flex items-center justify-center mx-auto mb-3">
-              🎪
+            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-bold tracking-wider flex items-center justify-center mx-auto mb-3">
+              EVENTS
             </div>
             <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">
-              No Database Events Yet
+              No Events Yet
             </h3>
             <p className="text-[11px] text-neutral-400">
               Organizers can add live events using the "Add Event" button above.
@@ -4482,8 +4561,8 @@ function App() {
                     <img src={cat.image} alt={cat.label} className="category-card__photo" draggable="false" />
                   ) : (
                     <div className="category-card__photo flex items-center justify-center bg-gradient-to-b from-[#1c0808] via-[#100505] to-[#080202]">
-                      <span className="text-3xl filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
-                        {cat.icon}
+                      <span className="text-sm font-black tracking-widest filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
+                        {cat.label.slice(0, 2).toUpperCase()}
                       </span>
                     </div>
                   )}
@@ -4515,7 +4594,7 @@ function App() {
             <div>
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                LIVE DATABASE EVENTS
+                LIVE EVENTS
               </div>
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
@@ -4534,7 +4613,6 @@ function App() {
                 {categorySearchQuery && (
                   <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
                 )}{' '}
-                • Real-time database sync
               </p>
             </div>
 
@@ -4578,7 +4656,11 @@ function App() {
           </div>
 
           {/* Events Grid */}
-          {filteredEvents.length > 0 ? (
+          {eventsLoading ? (
+            <EventSkeleton />
+          ) : eventsError ? (
+            <EventLoadError onRetry={fetchLiveEvents} />
+          ) : filteredEvents.length > 0 ? (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {(showAllEventsInGrid ? filteredEvents : filteredEvents.slice(0, 12)).map((event, idx) => {
@@ -4591,7 +4673,12 @@ function App() {
                       className="event-cyber-card group cursor-pointer"
                     >
                       <div className="event-cyber-card__poster-box">
-                        <img src={event.cover} alt={event.title} className="event-cyber-card__poster" loading="lazy" />
+                        <EventPoster
+                          src={event.cover}
+                          title={event.title}
+                          className="event-cyber-card__poster"
+                          loading="lazy"
+                        />
                         <div className="event-cyber-card__poster-overlay" />
 
                         {/* Top Badges */}
@@ -4717,15 +4804,15 @@ function App() {
                   <p className="text-[11px] text-neutral-400 font-sans mt-2.5">
                     {showAllEventsInGrid
                       ? `Showing all ${filteredEvents.length} events`
-                      : `Showing 12 of ${filteredEvents.length} live database events`}
+                      : `Showing 12 of ${filteredEvents.length} events`}
                   </p>
                 </div>
               )}
             </>
           ) : (
             <div className="text-center py-16 px-4 rounded-2xl bg-black/40 border border-white/10 my-6">
-              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-2xl flex items-center justify-center mx-auto mb-4">
-                🔍
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-bold tracking-wider flex items-center justify-center mx-auto mb-4">
+                SEARCH
               </div>
               <h3 className="text-xl font-bold font-['Orbitron'] text-white uppercase mb-2">No Events Found</h3>
               <p className="text-xs text-neutral-400 max-w-md mx-auto mb-6">
@@ -5071,8 +5158,8 @@ function App() {
           <div className="footer-ticker__track">
             {[...Array(6)].map((_, i) => (
               <span key={i} className="footer-ticker__item">
-                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp;
-                ACOUSTIC SHOWS &nbsp;✦&nbsp;
+                CONCERTS &nbsp;/&nbsp; FESTIVALS &nbsp;/&nbsp; LIVE SESSIONS &nbsp;/&nbsp; DJ NIGHTS &nbsp;/&nbsp;
+                ACOUSTIC SHOWS &nbsp;/&nbsp;
               </span>
             ))}
           </div>
@@ -5210,7 +5297,7 @@ function App() {
           <span className="footer-bottom__copy">© {new Date().getFullYear()} EXVO. All rights reserved.</span>
           <span className="footer-bottom__divider" />
           <span className="footer-bottom__credit">
-            Crafted with ♥ by&nbsp;<strong>Digexa</strong>
+            Crafted by&nbsp;<strong>Digexa</strong>
           </span>
         </div>
       </footer>
@@ -5232,14 +5319,14 @@ function App() {
             {/* Drawer Header */}
             <div className="organizer-drawer-header">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 font-bold text-lg">
-                  📊
+                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 font-bold text-[8px] tracking-wider">
+                  EVENTS
                 </div>
                 <div>
                   <h2 className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase">
                     ORGANIZER DASHBOARD
                   </h2>
-                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Live Database Events</p>
+                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Your Events</p>
                 </div>
               </div>
               <button
@@ -5253,22 +5340,19 @@ function App() {
             </div>
 
             {/* Quick Stats Grid */}
-            <div className="grid grid-cols-3 gap-2.5 my-4">
+            <div className="grid grid-cols-2 gap-2.5 my-4">
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL EVENTS</span>
-                <span className="dash-stat-val text-white">{myOrganizerEvents.length}</span>
+                <span className="dash-stat-val text-white">
+                  {loadingMyEvents || myEventsError ? '—' : myOrganizerEvents.length}
+                </span>
               </div>
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL PASSES</span>
                 <span className="dash-stat-val text-red-400">
-                  {myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
-                </span>
-              </div>
-              <div className="dash-stat-card">
-                <span className="dash-stat-label">DB STATUS</span>
-                <span className="dash-stat-val text-emerald-400 text-xs flex items-center gap-1 justify-center">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  ONLINE
+                  {loadingMyEvents || myEventsError
+                    ? '—'
+                    : myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -5276,13 +5360,12 @@ function App() {
             {/* Controls Bar: Search & Add Event Button */}
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs">🔍</span>
                 <input
                   type="text"
                   placeholder="Filter events..."
                   value={dashboardSearch}
                   onChange={(e) => setDashboardSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
+                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
                 />
               </div>
               <button
@@ -5301,10 +5384,9 @@ function App() {
             {/* Events List */}
             <div className="organizer-events-scroll space-y-3 pr-1">
               {loadingMyEvents ? (
-                <div className="text-center py-12 text-neutral-400 text-xs font-['Orbitron'] flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                  Loading your events...
-                </div>
+                <EventSkeleton compact />
+              ) : myEventsError ? (
+                <EventLoadError onRetry={fetchMyEvents} />
               ) : myOrganizerEvents.filter(
                   (e) =>
                     !dashboardSearch ||
@@ -5323,17 +5405,11 @@ function App() {
                     return (
                       <div key={evt.id} className="dash-event-card group">
                         <div className="flex items-start gap-3">
-                          {evt.cover ? (
-                            <img
-                              src={evt.cover}
-                              alt={evt.title}
-                              className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
-                              🎵
-                            </div>
-                          )}
+                          <EventPoster
+                            src={evt.cover}
+                            title={evt.title}
+                            className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1 mb-1">
                               <div className="flex items-center gap-1.5 overflow-hidden">
@@ -5354,7 +5430,7 @@ function App() {
                               {evt.title}
                             </h4>
                             <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                              📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
+                              {evt.venue || 'Colombo'} • {evt.eventDate || '2026'}
                             </p>
 
                             {/* Action Buttons: EDIT, HIDE/UNHIDE, & DELETE */}
@@ -5424,7 +5500,7 @@ function App() {
                                 type="button"
                                 onClick={() => handleDeleteEvent(evt.id, evt.title)}
                                 className="dash-action-btn dash-action-btn--delete"
-                                title="Delete Event from Database"
+                                title="Delete Event"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path
@@ -5473,7 +5549,7 @@ function App() {
             <div className="add-event-header">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                DATABASE EDIT MODE
+                EDIT EVENT
               </div>
               <h2 className="text-2xl font-black font-['Orbitron'] text-white uppercase tracking-wider">
                 EDIT <span className="text-[#FF0000]">EVENT</span>
@@ -5536,8 +5612,15 @@ function App() {
                   <input
                     type="date"
                     required
+                    min={localDate(scheduleNow)}
+                    aria-label="Event date"
                     value={editEventForm.date}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, date: e.target.value })}
+                    onChange={(e) => {
+                      const next = { ...editEventForm, date: e.target.value }
+                      setEditEventForm(next)
+                      const text = validateEventSchedule(next.date, next.time)
+                      setEditEventFeedback({ type: text ? 'error' : '', text })
+                    }}
                     className="add-event-input"
                   />
                 </div>
@@ -5545,8 +5628,16 @@ function App() {
                   <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TIME</label>
                   <input
                     type="time"
+                    required
+                    aria-label="Event time"
+                    min={minimumEventTime(editEventForm.date, scheduleNow)}
                     value={editEventForm.time}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, time: e.target.value })}
+                    onChange={(e) => {
+                      const next = { ...editEventForm, time: e.target.value }
+                      setEditEventForm(next)
+                      const text = validateEventSchedule(next.date, next.time)
+                      setEditEventFeedback({ type: text ? 'error' : '', text })
+                    }}
                     className="add-event-input"
                   />
                 </div>
@@ -5629,7 +5720,7 @@ function App() {
                         onClick={() => handleRemoveTicketTierInEdit(tier.id)}
                         className="col-span-1 text-neutral-500 hover:text-red-400 text-sm text-center"
                       >
-                        ✕
+                        ×
                       </button>
                     )}
                   </div>
@@ -5641,7 +5732,6 @@ function App() {
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
                     <p className="text-[10px] text-neutral-400">
@@ -5682,7 +5772,6 @@ function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{editEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
                       {editEventForm.seatingConfig?.enabled
                         ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
@@ -5801,7 +5890,7 @@ function App() {
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
                             title="Click to sync zone names and prices with Ticket Categories above"
                           >
-                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                            SYNC WITH TICKET CATEGORIES
                           </button>
                         </div>
                         <button
@@ -6033,8 +6122,14 @@ function App() {
               {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
               <div
                 className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10 shrink-0"
-                style={{ backgroundImage: `url(${selectedDetailEvent.cover || sarithImg})` }}
+                style={selectedDetailEvent.cover ? { backgroundImage: `url(${selectedDetailEvent.cover})` } : undefined}
               >
+                {!selectedDetailEvent.cover && (
+                  <EventPoster
+                    title={selectedDetailEvent.title}
+                    className="absolute inset-0 w-full h-full rounded-none"
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
 
                 {/* Top Badges */}
@@ -6073,7 +6168,7 @@ function App() {
                     className="w-8 h-8 rounded-full bg-white/5 border border-white/10 hover:border-red-500 hover:bg-red-950/80 text-white hover:text-red-400 flex items-center justify-center text-sm transition-all cursor-pointer"
                     aria-label="Close details"
                   >
-                    ✕
+                    ×
                   </button>
                 </div>
 
