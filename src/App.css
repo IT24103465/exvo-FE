@@ -2571,6 +2571,38 @@
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.event-title-poster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255, 0, 0, 0.16), transparent 48%),
+    linear-gradient(145deg, #171717, #050505);
+  color: rgba(255, 255, 255, 0.86);
+  text-align: center;
+}
+
+.event-title-poster span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-family: 'Orbitron', sans-serif;
+  font-size: clamp(0.65rem, 2vw, 1.15rem);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.booking-modal-cover.event-title-poster {
+  padding: 0.5rem;
+}
+
+.booking-modal-cover.event-title-poster span {
+  font-size: 0.55rem;
+}
+
 .event-cyber-card:hover .event-cyber-card__poster {
   transform: scale(1.06);
 }

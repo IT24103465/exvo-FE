@@ -60,7 +60,7 @@ test('unavailable backend never returns cached lists or successful local writes'
     () => updateEvent(1, { title: 'Changed' }),
     () => deleteEvent(1),
   ]) {
-    await expect(operation()).rejects.toThrow('Backend service is not currently available')
+    await expect(operation()).rejects.toThrow('The service is currently unavailable. Please try again shortly.')
   }
 })
 
@@ -73,4 +73,42 @@ test('rejected writes propagate errors and successful empty responses are accept
   globalThis.fetch = async () => new Response(null, { status: 204 })
   expect(await updateEvent(1, {})).toBeNull()
   expect(await deleteEvent(1)).toBeNull()
+})
+
+test('organizer lists send the token to the scoped endpoint without a caller-selected owner', async () => {
+  localStorage.setItem('token', 'owner-token')
+  const calls = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return Response.json([])
+  }
+  await getMyEvents()
+  await getAllEvents()
+  expect(calls[0].url).toMatch(/\/api\/catalog\/events\/my-events$/)
+  for (const { options } of calls) expect(options.headers.Authorization).toBe('Bearer owner-token')
+  localStorage.removeItem('token')
+})
+
+test('create and edit preserve local wall time and send its explicit UTC offset', async () => {
+  const payloads = []
+  globalThis.fetch = async (_url, options) => {
+    payloads.push(JSON.parse(options.body))
+    return Response.json({ id: 1 })
+  }
+  const data = { title: 'Concert', date: '2099-09-20', time: '00:15', organizerId: 999 }
+  await createEvent(data)
+  await updateEvent(1, data)
+  for (const payload of payloads) {
+    expect(payload.eventDate).toBe('2099-09-20T00:15:00')
+    expect(payload.utcOffsetMinutes).toBe(-new Date('2099-09-20T00:15:00').getTimezoneOffset())
+  }
+  expect(payloads[0]).not.toHaveProperty('organizerId')
+})
+
+test('backend schedule validation is shown as a clear validation error', async () => {
+  globalThis.fetch = async () =>
+    Response.json({ message: 'Event date and time must be in the future (your local time).' }, { status: 400 })
+  await expect(createEvent({ date: '2000-01-01', time: '19:00' })).rejects.toThrow(
+    'Event date and time must be in the future',
+  )
 })
