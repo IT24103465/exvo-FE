@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
+import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
 
 vi.mock('./services/eventService', () => ({
@@ -49,6 +50,36 @@ const signIn = () => {
   )
 }
 const openDashboard = () => fireEvent.click(screen.getByRole('button', { name: 'DASHBOARD' }))
+
+test.each(['View full profile', 'Click to view full profile', 'card'])('profile popup opens profile and edit controls through %s', async (title) => {
+  signIn()
+  render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: 'Open profile options' }))
+  fireEvent.click(title === 'card' ? screen.getByTitle('View full profile').parentElement : screen.getByTitle(title))
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
+  expect(within(dialog).getByDisplayValue('Shared company')).toBeInTheDocument()
+  expect(within(dialog).getByRole('button', { name: /Save Changes/i })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('hidden navigation profile opens the full profile editor directly', async () => {
+  signIn()
+  render(<App />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle Navigation Menu' }))
+  fireEvent.click(screen.getByRole('button', { name: 'PROFILE' }))
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
+  fireEvent.click(within(dialog).getByRole('button', { name: /Save Changes/i }))
+
+  await waitFor(() => expect(updateUserProfile).toHaveBeenCalledWith(expect.objectContaining({
+    name: 'Shared company',
+    email: 'owner@example.com',
+  })))
+})
 
 test.each(['home', 'dashboard', 'details', 'booking'])(
   'expired events are removed from public %s views and retained as hidden in the dashboard',

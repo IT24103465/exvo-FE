@@ -1645,6 +1645,7 @@ function App() {
     setEditEventForm({
       title: event.title || '',
       artistOrOrganizer: event.artistOrOrganizer || event.subtitle || '',
+      categoryId: event.categoryId || event.CategoryId || '',
       category: event.category || 'Concert',
       date: formatDateForInput(event.eventDate || event.date || ''),
       time: extractTimeFromEvent(event),
@@ -1763,12 +1764,20 @@ function App() {
     try {
       const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
+      const selectedCategoryObj = dbCategories.find(
+        (c) => String(c.id) === String(editEventForm.categoryId) || c.name === editEventForm.category,
+      )
+      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : Number(editEventForm.categoryId) || 1
+      const categoryNameVal = selectedCategoryObj ? selectedCategoryObj.name : editEventForm.category || 'Music & Concerts'
 
       const payload = {
         id: editingEventId,
         title: editEventForm.title.trim(),
         artistOrOrganizer: editEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
-        category: editEventForm.category,
+        organizerName: userDetails.name,
+        categoryId: categoryIdVal,
+        category: categoryNameVal,
+        categoryName: categoryNameVal,
         date: editEventForm.date,
         time: editEventForm.time || '19:00',
         venue: editEventForm.venue.trim(),
@@ -1789,6 +1798,7 @@ function App() {
                 subtitle: payload.artistOrOrganizer,
                 artistOrOrganizer: payload.artistOrOrganizer,
                 category: payload.category,
+                categoryId: payload.categoryId,
                 venue: payload.venue,
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
@@ -1815,6 +1825,7 @@ function App() {
                 subtitle: payload.artistOrOrganizer,
                 artistOrOrganizer: payload.artistOrOrganizer,
                 category: payload.category,
+                categoryId: payload.categoryId,
                 venue: payload.venue,
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
@@ -2310,7 +2321,11 @@ function App() {
               </button>
               {profileMenuOpen && (
                 <div className="profile-menu" role="menu">
-                  <div className="profile-compact-card">
+                  <div className="profile-compact-card" onClick={(event) => {
+                    event.stopPropagation()
+                    setProfilePanelOpen(true)
+                    setProfileMenuOpen(false)
+                  }}>
                     {/* Left Avatar (Click to view full profile) */}
                     <button
                       type="button"
@@ -2335,6 +2350,14 @@ function App() {
                       role="button"
                       tabIndex={0}
                       title="Click to view full profile"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setProfilePanelOpen(true)
+                          setProfileMenuOpen(false)
+                        }
+                      }}
                       onClick={() => {
                         setProfilePanelOpen(true)
                         setProfileMenuOpen(false)
@@ -2360,7 +2383,10 @@ function App() {
                       className="profile-compact-logout-btn"
                       title="Logout"
                       aria-label="Logout"
-                      onClick={handleLogout}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleLogout()
+                      }}
                     >
                       <svg
                         viewBox="0 0 24 24"
@@ -2433,7 +2459,7 @@ function App() {
             ).map((link) => (
               <button
                 key={link}
-                onClick={() => {
+                onClick={(event) => {
                   if (link === 'HOME') scrollToSection('home')
                   else if (link === 'EVENTS') scrollToSection('events')
                   else if (link === 'DASHBOARD') {
@@ -2449,6 +2475,7 @@ function App() {
                     setShowAuth(true)
                     setAuthInitialMode('login')
                   } else if (link === 'PROFILE') {
+                    event.stopPropagation()
                     setMobileMenuOpen(false)
                     setProfilePanelOpen(true)
                   } else if (link === 'LOGOUT') {
@@ -2789,7 +2816,7 @@ function App() {
                 </div>
 
                 <div className="profile-edit-header">
-                  <h2 className="profile-user-name">Update Profile</h2>
+                  <h2 id="profile-title" className="profile-user-name">Update Profile</h2>
                   <p className="text-xs text-gray-400">Modify your photo and contact credentials</p>
                 </div>
 
@@ -5592,17 +5619,25 @@ function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">CATEGORY *</label>
                   <select
-                    value={editEventForm.category}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, category: e.target.value })}
+                    value={editEventForm.categoryId || editEventForm.category}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value
+                      const found = dbCategories.find(
+                        (c) => String(c.id) === String(selectedVal) || c.name === selectedVal,
+                      )
+                      if (found) {
+                        setEditEventForm({ ...editEventForm, categoryId: found.id, category: found.name })
+                      } else {
+                        setEditEventForm({ ...editEventForm, category: selectedVal })
+                      }
+                    }}
                     className="add-event-input"
                   >
-                    <option value="Concert">Concert</option>
-                    <option value="Festival">Festival</option>
-                    <option value="Live Session">Live Session</option>
-                    <option value="DJ Night">DJ Night</option>
-                    <option value="Acoustic">Acoustic</option>
-                    <option value="Stand-Up">Stand-Up</option>
-                    <option value="EDM Arena">EDM Arena</option>
+                    {dbCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1">

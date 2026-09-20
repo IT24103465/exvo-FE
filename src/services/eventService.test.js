@@ -105,6 +105,48 @@ test('create and edit preserve local wall time and send its explicit UTC offset'
   expect(payloads[0]).not.toHaveProperty('organizerId')
 })
 
+test('create and edit send artist and category fields the catalog can persist', async () => {
+  const payloads = []
+  globalThis.fetch = async (_url, options) => {
+    payloads.push(JSON.parse(options.body))
+    return Response.json({ id: 1 })
+  }
+  const data = {
+    title: 'Concert',
+    artistOrOrganizer: 'The Signal',
+    organizerName: 'EXVO',
+    categoryId: 3,
+    category: 'Festival',
+    date: '2099-09-20',
+    time: '19:00',
+  }
+
+  await createEvent(data)
+  await updateEvent(1, data)
+
+  for (const payload of payloads) {
+    expect(payload.artistOrOrganizer).toBe('The Signal')
+    expect(payload.organizerName).toBe('EXVO')
+    expect(payload.categoryId).toBe(3)
+    expect(payload.categoryName).toBe('Festival')
+    expect(payload.category).toBe('Festival')
+  }
+})
+
+test('category name resolves to the matching catalog id when no category id is present', async () => {
+  const payloads = []
+  globalThis.fetch = async (_url, options) => {
+    payloads.push(JSON.parse(options.body))
+    return Response.json({ id: 1 })
+  }
+
+  await createEvent({ title: 'Festival', category: 'Festival', date: '2099-09-20', time: '19:00' })
+  await updateEvent(1, { title: 'Festival', category: 'Festival', date: '2099-09-20', time: '19:00' })
+
+  expect(payloads.map((payload) => payload.categoryId)).toEqual([3, 3])
+  expect(payloads.map((payload) => payload.categoryName)).toEqual(['Festival', 'Festival'])
+})
+
 test('backend schedule validation is shown as a clear validation error', async () => {
   globalThis.fetch = async () =>
     Response.json({ message: 'Event date and time must be in the future (your local time).' }, { status: 400 })

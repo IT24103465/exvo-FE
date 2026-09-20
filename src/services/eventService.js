@@ -68,6 +68,15 @@ const normalizeEvent = (ev) => {
   }
 }
 
+const resolveCategoryId = (eventData) => {
+  const explicitId = Number(eventData.categoryId)
+  if (explicitId > 0) return explicitId
+
+  const categoryName = eventData.categoryName || eventData.category
+  const matchedCategory = DEFAULT_CATEGORIES.find((cat) => cat.name === categoryName)
+  return matchedCategory?.id || 1
+}
+
 // The Catalog API is authoritative; never merge browser-stored events into it.
 const requestEvent = async (endpoint, options) => {
   const response = await fetchWithFallback(endpoint, { cache: 'no-store', ...options })
@@ -118,7 +127,7 @@ export const createEvent = async (eventData) => {
       ? tiersList.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
       : Number(eventData.availableTickets) || 500
 
-  const catId = Number(eventData.categoryId) || 1
+  const catId = resolveCategoryId(eventData)
 
   const eventTimeVal = eventData.time || eventData.eventTime || '19:00'
   let cleanDateVal = eventData.date || eventData.eventDate || localDate()
@@ -140,7 +149,9 @@ export const createEvent = async (eventData) => {
     imageUrl: eventData.coverImage || null,
     availableTickets: totalCap,
     artistOrOrganizer: eventData.artistOrOrganizer || 'Organizer Event',
+    organizerName: eventData.organizerName,
     category: eventData.categoryName || eventData.category || 'Music & Concerts',
+    categoryName: eventData.categoryName || eventData.category || 'Music & Concerts',
     date: cleanDateVal,
     time: eventTimeVal,
     eventTime: eventTimeVal,
@@ -172,7 +183,7 @@ export const updateEvent = (id, eventData) => {
       ? tiersList.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
       : Number(eventData.availableTickets) || 500
 
-  const catId = Number(eventData.categoryId) || 1
+  const catId = resolveCategoryId(eventData)
 
   const eventTimeVal = eventData.time || eventData.eventTime || '19:00'
   let cleanDateVal = eventData.date || eventData.eventDate || localDate()
@@ -198,6 +209,9 @@ export const updateEvent = (id, eventData) => {
     price: minPrice,
     availableTickets: totalCap,
     categoryId: catId,
+    category: eventData.categoryName || eventData.category || 'Music & Concerts',
+    categoryName: eventData.categoryName || eventData.category || 'Music & Concerts',
+    organizerName: eventData.organizerName,
     eventDate: formattedEventDate,
     utcOffsetMinutes: -new Date(formattedEventDate).getTimezoneOffset(),
     date: cleanDateVal,
