@@ -4,6 +4,7 @@ import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
 import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
+import { getAttendeeSeatingPlan, getEventAvailability } from './services/bookingService'
 
 vi.mock('./services/eventService', () => ({
   getAllEvents: vi.fn(),
@@ -22,12 +23,21 @@ vi.mock('./services/authService', () => ({
   updateUserProfile: vi.fn(),
   deleteUserAccount: vi.fn(),
 }))
+vi.mock('./services/bookingService', () => ({
+  getAttendeeSeatingPlan: vi.fn(),
+  getEventAvailability: vi.fn(),
+  getOrganizerSeatingPlan: vi.fn(),
+  saveSeatingPlan: vi.fn(),
+  bookingPlanToSeatingConfig: vi.fn((plan) => ({ enabled: Boolean(plan?.isVisibleToAttendees), zones: [] })),
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   getAllEvents.mockResolvedValue([])
   getMyEvents.mockResolvedValue([])
+  getAttendeeSeatingPlan.mockResolvedValue(null)
+  getEventAvailability.mockResolvedValue(null)
 })
 afterEach(() => {
   localStorage.clear()
@@ -126,6 +136,68 @@ test.each(['home', 'dashboard', 'details', 'booking'])(
     expect(getAllEvents).toHaveBeenCalledTimes(1)
   },
 )
+
+test('attendee selects and clears only available database seats and sees live totals', async () => {
+  signIn()
+  getAllEvents.mockResolvedValue([
+    {
+      id: 1,
+      title: 'Assigned seating event',
+      availableTickets: 2,
+      ticketTiers: [{ id: 'tier-1', name: 'Premium', price: 2500, quantity: 2 }],
+    },
+  ])
+  getAttendeeSeatingPlan.mockResolvedValue({
+    eventId: 1,
+    isVisibleToAttendees: true,
+    status: 'Published',
+    sections: [
+      {
+        id: 10,
+        name: 'Orchestra',
+        rowCount: 1,
+        seatsPerRow: 2,
+        price: 2500,
+        seats: [
+          { id: 100, seatCode: 'A-01', rowLabel: 'A', seatNumber: 1, ticketTierId: 1, price: 2500, isEnabled: true, status: 'Available' },
+          { id: 101, seatCode: 'A-02', rowLabel: 'A', seatNumber: 2, ticketTierId: 1, price: 2500, isEnabled: true, status: 'Held' },
+        ],
+      },
+    ],
+  })
+
+  render(<App />)
+  await waitFor(() => expect(screen.getByTitle('Click to view details: Assigned seating event')).toBeInTheDocument())
+  fireEvent.click(screen.getByTitle('Click to view details: Assigned seating event'))
+  fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
+  expect(await screen.findByRole('button', { name: /CHOOSE SEATS/i })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /CHOOSE SEATS/i }))
+
+  const unavailableSeat = screen.getByTitle(/Row A, Seat 2/)
+  expect(unavailableSeat).toBeDisabled()
+  fireEvent.click(screen.getByTitle(/Row A, Seat 1/))
+  expect(screen.getByText(/A-01/)).toBeInTheDocument()
+  expect(screen.getByText(/2500/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: /Clear Selection/i }))
+  expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeDisabled()
+})
+
+test('general admission quantity cannot exceed BookingService availability', async () => {
+  signIn()
+  getAllEvents.mockResolvedValue([
+    { id: 2, title: 'General admission event', availableTickets: 50, minPrice: 1200, ticketTiers: [] },
+  ])
+  getAttendeeSeatingPlan.mockResolvedValue(null)
+  getEventAvailability.mockResolvedValue({ eventId: 2, availableSeatCount: 1, tiers: [] })
+
+  render(<App />)
+  fireEvent.click(await screen.findByTitle('Click to view details: General admission event'))
+  fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
+  const increase = screen.getByRole('button', { name: '+' })
+  expect(increase).toBeDisabled()
+  expect(screen.getByText('1')).toBeInTheDocument()
+})
 
 test('public lists show skeletons until a successful empty response', async () => {
   const request = deferred()
