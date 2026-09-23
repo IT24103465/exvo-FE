@@ -12,7 +12,7 @@ const request = async (path, options = {}) => {
   const response = await fetchApi(path, { ...options, headers: { ...authHeaders(), ...options.headers } })
   if (!response.ok) {
     const error = await response.json().catch(() => null)
-    throw new Error(error?.message || error?.Message || `Unable to complete the seating plan request (${response.status}).`)
+    throw new Error(error?.message || error?.Message || `Unable to complete the booking request (${response.status}).`)
   }
   return response.status === 204 ? null : response.json()
 }
@@ -20,6 +20,21 @@ const request = async (path, options = {}) => {
 export const getAttendeeSeatingPlan = (eventId) => request(`/api/booking/events/${eventId}/seating-plan`)
 
 export const getEventAvailability = (eventId) => request(`/api/booking/events/${eventId}/availability`)
+
+export const holdSeats = (eventId, seatCodes) =>
+  request(`/api/booking/events/${eventId}/seat-holds`, {
+    method: 'POST',
+    body: JSON.stringify({ seatCodes }),
+  })
+
+export const releaseSeatHold = (eventId, holdId) =>
+  request(`/api/booking/events/${eventId}/seat-holds/${holdId}`, { method: 'DELETE' })
+
+export const confirmSeatHold = (eventId, holdId) =>
+  request(`/api/booking/events/${eventId}/seat-holds/${holdId}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
 
 export const getOrganizerSeatingPlan = (eventId) => request(`/api/booking/organizer/events/${eventId}/seating-plan`)
 
