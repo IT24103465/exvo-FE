@@ -20,6 +20,13 @@ import {
   deleteEvent,
   getCategories,
 } from './services/eventService'
+import {
+  bookingPlanToSeatingConfig,
+  getAttendeeSeatingPlan,
+  getEventAvailability,
+  getOrganizerSeatingPlan,
+  saveSeatingPlan,
+} from './services/bookingService'
 
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
@@ -199,6 +206,7 @@ const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
     const id = existing?.id || `zone-tier-${idx + 1}`
     return {
       id,
+      ticketTierId: tier.id ? String(tier.id) : null,
       name,
       price,
       rows,
@@ -255,11 +263,11 @@ const SeatingChartComponent = ({
   const stageLabel = seatingConfig.stageLabel || 'SCREEN'
 
   return (
-    <div className="seating-chart-container bg-white text-neutral-900 rounded-2xl p-4 sm:p-6 shadow-2xl overflow-x-auto my-3 border border-neutral-200">
+    <div className="seating-chart-container bg-[#111114] text-neutral-100 rounded-xl p-4 sm:p-6 shadow-[0_16px_45px_rgba(0,0,0,0.35)] overflow-x-auto my-3 border border-white/10">
       {/* ── Screen Arc Header ── */}
       <div className="flex flex-col items-center justify-center mb-6">
         <div className="relative w-full max-w-md h-10 flex items-center justify-center overflow-hidden">
-          <svg className="absolute inset-0 w-full h-full text-neutral-900" viewBox="0 0 400 40" fill="none">
+          <svg className="absolute inset-0 w-full h-full text-neutral-300" viewBox="0 0 400 40" fill="none">
             <path
               d="M 10 35 Q 200 5 390 35"
               stroke="currentColor"
@@ -268,15 +276,15 @@ const SeatingChartComponent = ({
               strokeLinecap="round"
             />
           </svg>
-          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-neutral-900 bg-white px-3">
+          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-white bg-[#111114] px-3">
             {stageLabel}
           </span>
         </div>
 
         {/* ── Status Legend ── */}
-        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-600 font-sans font-semibold">
+        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-400 font-sans font-semibold">
           <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded border border-neutral-400 bg-white" />
+            <span className="w-3.5 h-3.5 rounded border border-neutral-500 bg-[#18181c]" />
             <span>Available</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -284,8 +292,8 @@ const SeatingChartComponent = ({
             <span>Selected</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded bg-neutral-300 border border-neutral-300" />
-            <span>Occupied</span>
+            <span className="w-3.5 h-3.5 rounded bg-neutral-700 border border-neutral-600" />
+            <span>Unavailable</span>
           </div>
         </div>
       </div>
@@ -301,7 +309,7 @@ const SeatingChartComponent = ({
         {seatingConfig.zones.map((zone) => (
           <div key={zone.id || zone.name} className="space-y-2">
             {/* Section Title */}
-            <div className="text-center font-bold text-xs text-neutral-900 uppercase font-sans tracking-wide">
+            <div className="text-center font-bold text-xs text-neutral-200 uppercase font-sans tracking-wide">
               {zone.name} ({Number(zone.price || 0).toFixed(2)})
             </div>
 
@@ -310,13 +318,21 @@ const SeatingChartComponent = ({
               {(zone.rows || ['A']).map((rowLetter) => (
                 <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
                   {/* Left Row Letter */}
-                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
+                  <span className="w-6 text-right font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
 
                   {/* Seat Grid */}
                   <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
-                    {Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => i + 1).map((seatNum) => {
-                      const seatId = `${rowLetter}${seatNum}`
-                      const isOccupied = zone.occupiedSeats?.includes(seatId)
+                    {(zone.seatsByRow?.[rowLetter] ||
+                      Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => ({
+                        seatCode: `${rowLetter}-${i + 1}`,
+                        seatNumber: i + 1,
+                        status: zone.occupiedSeats?.includes(`${rowLetter}${i + 1}`) ? 'Booked' : 'Available',
+                        isEnabled: true,
+                        price: zone.price,
+                      }))).map((seat) => {
+                      const seatId = seat.seatCode
+                      const seatNum = seat.seatNumber
+                      const isUnavailable = !seat.isEnabled || seat.status !== 'Available'
                       const isSelected = selectedSeats.includes(seatId)
 
                       let seatClass =
@@ -325,26 +341,27 @@ const SeatingChartComponent = ({
                       if (isSelected) {
                         seatClass +=
                           ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
-                      } else if (isOccupied) {
-                        seatClass += ' bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75'
+                      } else if (isUnavailable) {
+                        seatClass += ' bg-neutral-700/80 text-neutral-500 border-neutral-600 opacity-90'
                         if (!isOrganizerEdit) {
                           seatClass += ' cursor-not-allowed'
                         }
                       } else {
                         seatClass +=
-                          ' bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50'
+                          ' bg-[#18181c] text-neutral-200 border-white/20 hover:border-amber-400 hover:bg-white/10'
                       }
 
                       return (
                         <button
                           key={seatId}
                           type="button"
-                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${zone.price})`}
+                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${seat.price})`}
+                          disabled={isUnavailable && !isOrganizerEdit}
                           onClick={() => {
                             if (isOrganizerEdit) {
                               onToggleOccupied(seatId)
                             } else {
-                              if (!isOccupied) {
+                              if (!isUnavailable) {
                                 onSelectSeat(seatId, zone)
                               }
                             }
@@ -358,7 +375,7 @@ const SeatingChartComponent = ({
                   </div>
 
                   {/* Right Row Letter */}
-                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
+                  <span className="w-6 text-left font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
                 </div>
               ))}
             </div>
@@ -374,6 +391,55 @@ const SeatingChartComponent = ({
     </div>
   )
 }
+
+const seatingPlanToChartConfig = (plan) => ({
+  enabled: true,
+  stageLabel: 'SCREEN',
+  zones: (plan?.sections || []).map((section) => {
+    const seats = section.seats || []
+    const rows = [...new Set(seats.map((seat) => seat.rowLabel))]
+    return {
+      id: section.id,
+      name: section.name,
+      price: section.price,
+      rows,
+      seatsPerRow: section.seatsPerRow,
+      seatsByRow: seats.reduce((groups, seat) => {
+        groups[seat.rowLabel] = [...(groups[seat.rowLabel] || []), seat]
+        return groups
+      }, {}),
+      occupiedSeats: [],
+    }
+  }),
+})
+
+const seatingConfigToBookingPlan = (config, ticketTiers = []) => ({
+  name: 'Event seating plan',
+  isVisibleToAttendees: Boolean(config?.enabled),
+  sections: (config?.zones || []).map((zone, index) => ({
+    name: zone.name || `Section ${index + 1}`,
+    rowCount: Array.isArray(zone.rows) && zone.rows.length > 0 ? zone.rows.length : 1,
+    seatsPerRow: Math.max(1, Number(zone.seatsPerRow) || 1),
+    startingRowLabel: zone.rows?.[0] || String.fromCharCode(65 + index),
+    startingSeatNumber: 1,
+    ticketTierId: zone.ticketTierId
+      ? Number(zone.ticketTierId)
+      : ticketTiers.find(
+          (tier) => tier.name?.toUpperCase() === zone.name?.toUpperCase() || Number(tier.price) === Number(zone.price),
+        )?.id || null,
+    price: Number(zone.price) || Number(ticketTiers[index]?.price) || 0,
+    displayOrder: index,
+    disabledSeatCodes: (zone.occupiedSeats || []).map((code) => {
+      const match = String(code).match(/^([A-Z]+)(\d+)$/i)
+      return match ? `${match[1].toUpperCase()}-${Number(match[2]).toString().padStart(2, '0')}` : code
+    }),
+  })),
+})
+
+const availableSeatsInPlan = (plan) =>
+  (plan?.sections || []).flatMap((section) =>
+    (section.seats || []).filter((seat) => seat.isEnabled && seat.status === 'Available'),
+  )
 
 // ── Sparkling particle canvas for footer ──
 const SparkCanvas = () => {
@@ -965,12 +1031,15 @@ function App() {
   const categorySearchContainerRef = useRef(null)
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
   const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
-  const [selectedTier, setSelectedTier] = useState(null)
+  const [attendeeSeatingPlan, setAttendeeSeatingPlan] = useState(null)
+  const [, setAttendeeSeatingLoading] = useState(false)
+  const [, setAttendeeSeatingError] = useState(false)
+  const [eventAvailability, setEventAvailability] = useState(null)
   const [selectedSeats, setSelectedSeats] = useState([])
   const [, setTicketQuantity] = useState(1)
   const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
-  const [bookingSubmitting, setBookingSubmitting] = useState(false)
+  const [selectionPrepared, setSelectionPrepared] = useState(false)
   const [bookingStep, setBookingStep] = useState(1)
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
@@ -1048,6 +1117,68 @@ function App() {
     if (selectedDetailEvent && isEventExpired(selectedDetailEvent, eventNow)) setSelectedDetailEvent(null)
     if (bookingModalEvent && isEventExpired(bookingModalEvent, eventNow)) setBookingModalEvent(null)
   }, [eventNow, selectedDetailEvent, bookingModalEvent])
+
+  useEffect(() => {
+    const eventId = bookingModalEvent?.id
+    if (!eventId) {
+      setAttendeeSeatingPlan(null)
+      setEventAvailability(null)
+      return undefined
+    }
+    let active = true
+    setAttendeeSeatingLoading(true)
+    setAttendeeSeatingError(false)
+    getAttendeeSeatingPlan(eventId)
+      .then((plan) => {
+        if (active) setAttendeeSeatingPlan(plan)
+      })
+      .catch(() => {
+        if (active) {
+          setAttendeeSeatingPlan(null)
+          setAttendeeSeatingError(true)
+        }
+      })
+      .finally(() => {
+        if (active) setAttendeeSeatingLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [bookingModalEvent?.id])
+
+  useEffect(() => {
+    if (!bookingModalEvent || eventAvailability?.eventId !== bookingModalEvent.id) return
+    setTierQuantities((previous) => {
+      if (bookingModalEvent.ticketTiers?.length) {
+        return Object.fromEntries(
+          bookingModalEvent.ticketTiers.map((tier, index) => {
+            const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+            const match = eventAvailability.tiers?.find(
+              (item) => String(item.ticketTierId) === String(tier.id) || Number(item.price) === Number(tier.price),
+            )
+            return [key, Math.min(Number(previous[key]) || 0, match?.availableQuantity || 0)]
+          }),
+        )
+      }
+      return { standard: Math.min(Number(previous.standard) || 0, eventAvailability.availableSeatCount || 0) }
+    })
+  }, [bookingModalEvent, eventAvailability])
+
+  useEffect(() => {
+    const eventId = bookingModalEvent?.id
+    if (!eventId) return undefined
+    let active = true
+    getEventAvailability(eventId)
+      .then((availability) => {
+        if (active) setEventAvailability(availability)
+      })
+      .catch(() => {
+        if (active) setEventAvailability(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [bookingModalEvent?.id])
 
   useEffect(() => {
     const closeProfile = () => {
@@ -1573,6 +1704,7 @@ function App() {
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
       })
+      await saveSeatingPlan(res.id, seatingConfigToBookingPlan(newEventForm.seatingConfig, validTiers))
 
       const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
@@ -1641,6 +1773,7 @@ function App() {
 
   // Edit Event Handlers
   const handleStartEditEvent = (event) => {
+    const seatingConfig = event.seatingConfig || createDefaultSeatingConfig(event.ticketTiers)
     setEditingEventId(event.id)
     setEditEventForm({
       title: event.title || '',
@@ -1659,12 +1792,18 @@ function App() {
               quantity: String(t.quantity || 100),
             }))
           : [{ id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }],
-      seatingConfig: event.seatingConfig || createDefaultSeatingConfig(),
+      seatingConfig,
       coverImage: event.cover || '',
       description: event.description || '',
     })
     setEditEventFeedback({ type: '', text: '' })
     setShowEditEventModal(true)
+    Promise.resolve(getOrganizerSeatingPlan(event.id))
+      .then((savedPlan) => {
+        if (!savedPlan?.sections?.length) return
+        setEditEventForm((previous) => ({ ...previous, seatingConfig: bookingPlanToSeatingConfig(savedPlan) }))
+      })
+      .catch(() => {})
   }
 
   const handleAddTicketTierInEdit = () => {
@@ -1788,6 +1927,7 @@ function App() {
       }
 
       await updateEvent(editingEventId, payload)
+      await saveSeatingPlan(editingEventId, seatingConfigToBookingPlan(editEventForm.seatingConfig, validTiers))
 
       setAlbumList((prev) =>
         prev.map((e) =>
@@ -2028,7 +2168,7 @@ function App() {
     setSelectedDetailEvent(null)
   }
 
-  const handleOpenBooking = (event) => {
+  const handleOpenBooking = async (event) => {
     if (isEventExpired(event)) return
     if (!authState.isAuthenticated) {
       setAuthInitialMode('login')
@@ -2036,7 +2176,6 @@ function App() {
       return
     }
     setBookingModalEvent(event)
-    setSelectedTier(event.ticketTiers?.[0] || null)
     const initialQtys = {}
     if (event.ticketTiers && event.ticketTiers.length > 0) {
       event.ticketTiers.forEach((tier, idx) => {
@@ -2050,7 +2189,21 @@ function App() {
     setTicketQuantity(1)
     setSelectedSeats([])
     setBookingSuccess(false)
+    setSelectionPrepared(false)
     setBookingStep(1)
+    if (!attendeeSeatingPlan || attendeeSeatingPlan.eventId !== event.id) {
+      setAttendeeSeatingLoading(true)
+      setAttendeeSeatingError(false)
+      try {
+        const plan = await getAttendeeSeatingPlan(event.id)
+        setAttendeeSeatingPlan(plan)
+      } catch {
+        setAttendeeSeatingPlan(null)
+        setAttendeeSeatingError(true)
+      } finally {
+        setAttendeeSeatingLoading(false)
+      }
+    }
   }
 
   // Public events visible to attendees (excludes hidden events)
@@ -3855,11 +4008,59 @@ function App() {
                           .filter(Boolean)
                           .join(', ')
                       : `${tierQuantities['standard'] || 1}x Standard Pass`
+                  const selectedTiers = (bookingModalEvent.ticketTiers || []).filter((tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    return Number(tierQuantities[key]) > 0
+                  })
+                  const selectedTierHasSeat = (seat) =>
+                    selectedTiers.some((tier) =>
+                      String(tier.id) === String(seat.ticketTierId) || Number(tier.price) === Number(seat.price),
+                    )
+                  const selectedPlan =
+                    attendeeSeatingPlan?.eventId === bookingModalEvent.id
+                      ? {
+                          ...attendeeSeatingPlan,
+                          sections: (attendeeSeatingPlan.sections || [])
+                            .map((section) => ({
+                              ...section,
+                              seats: (section.seats || []).filter(selectedTierHasSeat),
+                            }))
+                            .filter((section) => section.seats.length > 0),
+                        }
+                      : null
+                  const hasAssignedSeating = Boolean(selectedPlan?.sections?.length)
+                  const availableSeats = hasAssignedSeating ? availableSeatsInPlan(selectedPlan) : []
+                  const assignedTicketCount = (bookingModalEvent.ticketTiers || []).reduce((total, tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    const hasSeats = attendeeSeatingPlan?.sections?.some((section) =>
+                      section.seats?.some(
+                        (seat) =>
+                          String(seat.ticketTierId) === String(tier.id) || Number(seat.price) === Number(tier.price),
+                      ),
+                    )
+                    return hasSeats ? total + (Number(tierQuantities[key]) || 0) : total
+                  }, 0)
+                  const selectedSeatRecords = availableSeats.filter((seat) => selectedSeats.includes(seat.seatCode))
+                  const selectedSeatTotal = selectedSeatRecords.reduce((sum, seat) => sum + Number(seat.price || 0), 0)
+                  const bookingSeatingConfig = hasAssignedSeating ? seatingPlanToChartConfig(selectedPlan) : null
+                  const availabilityForTier = (tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    const match = eventAvailability?.eventId === bookingModalEvent.id
+                      ? eventAvailability.tiers?.find(
+                          (item) => String(item.ticketTierId) === String(tier.id) || Number(item.price) === Number(tier.price),
+                        )
+                      : null
+                    return { key, quantity: match?.availableQuantity ?? (Number(tier.quantity) || 0) }
+                  }
+                  const standardAvailability =
+                    eventAvailability?.eventId === bookingModalEvent.id
+                      ? eventAvailability.availableSeatCount || 0
+                      : Number(bookingModalEvent.availableTickets) || 0
 
                   return (
                     <>
                       {/* ── STEP INDICATOR (only if seating enabled) ── */}
-                      {bookingModalEvent.seatingConfig?.enabled && (
+                      {hasAssignedSeating && (
                         <div className="flex items-center gap-2 mt-4 mb-1">
                           <div
                             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}
@@ -3905,10 +4106,11 @@ function App() {
 
                                   const handleIncrease = (e) => {
                                     e.stopPropagation()
+                                    const availability = availabilityForTier(tier, idx).quantity
                                     const totalOther = Object.entries(tierQuantities)
                                       .filter(([k]) => k !== key)
                                       .reduce((s, [, q]) => s + q, 0)
-                                    if (totalOther + qty >= 10) return
+                                    if (totalOther + qty >= Math.min(10, availability)) return
                                     setTierQuantities((prev) => ({
                                       ...prev,
                                       [key]: (prev[key] || 0) + 1,
@@ -3918,7 +4120,7 @@ function App() {
                                   return (
                                     <div
                                       key={key}
-                                      onClick={() => setSelectedTier(tier)}
+                                      onClick={() => {}}
                                       className={`booking-tier-card p-3 rounded-xl border transition-all ${
                                         isSelected
                                           ? 'border-red-500/80 bg-red-950/30'
@@ -3974,9 +4176,9 @@ function App() {
                                           <button
                                             type="button"
                                             onClick={handleIncrease}
-                                            disabled={totalTicketsCount >= 10}
+                                            disabled={totalTicketsCount >= Math.min(10, availabilityForTier(tier, idx).quantity)}
                                             className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
-                                              totalTicketsCount < 10
+                                              totalTicketsCount < Math.min(10, availabilityForTier(tier, idx).quantity)
                                                 ? 'bg-white/10 hover:bg-red-600 text-white'
                                                 : 'bg-white/5 text-neutral-600 cursor-not-allowed'
                                             }`}
@@ -4021,9 +4223,10 @@ function App() {
                                       onClick={() =>
                                         setTierQuantities((prev) => ({
                                           ...prev,
-                                          standard: Math.min(10, (prev.standard || 1) + 1),
+                                          standard: Math.min(10, standardAvailability, (prev.standard || 0) + 1),
                                         }))
                                       }
+                                      disabled={(tierQuantities.standard || 0) >= Math.min(10, standardAvailability)}
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
                                     >
                                       +
@@ -4056,7 +4259,7 @@ function App() {
                               </div>
                             </div>
 
-                            {bookingModalEvent.seatingConfig?.enabled ? (
+                            {hasAssignedSeating ? (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -4076,31 +4279,16 @@ function App() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setBookingSubmitting(true)
-                                  setTimeout(() => {
-                                    setBookingSubmitting(false)
-                                    setBookingSuccess(true)
-                                  }, 600)
-                                }}
-                                disabled={bookingSubmitting || totalTicketsCount === 0}
+                                onClick={() => setSelectionPrepared(true)}
+                                disabled={totalTicketsCount === 0}
                                 className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
                                   totalTicketsCount > 0
                                     ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
                                     : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                                 }`}
                               >
-                                {bookingSubmitting ? (
-                                  <>
-                                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                                    PROCESSING...
-                                  </>
-                                ) : (
-                                  <>
-                                    CONFIRM RESERVATION
-                                    <span>→</span>
-                                  </>
-                                )}
+                                CONTINUE
+                                <span>→</span>
                               </button>
                             )}
                           </div>
@@ -4108,7 +4296,7 @@ function App() {
                       )}
 
                       {/* ── STEP 2: Interactive Seat Selection ── */}
-                      {bookingStep === 2 && bookingModalEvent.seatingConfig?.enabled && (
+                      {bookingStep === 2 && hasAssignedSeating && (
                         <>
                           <div className="mt-4 flex items-center justify-between">
                             <button
@@ -4119,7 +4307,7 @@ function App() {
                               ← BACK
                             </button>
                             <div className="text-[10px] font-['Orbitron'] text-amber-400 font-bold">
-                              {totalTicketsCount} seat{totalTicketsCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
+                              {assignedTicketCount} seat{assignedTicketCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
                             </div>
                           </div>
 
@@ -4134,14 +4322,28 @@ function App() {
                             )}
                           </div>
 
+                          <div className="mt-2 flex items-center justify-between text-[10px] text-neutral-400">
+                            <span>Available: {availableSeats.length}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSeats([])}
+                              disabled={selectedSeats.length === 0}
+                              className="text-amber-400 hover:text-amber-300 disabled:text-neutral-600 disabled:cursor-not-allowed uppercase tracking-wider"
+                            >
+                              Clear Selection
+                            </button>
+                          </div>
+
                           <SeatingChartComponent
-                            seatingConfig={bookingModalEvent.seatingConfig}
+                            seatingConfig={bookingSeatingConfig}
                             isOrganizerEdit={false}
                             selectedSeats={selectedSeats}
                             onSelectSeat={(seatId) => {
                               let next
                               if (selectedSeats.includes(seatId)) {
                                 next = selectedSeats.filter((s) => s !== seatId)
+                              } else if (selectedSeats.length >= assignedTicketCount) {
+                                return
                               } else {
                                 next = [...selectedSeats, seatId]
                               }
@@ -4158,16 +4360,7 @@ function App() {
                               <div className="text-xl font-black text-white font-['Orbitron']">
                                 LKR{' '}
                                 {selectedSeats.length > 0
-                                  ? selectedSeats
-                                      .reduce((total, seatId) => {
-                                        let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
-                                        bookingModalEvent.seatingConfig.zones?.forEach((z) => {
-                                          const row = seatId.charAt(0)
-                                          if (z.rows?.includes(row)) p = Number(z.price || p)
-                                        })
-                                        return total + p
-                                      }, 0)
-                                      .toLocaleString()
+                                  ? selectedSeatTotal.toLocaleString()
                                   : totalBookingPrice.toLocaleString()}
                               </div>
                               {selectedSeats.length > 0 && (
@@ -4179,59 +4372,23 @@ function App() {
 
                             <button
                               type="button"
-                              onClick={() => {
-                                setBookingSubmitting(true)
-                                setTimeout(() => {
-                                  if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
-                                    const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
-                                      const newOccupied = Array.from(
-                                        new Set([...(z.occupiedSeats || []), ...selectedSeats]),
-                                      )
-                                      return { ...z, occupiedSeats: newOccupied }
-                                    })
-                                    const updatedSeatingConfig = {
-                                      ...bookingModalEvent.seatingConfig,
-                                      zones: updatedZones,
-                                    }
-                                    setAlbumList((prev) =>
-                                      prev.map((e) =>
-                                        e.id === bookingModalEvent.id
-                                          ? { ...e, seatingConfig: updatedSeatingConfig }
-                                          : e,
-                                      ),
-                                    )
-                                    setMyEventsList((prev) =>
-                                      prev.map((e) =>
-                                        e.id === bookingModalEvent.id
-                                          ? { ...e, seatingConfig: updatedSeatingConfig }
-                                          : e,
-                                      ),
-                                    )
-                                  }
-                                  setBookingSubmitting(false)
-                                  setBookingSuccess(true)
-                                }, 600)
-                              }}
-                              disabled={bookingSubmitting || selectedSeats.length === 0}
+                              onClick={() => setSelectionPrepared(true)}
+                              disabled={selectedSeats.length === 0}
                               className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
                                 selectedSeats.length > 0
                                   ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
                                   : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
                               }`}
                             >
-                              {bookingSubmitting ? (
-                                <>
-                                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                                  PROCESSING...
-                                </>
-                              ) : (
-                                <>
-                                  CONFIRM RESERVATION
-                                  <span>→</span>
-                                </>
-                              )}
+                              CONTINUE
+                              <span>→</span>
                             </button>
                           </div>
+                          {selectionPrepared && (
+                            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                              Selection ready for the next booking step. No booking or seat status was changed.
+                            </div>
+                          )}
                         </>
                       )}
                     </>
@@ -6399,50 +6556,6 @@ function App() {
                     </div>
                   </div>
                 </div>
-
-                {/* ── Seating Arrangement Preview (Attendee View) ── */}
-                {(() => {
-                  const evt = selectedDetailEvent
-                  let seatCfg = evt.seatingConfig
-                  if (!seatCfg && evt.seatingConfigJson) {
-                    try {
-                      seatCfg =
-                        typeof evt.seatingConfigJson === 'string'
-                          ? JSON.parse(evt.seatingConfigJson)
-                          : evt.seatingConfigJson
-                    } catch {}
-                  }
-                  if (seatCfg && seatCfg.enabled && seatCfg.zones && seatCfg.zones.length > 0) {
-                    return (
-                      <div className="space-y-2 mt-3">
-                        <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center gap-1.5">
-                          <svg
-                            className="w-3.5 h-3.5 text-amber-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                            />
-                          </svg>
-                          SEATING ARRANGEMENT
-                        </div>
-                        <SeatingChartComponent
-                          seatingConfig={seatCfg}
-                          isOrganizerEdit={false}
-                          selectedSeats={[]}
-                          onSelectSeat={() => {}}
-                          onToggleOccupied={() => {}}
-                        />
-                      </div>
-                    )
-                  }
-                  return null
-                })()}
 
                 {/* Bottom Actions Footer */}
                 <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 shrink-0 mt-auto">
