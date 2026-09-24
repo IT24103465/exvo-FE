@@ -4,7 +4,7 @@ import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
 import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
-import { getAttendeeSeatingPlan, getEventAvailability } from './services/bookingService'
+import { confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, holdSeats, releaseSeatHold } from './services/bookingService'
 
 vi.mock('./services/eventService', () => ({
   getAllEvents: vi.fn(),
@@ -26,6 +26,9 @@ vi.mock('./services/authService', () => ({
 vi.mock('./services/bookingService', () => ({
   getAttendeeSeatingPlan: vi.fn(),
   getEventAvailability: vi.fn(),
+  holdSeats: vi.fn(),
+  confirmSeatHold: vi.fn(),
+  releaseSeatHold: vi.fn(),
   getOrganizerSeatingPlan: vi.fn(),
   saveSeatingPlan: vi.fn(),
   bookingPlanToSeatingConfig: vi.fn((plan) => ({ enabled: Boolean(plan?.isVisibleToAttendees), zones: [] })),
@@ -38,6 +41,9 @@ beforeEach(() => {
   getMyEvents.mockResolvedValue([])
   getAttendeeSeatingPlan.mockResolvedValue(null)
   getEventAvailability.mockResolvedValue(null)
+  holdSeats.mockResolvedValue({ holdId: 1, eventId: 1, seatCodes: ['A-01'], expiresAtUtc: new Date(Date.now() + 300000).toISOString() })
+  releaseSeatHold.mockResolvedValue(null)
+  confirmSeatHold.mockResolvedValue({ bookingReference: 'EXVO-TEST' })
 })
 afterEach(() => {
   localStorage.clear()
@@ -179,6 +185,9 @@ test('attendee selects and clears only available database seats and sees live to
   expect(screen.getByText(/A-01/)).toBeInTheDocument()
   expect(screen.getByText(/2500/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: /CONTINUE/i }))
+  expect(await screen.findByText(/Seats held for you/i)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /CONFIRM RESERVATION/i })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Clear Selection/i }))
   expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeDisabled()
 })

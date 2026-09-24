@@ -22,9 +22,12 @@ import {
 } from './services/eventService'
 import {
   bookingPlanToSeatingConfig,
+  confirmSeatHold,
   getAttendeeSeatingPlan,
   getEventAvailability,
   getOrganizerSeatingPlan,
+  holdSeats,
+  releaseSeatHold,
   saveSeatingPlan,
 } from './services/bookingService'
 
@@ -1039,7 +1042,13 @@ function App() {
   const [, setTicketQuantity] = useState(1)
   const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
+  const [seatHold, setSeatHold] = useState(null)
+  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState(0)
+  const [holdError, setHoldError] = useState('')
+  const [bookingConfirmation, setBookingConfirmation] = useState(null)
+  const [confirmingBooking, setConfirmingBooking] = useState(false)
   const [selectionPrepared, setSelectionPrepared] = useState(false)
+  const holdConfirmationRef = useRef(null)
   const [bookingStep, setBookingStep] = useState(1)
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
@@ -1145,6 +1154,30 @@ function App() {
       active = false
     }
   }, [bookingModalEvent?.id])
+
+  useEffect(() => {
+    if (!seatHold?.expiresAtUtc) return undefined
+    const updateRemaining = () => setHoldSecondsRemaining(Math.max(0, Math.ceil((new Date(seatHold.expiresAtUtc).getTime() - Date.now()) / 1000)))
+    updateRemaining()
+    const timer = window.setInterval(updateRemaining, 1000)
+    return () => window.clearInterval(timer)
+  }, [seatHold])
+
+  useEffect(() => {
+    if (selectionPrepared && seatHold) {
+      holdConfirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [selectionPrepared, seatHold])
+
+  useEffect(() => {
+    if (!seatHold?.expiresAtUtc) return
+    const expiresAt = new Date(seatHold.expiresAtUtc).getTime()
+    if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return
+    setSelectedSeats([])
+    setSeatHold(null)
+    setSelectionPrepared(false)
+    setHoldError('Your five-minute seat hold expired. Please select the seats again.')
+  }, [holdSecondsRemaining, seatHold])
 
   useEffect(() => {
     if (!bookingModalEvent || eventAvailability?.eventId !== bookingModalEvent.id) return
@@ -2189,6 +2222,11 @@ function App() {
     setTicketQuantity(1)
     setSelectedSeats([])
     setBookingSuccess(false)
+    setSeatHold(null)
+    setHoldSecondsRemaining(0)
+    setHoldError('')
+    setBookingConfirmation(null)
+    setConfirmingBooking(false)
     setSelectionPrepared(false)
     setBookingStep(1)
     if (!attendeeSeatingPlan || attendeeSeatingPlan.eventId !== event.id) {
@@ -4372,7 +4410,19 @@ function App() {
 
                             <button
                               type="button"
-                              onClick={() => setSelectionPrepared(true)}
+                              onClick={async () => {
+                                setHoldError('')
+                                try {
+                                  const createdHold = await holdSeats(bookingModalEvent.id, selectedSeats)
+                                  setSeatHold(createdHold)
+                                  setSelectionPrepared(true)
+                                } catch (error) {
+                                  setHoldError(error.message)
+                                  setSelectedSeats([])
+                                  const refreshedPlan = await getAttendeeSeatingPlan(bookingModalEvent.id).catch(() => null)
+                                  if (refreshedPlan) setAttendeeSeatingPlan(refreshedPlan)
+                                }
+                              }}
                               disabled={selectedSeats.length === 0}
                               className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
                                 selectedSeats.length > 0
@@ -4384,9 +4434,48 @@ function App() {
                               <span>→</span>
                             </button>
                           </div>
-                          {selectionPrepared && (
-                            <div className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
-                              Selection ready for the next booking step. No booking or seat status was changed.
+                          {holdError && (
+                            <div role="alert" className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200">
+                              {holdError}
+                            </div>
+                          )}
+                          {selectionPrepared && seatHold && (
+                            <div ref={holdConfirmationRef} className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                              <strong>Seats held for you.</strong> Confirm within{' '}
+                              <strong>{Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}</strong>.
+                              <button
+                                type="button"
+                                disabled={confirmingBooking || holdSecondsRemaining <= 0}
+                                className="mt-3 w-full rounded-lg bg-emerald-500 px-3 py-2 font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={async () => {
+                                  setConfirmingBooking(true)
+                                  setHoldError('')
+                                  try {
+                                    const confirmation = await confirmSeatHold(bookingModalEvent.id, seatHold.holdId)
+                                    setBookingConfirmation(confirmation)
+                                    setBookingSuccess(true)
+                                    setSeatHold(null)
+                                  } catch (error) {
+                                    setHoldError(error.message)
+                                  } finally {
+                                    setConfirmingBooking(false)
+                                  }
+                                }}
+                              >
+                                {confirmingBooking ? 'CONFIRMING...' : 'CONFIRM RESERVATION'}
+                              </button>
+                              <button
+                                type="button"
+                                className="block mt-2 text-emerald-300 underline"
+                                onClick={async () => {
+                                  await releaseSeatHold(bookingModalEvent.id, seatHold.holdId).catch(() => {})
+                                  setSeatHold(null)
+                                  setSelectionPrepared(false)
+                                  setSelectedSeats([])
+                                }}
+                              >
+                                Release held seats
+                              </button>
                             </div>
                           )}
                         </>
@@ -4398,13 +4487,20 @@ function App() {
             ) : (
               <div className="text-center py-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-2xl flex items-center justify-center mx-auto mb-3 animate-bounce">
-                  Complete
+                  <svg aria-label="Booking completed" className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 12 4 4L19 6" />
+                  </svg>
                 </div>
                 <h3 className="text-xl font-black text-white font-['Orbitron'] uppercase">RESERVATION CONFIRMED!</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
                   Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved
                   in the EXVO network.
                 </p>
+                {bookingConfirmation && (
+                  <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                    Booking reference: <strong>{bookingConfirmation.bookingReference}</strong>
+                  </div>
+                )}
 
                 {/* Digital Ticket Pass Card */}
                 {(() => {
