@@ -34,6 +34,7 @@ import {
   holdSeats,
   releaseSeatHold,
   saveSeatingPlan,
+  submitBookingTicketImages,
 } from './services/bookingService'
 
 import backgroundVideo from './assets/bg_video.mp4'
@@ -1968,7 +1969,7 @@ function App() {
     await loadAttendeeTickets()
   }
 
-  const downloadTicketImage = async (ticket, booking, event = {}) => {
+  const downloadTicketImage = async (ticket, booking, event = {}, forEmail = false) => {
     const width = 900
     const height = 1400
     const canvas = document.createElement('canvas')
@@ -2194,10 +2195,27 @@ function App() {
     if (barcode) ctx.drawImage(barcode, ticketX + 62, stubY + 200, ticketW - 124, 76)
     drawFitText(ticket.ticketCode.slice(-18), ticketX + ticketW / 2, stubY + 274, ticketW - 110, 15, 600, '#303030', 'center', 11)
 
+    if (forEmail) return canvas.toDataURL('image/jpeg', 0.94)
     const link = document.createElement('a')
     link.download = `${ticket.ticketCode}.png`
     link.href = canvas.toDataURL('image/png')
     link.click()
+  }
+
+  const queueRenderedTicketEmail = async (bookingConfirmation, event) => {
+    try {
+      const bookings = await getMyTickets()
+      const booking = bookings.find((item) => Number(item.bookingId) === Number(bookingConfirmation.bookingId))
+      if (!booking?.tickets?.length) throw new Error('The confirmed tickets could not be loaded.')
+      const tickets = await Promise.all(booking.tickets.map(async (ticket) => ({
+        bookingItemId: ticket.bookingItemId,
+        ticketCode: ticket.ticketCode,
+        image: await downloadTicketImage(ticket, booking, event, true),
+      })))
+      await submitBookingTicketImages(booking.bookingId, tickets)
+    } catch (error) {
+      console.error('Could not prepare the confirmation email ticket images.', error)
+    }
   }
 
   const videoRef = useRef(null)
@@ -5403,6 +5421,7 @@ function App() {
                                         confirmationSnapshot.totalQuantity,
                                     })
                                     setBookingSuccess(true)
+                                    void queueRenderedTicketEmail(confirmation, bookingModalEvent)
                                     await refreshEventInventory(bookingModalEvent.id)
                                   } catch (error) {
                                     setHoldError(error.message)
@@ -5580,6 +5599,7 @@ function App() {
                                     })
                                     setBookingSuccess(true)
                                     setSeatHold(null)
+                                    void queueRenderedTicketEmail(confirmation, bookingModalEvent)
                                     await refreshEventInventory(bookingModalEvent.id)
                                   } catch (error) {
                                     setHoldError(error.message)
@@ -5718,7 +5738,7 @@ function App() {
                     }}
                     className="px-6 py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all cursor-pointer"
                   >
-                    MANAGE TICKETS
+                    VIEW TICKETS
                   </button>
                   <button
                     type="button"
@@ -6000,10 +6020,10 @@ function App() {
         <section id="all-events-grid" className="w-full mt-14 md:mt-20 px-2 scroll-mt-24">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-4 border-b border-white/10 gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                LIVE EVENTS
-              </div>
+              {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">*/}
+                {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+                {/*LIVE EVENTS*/}
+              {/*</div>*/}
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
                   <>
@@ -6243,10 +6263,10 @@ function App() {
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              ABOUT EXVO
-            </div>
+            {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
+              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+              {/*ABOUT EXVO*/}
+            {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               REDEFINING LIVE <span className="text-[#FF0000]">EXPERIENCES</span>
             </h2>
@@ -6352,10 +6372,10 @@ function App() {
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              GET IN TOUCH
-            </div>
+            {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
+              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+              {/*GET IN TOUCH*/}
+            {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               CONTACT <span className="text-[#FF0000]">US</span>
             </h2>
