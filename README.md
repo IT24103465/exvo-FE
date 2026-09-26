@@ -2,17 +2,6 @@
 
 Exvo is an event discovery platform for finding and exploring upcoming live experiences. This repository contains the frontend: a responsive React interface with a visually focused home screen, event categories, authentication flows, and a user profile experience.
 
-## Features
-
-- Responsive Exvo landing and event discovery screen
-- Branded navigation with responsive menu overlay
-- Upcoming events cover-flow carousel with autoplay, hover pause, and manual navigation
-- Horizontally scrollable categories for concerts, festivals, live sessions, DJ nights, acoustic shows, and stand-up events
-- Login and account registration screens
-- Password visibility controls, client-side form validation, loading states, and API error feedback
-- Token and user-session persistence through `localStorage`
-- Authenticated user avatar, profile panel, and logout flow
-- Background video treatment, animated footer effects, mobile layout, and touch scrolling
 
 ## Technology Stack
 
@@ -27,20 +16,8 @@ Exvo is an event discovery platform for finding and exploring upcoming live expe
 
 - Node.js 18 or newer
 - npm
-- Exvo API Gateway available for authentication and catalog requests
+- Exvo API Gateway
 
-Copy `.env.example` to `.env` for local development, or set `VITE_API_BASE_URL`
-to the deployed API Gateway URL for a hosted build. Production requests use only
-the configured API Gateway; direct AuthService and CatalogService URLs are not
-used.
-
-| Method | Endpoint    | Purpose                                    |
-| ------ | ----------- | ------------------------------------------ |
-| `POST` | `/register` | Create an attendee account                 |
-| `POST` | `/login`    | Authenticate an existing user              |
-| `GET`  | `/me`       | Retrieve the current authenticated profile |
-
-Registration sends the default role `Attendee`. Successful login or registration responses should include a `token`.
 
 ## Getting Started
 
@@ -53,9 +30,7 @@ npm run dev
 
 Vite will print the local development URL, normally `http://localhost:5173`.
 
-Start the API Gateway before testing login, registration, profile, and logout
-behavior. The frontend still loads when the backend is unavailable and reports a
-concise service availability message for backend-dependent actions.
+
 
 ## Available Scripts
 
@@ -85,27 +60,6 @@ Exvo/
 ├── postcss.config.js
 └── vite.config.js
 ```
-
-## Authentication Flow
-
-1. A visitor selects **Login** or **Create an account** from the navigation.
-2. The frontend sends credentials to the authentication API.
-3. On success, the API token and user response are stored in `localStorage`.
-4. The home screen displays the authenticated user's initials and profile actions.
-5. Logout removes the token and user data and returns the interface to its signed-out state.
-
-For local testing, clear the `token` and `user` entries from `localStorage` to reset authentication state.
-
-## Current Limitations
-
-The current frontend focuses on the discovery and authentication foundation. These UI interactions are not yet connected to production services:
-
-- Google sign-in and sign-up
-- Password reset
-- Terms of Service and Privacy Policy pages
-- Full event listing and event detail pages
-- Category filtering against live event data
-- Profile editing
 
 ## Validation
 

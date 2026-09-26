@@ -44,6 +44,12 @@ export const confirmGeneralBooking = (eventId, tickets) =>
 
 export const getMyTickets = () => request('/api/booking/my-tickets')
 
+export const submitBookingTicketImages = (bookingId, tickets) =>
+  request(`/api/booking/${bookingId}/ticket-images`, {
+    method: 'POST',
+    body: JSON.stringify({ tickets }),
+  })
+
 export const getOrganizerSeatingPlan = (eventId) => request(`/api/booking/organizer/events/${eventId}/seating-plan`)
 
 export const saveSeatingPlan = (eventId, plan) =>
