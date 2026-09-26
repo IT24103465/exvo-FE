@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
 import './App.css'
 import { EventSkeleton, EventLoadError } from './components/EventListState'
 import { localDate, minimumEventTime, validateEventSchedule, isEventExpired, eventStartTimestamp } from './services/eventDateTime'
@@ -486,6 +487,167 @@ const normalizeTicketEventSnapshot = (eventId, event = {}) => {
 }
 
 // ── Sparkling particle canvas for footer ──
+const createTicketQrMatrix = (value) => {
+  const version = 4
+  const size = 17 + version * 4
+  const matrix = Array.from({ length: size }, () => Array(size).fill(false))
+  const reserved = Array.from({ length: size }, () => Array(size).fill(false))
+  const setModule = (row, col, dark, isReserved = true) => {
+    if (row < 0 || col < 0 || row >= size || col >= size) return
+    matrix[row][col] = Boolean(dark)
+    if (isReserved) reserved[row][col] = true
+  }
+  const setReserved = (row, col) => {
+    if (row >= 0 && col >= 0 && row < size && col < size) reserved[row][col] = true
+  }
+  const drawFinder = (row, col) => {
+    for (let r = -1; r <= 7; r += 1) {
+      for (let c = -1; c <= 7; c += 1) {
+        const rr = row + r
+        const cc = col + c
+        if (rr < 0 || cc < 0 || rr >= size || cc >= size) continue
+        const dark =
+          r >= 0 &&
+          r <= 6 &&
+          c >= 0 &&
+          c <= 6 &&
+          (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4))
+        setModule(rr, cc, dark)
+      }
+    }
+  }
+  const drawAlignment = (centerRow, centerCol) => {
+    for (let r = -2; r <= 2; r += 1) {
+      for (let c = -2; c <= 2; c += 1) {
+        setModule(centerRow + r, centerCol + c, Math.max(Math.abs(r), Math.abs(c)) !== 1)
+      }
+    }
+  }
+  const reserveFormat = () => {
+    for (let i = 0; i <= 8; i += 1) {
+      if (i !== 6) {
+        setReserved(8, i)
+        setReserved(i, 8)
+      }
+    }
+    for (let i = 0; i < 8; i += 1) setReserved(size - 1 - i, 8)
+    for (let i = 0; i < 7; i += 1) setReserved(8, size - 1 - i)
+  }
+
+  drawFinder(0, 0)
+  drawFinder(0, size - 7)
+  drawFinder(size - 7, 0)
+  drawAlignment(26, 26)
+  for (let i = 8; i < size - 8; i += 1) {
+    setModule(6, i, i % 2 === 0)
+    setModule(i, 6, i % 2 === 0)
+  }
+  setModule(size - 8, 8, true)
+  reserveFormat()
+
+  const bytes = new TextEncoder().encode(String(value || ''))
+  const bits = []
+  const appendBits = (number, count) => {
+    for (let i = count - 1; i >= 0; i -= 1) bits.push((number >>> i) & 1)
+  }
+  appendBits(0b0100, 4)
+  appendBits(Math.min(bytes.length, 78), 8)
+  bytes.slice(0, 78).forEach((byte) => appendBits(byte, 8))
+  const dataBitCapacity = 80 * 8
+  appendBits(0, Math.min(4, dataBitCapacity - bits.length))
+  while (bits.length % 8) bits.push(0)
+  const data = []
+  for (let i = 0; i < bits.length; i += 8) data.push(bits.slice(i, i + 8).reduce((acc, bit) => (acc << 1) | bit, 0))
+  for (let pad = 0; data.length < 80; pad += 1) data.push(pad % 2 === 0 ? 0xec : 0x11)
+
+  const gfExp = Array(512).fill(0)
+  const gfLog = Array(256).fill(0)
+  let gfValue = 1
+  for (let i = 0; i < 255; i += 1) {
+    gfExp[i] = gfValue
+    gfLog[gfValue] = i
+    gfValue <<= 1
+    if (gfValue & 0x100) gfValue ^= 0x11d
+  }
+  for (let i = 255; i < 512; i += 1) gfExp[i] = gfExp[i - 255]
+  const gfMul = (a, b) => (a && b ? gfExp[gfLog[a] + gfLog[b]] : 0)
+  const generator = [1]
+  for (let degree = 0; degree < 20; degree += 1) {
+    generator.push(0)
+    for (let i = generator.length - 1; i > 0; i -= 1) {
+      generator[i] = generator[i - 1] ^ gfMul(generator[i], gfExp[degree])
+    }
+    generator[0] = gfMul(generator[0], gfExp[degree])
+  }
+  const ecc = Array(20).fill(0)
+  data.forEach((byte) => {
+    const factor = byte ^ ecc.shift()
+    ecc.push(0)
+    generator.forEach((coefficient, index) => {
+      ecc[index] ^= gfMul(coefficient, factor)
+    })
+  })
+  const codewordBits = data
+    .concat(ecc)
+    .flatMap((byte) => Array.from({ length: 8 }, (_, index) => (byte >>> (7 - index)) & 1))
+
+  let bitIndex = 0
+  let upward = true
+  for (let col = size - 1; col > 0; col -= 2) {
+    if (col === 6) col -= 1
+    for (let step = 0; step < size; step += 1) {
+      const row = upward ? size - 1 - step : step
+      for (let offset = 0; offset < 2; offset += 1) {
+        const c = col - offset
+        if (reserved[row][c]) continue
+        const rawBit = bitIndex < codewordBits.length ? codewordBits[bitIndex] : 0
+        const mask = (row + c) % 2 === 0
+        matrix[row][c] = Boolean(rawBit ^ (mask ? 1 : 0))
+        bitIndex += 1
+      }
+    }
+    upward = !upward
+  }
+
+  const formatData = 0b01000
+  let format = formatData << 10
+  for (let i = 14; i >= 10; i -= 1) {
+    if ((format >>> i) & 1) format ^= 0x537 << (i - 10)
+  }
+  format = ((formatData << 10) | format) ^ 0x5412
+  const formatBit = (index) => (format >>> index) & 1
+  for (let i = 0; i <= 5; i += 1) setModule(8, i, formatBit(i))
+  setModule(8, 7, formatBit(6))
+  setModule(8, 8, formatBit(7))
+  setModule(7, 8, formatBit(8))
+  for (let i = 9; i < 15; i += 1) setModule(14 - i, 8, formatBit(i))
+  for (let i = 0; i < 8; i += 1) setModule(size - 1 - i, 8, formatBit(i))
+  for (let i = 8; i < 15; i += 1) setModule(8, size - 15 + i, formatBit(i))
+
+  return matrix
+}
+
+const drawTicketQrCode = async (ctx, value, x, y, size) => {
+  const dataUrl = await QRCode.toDataURL(String(value || ''), {
+    errorCorrectionLevel: 'M',
+    margin: 4,
+    width: size,
+    color: {
+      dark: '#111111',
+      light: '#ffffff',
+    },
+  })
+  await new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      ctx.drawImage(image, x, y, size, size)
+      resolve()
+    }
+    image.onerror = resolve
+    image.src = dataUrl
+  })
+}
+
 const eventAccentColor = (event = {}) => {
   const seed = `${event.id || ''}${event.title || ''}`
   let hash = 0
@@ -1882,37 +2044,6 @@ function App() {
       ctx.closePath()
     }
 
-    const drawCodeMosaic = (value, x, y, cell = 13, modules = 15) => {
-      let seed = 0
-      for (const character of value) seed = (seed * 31 + character.charCodeAt(0)) >>> 0
-      const next = () => {
-        seed = (seed * 1664525 + 1013904223) >>> 0
-        return seed / 4294967296
-      }
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(x - 10, y - 10, modules * cell + 20, modules * cell + 20)
-      ctx.fillStyle = '#5617ff'
-      const finder = (fx, fy) => {
-        ctx.fillRect(x + fx * cell, y + fy * cell, cell * 4, cell * 4)
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(x + (fx + 1) * cell, y + (fy + 1) * cell, cell * 2, cell * 2)
-        ctx.fillStyle = '#5617ff'
-        ctx.fillRect(x + (fx + 1.55) * cell, y + (fy + 1.55) * cell, cell * 0.9, cell * 0.9)
-      }
-      finder(0, 0)
-      finder(11, 0)
-      finder(0, 11)
-      for (let row = 0; row < modules; row += 1) {
-        for (let col = 0; col < modules; col += 1) {
-          const inFinder =
-            (col < 4 && row < 4) ||
-            (col > 10 && row < 4) ||
-            (col < 4 && row > 10)
-          if (!inFinder && next() > 0.58) ctx.fillRect(x + col * cell, y + row * cell, cell * 0.9, cell * 0.9)
-        }
-      }
-    }
-
     const loadImage = (src) =>
       new Promise((resolve) => {
         if (!src) {
@@ -1994,7 +2125,7 @@ function App() {
     ctx.arc(ticketX + ticketW, stubY, 44, 0, Math.PI * 2)
     ctx.fill()
 
-    drawCodeMosaic(ticket.ticketCode, ticketX + 168, ticketY + 122, 13, 15)
+    await drawTicketQrCode(ctx, ticket.ticketCode, ticketX + 162, ticketY + 116, 196)
     drawFitText('SCAN HERE', ticketX + ticketW / 2, ticketY + 345, 180, 18, 700, 'rgba(255,255,255,0.82)', 'center', 14)
 
     ctx.strokeStyle = 'rgba(255,255,255,0.72)'
@@ -2985,7 +3116,7 @@ function App() {
     }
     return {
       status: status || 'Available',
-      label: 'AVAILABLE NOW',
+      label: 'AVAILABLE',
       detail: 'Tickets are available.',
       disabled: false,
       className: '',
