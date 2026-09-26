@@ -30,11 +30,19 @@ export const holdSeats = (eventId, seatCodes) =>
 export const releaseSeatHold = (eventId, holdId) =>
   request(`/api/booking/events/${eventId}/seat-holds/${holdId}`, { method: 'DELETE' })
 
-export const confirmSeatHold = (eventId, holdId) =>
+export const confirmSeatHold = (eventId, holdId, tickets = []) =>
   request(`/api/booking/events/${eventId}/seat-holds/${holdId}/confirm`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify({ tickets }),
   })
+
+export const confirmGeneralBooking = (eventId, tickets) =>
+  request(`/api/booking/events/${eventId}/general-bookings`, {
+    method: 'POST',
+    body: JSON.stringify({ tickets }),
+  })
+
+export const getMyTickets = () => request('/api/booking/my-tickets')
 
 export const getOrganizerSeatingPlan = (eventId) => request(`/api/booking/organizer/events/${eventId}/seating-plan`)
 

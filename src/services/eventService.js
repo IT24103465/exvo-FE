@@ -113,6 +113,12 @@ export const getEventById = (id) =>
     headers: getAuthHeaders(),
   })
 
+export const getEventTicketSnapshot = (id) =>
+  requestEvent(`/${id}/ticket-snapshot`, {
+    method: 'GET',
+    headers: getAuthHeaders(),
+  })
+
 // GET logged-in organizer's events
 export const getMyEvents = () => requestEventList('/my-events', getAuthHeaders())
 

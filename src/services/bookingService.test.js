@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, holdSeats, releaseSeatHold, saveSeatingPlan } from './bookingService.js'
+import { confirmGeneralBooking, confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, getMyTickets, holdSeats, releaseSeatHold, saveSeatingPlan } from './bookingService.js'
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -45,6 +45,19 @@ test('loads general-admission availability from BookingService', async () => {
   await expect(getEventAvailability(12)).resolves.toMatchObject({ eventId: 12, availableSeatCount: 7 })
 })
 
+test('loads the current attendees confirmed tickets', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => [{ bookingReference: 'EXVO-123', tickets: [{ ticketCode: 'EXVO-123-4' }] }],
+  })
+  await expect(getMyTickets()).resolves.toHaveLength(1)
+  expect(globalThis.fetch).toHaveBeenCalledWith(
+    expect.stringContaining('/api/booking/my-tickets'),
+    expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer test-token' }) }),
+  )
+})
+
 test('creates and releases an attendee seat hold', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
@@ -67,6 +80,22 @@ test('creates and releases an attendee seat hold', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(
     3,
     expect.stringContaining('/api/booking/events/12/seat-holds/3/confirm'),
-    expect.objectContaining({ method: 'POST', body: JSON.stringify({}) }),
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ tickets: [] }) }),
+  )
+})
+
+test('confirms a general admission booking without seats', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ bookingReference: 'EXVO-GA', seatCodes: ['General Admission'] }),
+  })
+  await confirmGeneralBooking(12, [{ ticketTierId: 3, name: 'General Admission', unitPrice: 2500, quantity: 2 }])
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/booking/events/12/general-bookings'),
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ tickets: [{ ticketTierId: 3, name: 'General Admission', unitPrice: 2500, quantity: 2 }] }),
+    }),
   )
 })

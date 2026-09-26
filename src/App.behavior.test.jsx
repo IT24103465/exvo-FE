@@ -4,7 +4,7 @@ import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
 import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
-import { confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, holdSeats, releaseSeatHold } from './services/bookingService'
+import { confirmGeneralBooking, confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, getMyTickets, holdSeats, releaseSeatHold } from './services/bookingService'
 
 vi.mock('./services/eventService', () => ({
   getAllEvents: vi.fn(),
@@ -27,7 +27,9 @@ vi.mock('./services/bookingService', () => ({
   getAttendeeSeatingPlan: vi.fn(),
   getEventAvailability: vi.fn(),
   holdSeats: vi.fn(),
+  confirmGeneralBooking: vi.fn(),
   confirmSeatHold: vi.fn(),
+  getMyTickets: vi.fn(),
   releaseSeatHold: vi.fn(),
   getOrganizerSeatingPlan: vi.fn(),
   saveSeatingPlan: vi.fn(),
@@ -43,7 +45,9 @@ beforeEach(() => {
   getEventAvailability.mockResolvedValue(null)
   holdSeats.mockResolvedValue({ holdId: 1, eventId: 1, seatCodes: ['A-01'], expiresAtUtc: new Date(Date.now() + 300000).toISOString() })
   releaseSeatHold.mockResolvedValue(null)
+  confirmGeneralBooking.mockResolvedValue({ bookingReference: 'EXVO-GA' })
   confirmSeatHold.mockResolvedValue({ bookingReference: 'EXVO-TEST' })
+  getMyTickets.mockResolvedValue([])
 })
 afterEach(() => {
   localStorage.clear()
