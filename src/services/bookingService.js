@@ -60,13 +60,11 @@ export const saveSeatingPlan = (eventId, plan) =>
 
 export const bookingPlanToSeatingConfig = (plan) => ({
   enabled: Boolean(plan?.isVisibleToAttendees),
+  planId: plan?.id,
   autoSyncCategories: false,
   stageLabel: 'SCREEN',
-  zones: (plan?.sections || []).map((section) => ({
-    id: String(section.id),
-    name: section.name,
-    price: Number(section.price) || 0,
-    rows: Array.from({ length: section.rowCount }, (_, index) => {
+  zones: (plan?.sections || []).map((section) => {
+    const generatedRows = Array.from({ length: section.rowCount }, (_, index) => {
       let value = String(section.startingRowLabel || 'A').toUpperCase()
       for (let step = 0; step < index; step += 1) {
         value = value.replace(/[A-Z]+$/, (label) => {
@@ -83,9 +81,26 @@ export const bookingPlanToSeatingConfig = (plan) => ({
         })
       }
       return value
-    }),
-    seatsPerRow: section.seatsPerRow,
-    occupiedSeats: [],
-    ticketTierId: section.ticketTierId,
-  })),
+    })
+    const seats = section.seats || []
+    const rows = section.rowLabels?.length
+      ? section.rowLabels
+      : [...new Set([...generatedRows, ...seats.map((seat) => seat.rowLabel)])]
+    return {
+      id: String(section.id),
+      name: section.name,
+      price: Number(section.price) || 0,
+      rows,
+      startingSeatNumber: section.startingSeatNumber || 1,
+      seatsPerRow: section.seatsPerRow,
+      seatsByRow: seats.reduce((groups, seat) => {
+        groups[seat.rowLabel] = [...(groups[seat.rowLabel] || []), seat]
+        return groups
+      }, {}),
+      occupiedSeats: seats
+        .filter((seat) => !seat.isEnabled && seat.status === 'Available')
+        .map((seat) => seat.seatCode),
+      ticketTierId: section.ticketTierId,
+    }
+  }),
 })

@@ -4,7 +4,15 @@ import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
 import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
-import { confirmGeneralBooking, confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, getMyTickets, holdSeats, releaseSeatHold } from './services/bookingService'
+import {
+  confirmGeneralBooking,
+  confirmSeatHold,
+  getAttendeeSeatingPlan,
+  getEventAvailability,
+  getMyTickets,
+  holdSeats,
+  releaseSeatHold,
+} from './services/bookingService'
 
 vi.mock('./services/eventService', () => ({
   getAllEvents: vi.fn(),
@@ -43,7 +51,12 @@ beforeEach(() => {
   getMyEvents.mockResolvedValue([])
   getAttendeeSeatingPlan.mockResolvedValue(null)
   getEventAvailability.mockResolvedValue(null)
-  holdSeats.mockResolvedValue({ holdId: 1, eventId: 1, seatCodes: ['A-01'], expiresAtUtc: new Date(Date.now() + 300000).toISOString() })
+  holdSeats.mockResolvedValue({
+    holdId: 1,
+    eventId: 1,
+    seatCodes: ['A-01'],
+    expiresAtUtc: new Date(Date.now() + 300000).toISOString(),
+  })
   releaseSeatHold.mockResolvedValue(null)
   confirmGeneralBooking.mockResolvedValue({ bookingReference: 'EXVO-GA' })
   confirmSeatHold.mockResolvedValue({ bookingReference: 'EXVO-TEST' })
@@ -71,18 +84,21 @@ const signIn = () => {
 }
 const openDashboard = () => fireEvent.click(screen.getByRole('button', { name: 'DASHBOARD' }))
 
-test.each(['View full profile', 'Click to view full profile', 'card'])('profile popup opens profile and edit controls through %s', async (title) => {
-  signIn()
-  render(<App />)
-  fireEvent.click(screen.getByRole('button', { name: 'Open profile options' }))
-  fireEvent.click(title === 'card' ? screen.getByTitle('View full profile').parentElement : screen.getByTitle(title))
-  const dialog = screen.getByRole('dialog')
-  fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
-  expect(within(dialog).getByDisplayValue('Shared company')).toBeInTheDocument()
-  expect(within(dialog).getByRole('button', { name: /Save Changes/i })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-})
+test.each(['View full profile', 'Click to view full profile', 'card'])(
+  'profile popup opens profile and edit controls through %s',
+  async (title) => {
+    signIn()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open profile options' }))
+    fireEvent.click(title === 'card' ? screen.getByTitle('View full profile').parentElement : screen.getByTitle(title))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
+    expect(within(dialog).getByDisplayValue('Shared company')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /Save Changes/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  },
+)
 
 test('hidden navigation profile opens the full profile editor directly', async () => {
   signIn()
@@ -95,10 +111,14 @@ test('hidden navigation profile opens the full profile editor directly', async (
   fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
   fireEvent.click(within(dialog).getByRole('button', { name: /Save Changes/i }))
 
-  await waitFor(() => expect(updateUserProfile).toHaveBeenCalledWith(expect.objectContaining({
-    name: 'Shared company',
-    email: 'owner@example.com',
-  })))
+  await waitFor(() =>
+    expect(updateUserProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Shared company',
+        email: 'owner@example.com',
+      }),
+    ),
+  )
 })
 
 test.each(['home', 'dashboard', 'details', 'booking'])(
@@ -169,8 +189,26 @@ test('attendee selects and clears only available database seats and sees live to
         seatsPerRow: 2,
         price: 2500,
         seats: [
-          { id: 100, seatCode: 'A-01', rowLabel: 'A', seatNumber: 1, ticketTierId: 1, price: 2500, isEnabled: true, status: 'Available' },
-          { id: 101, seatCode: 'A-02', rowLabel: 'A', seatNumber: 2, ticketTierId: 1, price: 2500, isEnabled: true, status: 'Held' },
+          {
+            id: 100,
+            seatCode: 'A-01',
+            rowLabel: 'A',
+            seatNumber: 1,
+            ticketTierId: 1,
+            price: 2500,
+            isEnabled: true,
+            status: 'Available',
+          },
+          {
+            id: 101,
+            seatCode: 'A-02',
+            rowLabel: 'A',
+            seatNumber: 2,
+            ticketTierId: 1,
+            price: 2500,
+            isEnabled: true,
+            status: 'Held',
+          },
         ],
       },
     ],
@@ -180,6 +218,7 @@ test('attendee selects and clears only available database seats and sees live to
   await waitFor(() => expect(screen.getByTitle('Click to view details: Assigned seating event')).toBeInTheDocument())
   fireEvent.click(screen.getByTitle('Click to view details: Assigned seating event'))
   fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
+  fireEvent.click(screen.getAllByRole('button', { name: '+' })[0])
   expect(await screen.findByRole('button', { name: /CHOOSE SEATS/i })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /CHOOSE SEATS/i }))
 
@@ -208,6 +247,8 @@ test('general admission quantity cannot exceed BookingService availability', asy
   fireEvent.click(await screen.findByTitle('Click to view details: General admission event'))
   fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
   const increase = screen.getByRole('button', { name: '+' })
+  await waitFor(() => expect(increase).toBeEnabled())
+  fireEvent.click(increase)
   expect(increase).toBeDisabled()
   expect(screen.getByText('1')).toBeInTheDocument()
 })
@@ -371,6 +412,7 @@ test.each(['create', 'edit'])(
         venue: 'Arena',
         eventDate: '2099-10-12T19:30:00',
         ticketTiers: [{ id: '1', name: 'General', price: 100, quantity: 10 }],
+        seatingConfig: { enabled: false, autoSyncCategories: true, zones: [] },
       },
     ])
     render(<App />)

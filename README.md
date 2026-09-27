@@ -2,7 +2,6 @@
 
 Exvo is an event discovery platform for finding and exploring upcoming live experiences. This repository contains the frontend: a responsive React interface with a visually focused home screen, event categories, authentication flows, and a user profile experience.
 
-
 ## Technology Stack
 
 - React 19 with JavaScript and JSX
@@ -18,7 +17,6 @@ Exvo is an event discovery platform for finding and exploring upcoming live expe
 - npm
 - Exvo API Gateway
 
-
 ## Getting Started
 
 From the project directory:
@@ -29,8 +27,6 @@ npm run dev
 ```
 
 Vite will print the local development URL, normally `http://localhost:5173`.
-
-
 
 ## Available Scripts
 
