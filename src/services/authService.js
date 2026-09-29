@@ -88,7 +88,7 @@ export const getCurrentUserProfile = async () => {
   if (!token) return null
 
   try {
-    const response = await fetchWithFallback('/profile', {
+    const response = await fetchWithFallback('/me', {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -100,17 +100,6 @@ export const getCurrentUserProfile = async () => {
       if (response.status === 401) {
         localStorage.removeItem('token')
         return null
-      }
-      // Fallback to /me
-      const meRes = await fetchWithFallback('/me', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      })
-      if (meRes.ok) {
-        return await meRes.json()
       }
       return null
     }

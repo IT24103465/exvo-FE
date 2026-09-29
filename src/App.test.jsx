@@ -38,8 +38,7 @@ describe('Exvo homepage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Toggle Navigation Menu' }))
     fireEvent.click(screen.getByRole('button', { name: 'LOGIN' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Forgot Password?' }))
-    expect(screen.getByRole('status')).toHaveTextContent('Password reset instructions are coming soon.')
+    expect(screen.queryByRole('button', { name: 'Forgot Password?' })).not.toBeInTheDocument()
 
     const passwordInput = screen.getByLabelText('PASSWORD')
     expect(passwordInput).toHaveAttribute('type', 'password')
@@ -58,8 +57,9 @@ describe('Exvo homepage', () => {
     expect(screen.getByLabelText('COMPANY NAME')).toBeInTheDocument()
     expect(screen.getByLabelText('REGISTRATION NO')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terms' }))
-    expect(screen.getByRole('status')).toHaveTextContent('Terms of service will be available soon.')
+    expect(screen.queryByRole('button', { name: 'Terms' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Privacy Policy/)).not.toBeInTheDocument()
   })
 
   test('opens event details and starts the ticket gateway for a catalog event', async () => {

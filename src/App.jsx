@@ -1,5 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
+import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
 import './App.css'
+import { EventSkeleton, EventLoadError } from './components/EventListState'
+import {
+  localDate,
+  minimumEventTime,
+  validateEventSchedule,
+  isEventExpired,
+  eventStartTimestamp,
+} from './services/eventDateTime'
+import { useEventExpiry } from './components/useEventExpiry'
 import {
   registerUser,
   loginUser,
@@ -13,12 +24,31 @@ import {
   getMyEvents,
   createEvent,
   updateEvent,
+  setEventVisibility,
   deleteEvent,
   getCategories,
+  getEventTicketSnapshot,
 } from './services/eventService'
+import {
+  bookingPlanToSeatingConfig,
+  confirmGeneralBooking,
+  confirmSeatHold,
+  getAttendeeSeatingPlan,
+  getEventAvailability,
+  getMyTickets,
+  getOrganizerSeatingPlan,
+  holdSeats,
+  releaseSeatHold,
+  saveSeatingPlan,
+  submitBookingTicketImages,
+} from './services/bookingService'
+import {
+  canSelectSeatForTicketTier,
+  seatingAllocationErrors,
+  seatMatchesTicketTier,
+  seatingConfigToBookingPlan,
+} from './services/seatingPlanAdapter'
 
-// Import local assets from src/assets
-import sarithImg from './assets/sarith.jpg'
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
   <svg className="w-10 h-10" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -36,6 +66,15 @@ const ExvoLogo = () => (
     <path d="M 24 85.4 L 60 107 L 60 117 L 24 95.4 Z" fill="#FF0000" />
   </svg>
 )
+
+const EventPoster = ({ src, title, className = '', loading }) =>
+  src ? (
+    <img src={src} alt={title} className={className} loading={loading} draggable="false" />
+  ) : (
+    <div className={`event-title-poster ${className}`} role="img" aria-label={`${title || 'Untitled Event'} poster`}>
+      <span>{title || 'Untitled Event'}</span>
+    </div>
+  )
 
 const readAuthState = () => {
   const token = localStorage.getItem('token')
@@ -70,48 +109,6 @@ const getUserDetails = (user) => {
       .join('') || 'E'
 
   return { id, name, email, role, companyName, companyRegNumber, contactNumber, address, profilePicture, initials }
-}
-
-const isMyEvent = (evt, userDetails) => {
-  if (!evt || !userDetails) return false
-
-  // 1. Match organizerId / userId
-  if (userDetails.id !== null && userDetails.id !== undefined) {
-    const uId = String(userDetails.id)
-    if (evt.organizerId && String(evt.organizerId) === uId) return true
-    if (evt.OrganizerId && String(evt.OrganizerId) === uId) return true
-    if (evt.userId && String(evt.userId) === uId) return true
-    if (evt.createdByUserId && String(evt.createdByUserId) === uId) return true
-  }
-
-  // 2. Match organizerName or artistOrOrganizer with user name or company name
-  const userNameLower = userDetails.name ? userDetails.name.trim().toLowerCase() : ''
-  const companyNameLower = userDetails.companyName ? userDetails.companyName.trim().toLowerCase() : ''
-
-  const eventOrgName = (evt.organizerName || evt.OrganizerName || '').trim().toLowerCase()
-  const eventArtist = (evt.artistOrOrganizer || evt.subtitle || '').trim().toLowerCase()
-
-  if (userNameLower && userNameLower !== 'exvo member') {
-    if (eventOrgName && eventOrgName === userNameLower) return true
-    if (eventArtist && eventArtist === userNameLower) return true
-  }
-
-  if (companyNameLower) {
-    if (eventOrgName && eventOrgName === companyNameLower) return true
-    if (eventArtist && eventArtist === companyNameLower) return true
-  }
-
-  // 3. Match email
-  if (userDetails.email && userDetails.email !== 'Email unavailable') {
-    const uEmail = userDetails.email.trim().toLowerCase()
-    if (evt.createdByEmail && evt.createdByEmail.trim().toLowerCase() === uEmail) return true
-    if (evt.organizerEmail && evt.organizerEmail.trim().toLowerCase() === uEmail) return true
-  }
-
-  // 4. Session created check
-  if (evt.createdBy === userDetails.email || evt.createdById === userDetails.id) return true
-
-  return false
 }
 
 const HIDDEN_EVENTS_STORAGE_KEY = 'exvo_hidden_event_ids'
@@ -213,23 +210,17 @@ const extractTimeFromEvent = (e) => {
 
 const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
   if (!ticketTiers || ticketTiers.length === 0) return existingZones
-  const defaultRowSets = [
-    ['A', 'B', 'C'],
-    ['D', 'E', 'F', 'G'],
-    ['H', 'I', 'J'],
-    ['K', 'L', 'M'],
-    ['N', 'O', 'P'],
-  ]
   return ticketTiers.map((tier, idx) => {
     const existing = existingZones[idx]
     const name = (tier.name || `Category ${idx + 1}`).toUpperCase()
-    const price = Number(tier.price) || 0
-    const rows = existing?.rows?.length ? existing.rows : defaultRowSets[idx % defaultRowSets.length] || ['A', 'B']
-    const seatsPerRow = existing?.seatsPerRow || 12
+    const price = tier.price === '' || tier.price == null ? '' : Number(tier.price) || 0
+    const rows = existing?.rows || []
+    const seatsPerRow = existing?.seatsPerRow ?? ''
     const occupiedSeats = existing?.occupiedSeats || []
     const id = existing?.id || `zone-tier-${idx + 1}`
     return {
       id,
+      ticketTierId: tier.id ? String(tier.id) : null,
       name,
       price,
       rows,
@@ -244,7 +235,7 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
     {
       id: 'z-classic',
       name: 'GENERAL ADMISSION',
-      price: 2500,
+      price: '',
       rows: ['A', 'B', 'C'],
       seatsPerRow: 13,
       occupiedSeats: [],
@@ -252,10 +243,10 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
     {
       id: 'z-premium',
       name: 'VIP PASS',
-      price: 5000,
-      rows: ['D', 'E', 'F', 'G'],
+      price: '',
+      rows: ['D', 'E', 'F'],
       seatsPerRow: 13,
-      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9'],
+      occupiedSeats: [],
     },
   ]
   if (ticketTiers && ticketTiers.length > 0) {
@@ -274,23 +265,39 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
   }
 }
 
+const createEmptySeatingConfig = () => ({
+  enabled: false,
+  autoSyncCategories: true,
+  stageLabel: 'SCREEN',
+  zones: [],
+})
+
+const safeTicketTierId = (id) => {
+  const value = Number(id)
+  return Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null
+}
+
+const normalizedSeatCode = (code) => {
+  const match = String(code || '').match(/^([a-z]+)-?0*(\d+)$/i)
+  return match ? `${match[1].toUpperCase()}-${Number(match[2])}` : String(code || '').toUpperCase()
+}
+
 const SeatingChartComponent = ({
   seatingConfig,
   isOrganizerEdit = false,
   selectedSeats = [],
   onSelectSeat = () => {},
-  onToggleOccupied = () => {},
 }) => {
   if (!seatingConfig || !seatingConfig.enabled || !seatingConfig.zones || seatingConfig.zones.length === 0) return null
 
   const stageLabel = seatingConfig.stageLabel || 'SCREEN'
 
   return (
-    <div className="seating-chart-container bg-white text-neutral-900 rounded-2xl p-4 sm:p-6 shadow-2xl overflow-x-auto my-3 border border-neutral-200">
+    <div className="seating-chart-container bg-[#111114] text-neutral-100 rounded-xl p-4 sm:p-6 shadow-[0_16px_45px_rgba(0,0,0,0.35)] overflow-x-auto my-3 border border-white/10">
       {/* ── Screen Arc Header ── */}
       <div className="flex flex-col items-center justify-center mb-6">
         <div className="relative w-full max-w-md h-10 flex items-center justify-center overflow-hidden">
-          <svg className="absolute inset-0 w-full h-full text-neutral-900" viewBox="0 0 400 40" fill="none">
+          <svg className="absolute inset-0 w-full h-full text-neutral-300" viewBox="0 0 400 40" fill="none">
             <path
               d="M 10 35 Q 200 5 390 35"
               stroke="currentColor"
@@ -299,25 +306,35 @@ const SeatingChartComponent = ({
               strokeLinecap="round"
             />
           </svg>
-          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-neutral-900 bg-white px-3">
+          <span className="relative z-10 text-[11px] font-black font-sans tracking-[0.25em] uppercase text-white bg-[#111114] px-3">
             {stageLabel}
           </span>
         </div>
 
         {/* ── Status Legend ── */}
-        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-600 font-sans font-semibold">
+        <div className="flex items-center justify-center gap-6 mt-3 text-xs text-neutral-400 font-sans font-semibold">
           <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded border border-neutral-400 bg-white" />
+            <span className="w-3.5 h-3.5 rounded border border-neutral-500 bg-[#18181c]" />
             <span>Available</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
-            <span>Selected</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded bg-neutral-300 border border-neutral-300" />
-            <span>Occupied</span>
-          </div>
+          {!isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
+              <span>Selected</span>
+            </div>
+          )}
+          {!isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-neutral-700 border border-neutral-600" />
+              <span>Unavailable</span>
+            </div>
+          )}
+          {isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-rose-900/70 border border-rose-500" />
+              <span>Booked / held</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -332,81 +349,550 @@ const SeatingChartComponent = ({
         {seatingConfig.zones.map((zone) => (
           <div key={zone.id || zone.name} className="space-y-2">
             {/* Section Title */}
-            <div className="text-center font-bold text-xs text-neutral-900 uppercase font-sans tracking-wide">
+            <div className="text-center font-bold text-xs text-neutral-200 uppercase font-sans tracking-wide">
               {zone.name} ({Number(zone.price || 0).toFixed(2)})
             </div>
 
             {/* Zone Rows */}
             <div className="space-y-1.5">
-              {(zone.rows || ['A']).map((rowLetter) => (
-                <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
-                  {/* Left Row Letter */}
-                  <span className="w-6 text-right font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
-
-                  {/* Seat Grid */}
-                  <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
-                    {Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => i + 1).map((seatNum) => {
-                      const seatId = `${rowLetter}${seatNum}`
-                      const isOccupied = zone.occupiedSeats?.includes(seatId)
-                      const isSelected = selectedSeats.includes(seatId)
-
-                      let seatClass =
-                        'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
-
-                      if (isSelected) {
-                        seatClass +=
-                          ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
-                      } else if (isOccupied) {
-                        seatClass += ' bg-neutral-200 text-neutral-400 border-neutral-300 opacity-75'
-                        if (!isOrganizerEdit) {
-                          seatClass += ' cursor-not-allowed'
-                        }
-                      } else {
-                        seatClass +=
-                          ' bg-white text-neutral-800 border-neutral-300 hover:border-neutral-800 hover:bg-neutral-50'
+              {(zone.rows || ['A']).map((rowLetter) => {
+                const persistedSeats = zone.seatsByRow?.[rowLetter] || []
+                const firstSeatNumber = Math.max(1, Number(zone.startingSeatNumber) || 1)
+                const storedByNumber = new Map(persistedSeats.map((seat) => [Number(seat.seatNumber), seat]))
+                const configuredSeats = Array.from(
+                  { length: Math.max(1, Number(zone.seatsPerRow) || 10) },
+                  (_, index) => {
+                    const seatNumber = firstSeatNumber + index
+                    return (
+                      storedByNumber.get(seatNumber) || {
+                        seatCode: `${rowLetter}-${String(seatNumber).padStart(2, '0')}`,
+                        seatNumber,
+                        status: 'Available',
+                        isEnabled: true,
+                        price: zone.price,
                       }
+                    )
+                  },
+                )
+                const configuredNumbers = new Set(configuredSeats.map((seat) => Number(seat.seatNumber)))
+                const rowSeats = [
+                  ...configuredSeats,
+                  ...persistedSeats.filter((seat) => !configuredNumbers.has(Number(seat.seatNumber))),
+                ].sort((first, second) => Number(first.seatNumber) - Number(second.seatNumber))
 
-                      return (
-                        <button
-                          key={seatId}
-                          type="button"
-                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${zone.price})`}
-                          onClick={() => {
-                            if (isOrganizerEdit) {
-                              onToggleOccupied(seatId)
-                            } else {
-                              if (!isOccupied) {
+                return (
+                  <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
+                    {/* Left Row Letter */}
+                    <span className="w-6 text-right font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
+
+                    {/* Seat Grid */}
+                    <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
+                      {rowSeats.map((seat) => {
+                        const seatId = seat.seatCode
+                        const seatNum = seat.seatNumber
+                        const isConfiguredUnavailable = (zone.occupiedSeats || []).some(
+                          (code) => normalizedSeatCode(code) === normalizedSeatCode(seatId),
+                        )
+                        const isOccupied = seat.status === 'Booked' || seat.status === 'Held'
+                        const isUnavailable =
+                          isOccupied || (!isOrganizerEdit && (isConfiguredUnavailable || !seat.isEnabled))
+                        const isSelected = selectedSeats.includes(seatId)
+
+                        let seatClass =
+                          'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
+
+                        if (isSelected) {
+                          seatClass +=
+                            ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
+                        } else if (isUnavailable) {
+                          seatClass +=
+                            isOccupied && isOrganizerEdit
+                              ? ' bg-rose-900/70 text-rose-200 border-rose-500 opacity-90'
+                              : ' bg-neutral-700/80 text-neutral-500 border-neutral-600 opacity-90'
+                        } else {
+                          seatClass +=
+                            ' bg-[#18181c] text-neutral-200 border-white/20 hover:border-amber-400 hover:bg-white/10'
+                        }
+
+                        return (
+                          <button
+                            key={seatId}
+                            type="button"
+                            title={`Row ${rowLetter}, Seat ${seatNum} (${isOccupied ? seat.status.toLowerCase() : isUnavailable ? 'unavailable' : 'available'})`}
+                            aria-label={`Row ${rowLetter}, seat ${seatNum}, ${isOccupied ? seat.status.toLowerCase() : isUnavailable ? 'unavailable' : 'available'}`}
+                            disabled={isOrganizerEdit || isUnavailable}
+                            onClick={() => {
+                              if (!isOrganizerEdit && !isUnavailable) {
                                 onSelectSeat(seatId, zone)
                               }
-                            }
-                          }}
-                          className={seatClass}
-                        >
-                          {seatNum}
-                        </button>
-                      )
-                    })}
-                  </div>
+                            }}
+                            className={`${seatClass} ${isOrganizerEdit || isUnavailable ? 'cursor-default' : 'cursor-pointer'}`}
+                          >
+                            {seatNum}
+                          </button>
+                        )
+                      })}
+                    </div>
 
-                  {/* Right Row Letter */}
-                  <span className="w-6 text-left font-bold text-neutral-700 text-[11px] shrink-0">{rowLetter}</span>
-                </div>
-              ))}
+                    {/* Right Row Letter */}
+                    <span className="w-6 text-left font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         ))}
       </div>
-
-      {isOrganizerEdit && (
-        <div className="mt-4 pt-3 border-t border-neutral-200 text-center text-[10px] text-neutral-500 font-sans">
-          💡 Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
-        </div>
-      )}
     </div>
   )
 }
 
+const seatingPlanToChartConfig = (plan) => ({
+  enabled: true,
+  planId: plan?.id,
+  stageLabel: 'SCREEN',
+  zones: (plan?.sections || []).map((section) => {
+    const seats = section.seats || []
+    const rows = [...new Set(seats.map((seat) => seat.rowLabel))]
+    return {
+      id: section.id,
+      name: section.name,
+      price: section.price,
+      rows,
+      seatsPerRow: section.seatsPerRow,
+      seatsByRow: seats.reduce((groups, seat) => {
+        groups[seat.rowLabel] = [...(groups[seat.rowLabel] || []), seat]
+        return groups
+      }, {}),
+      occupiedSeats: seats
+        .filter((seat) => !seat.isEnabled && seat.status === 'Available')
+        .map((seat) => seat.seatCode),
+    }
+  }),
+})
+
+const availableSeatsInPlan = (plan) =>
+  (plan?.sections || []).flatMap((section) =>
+    (section.seats || []).filter((seat) => seat.isEnabled && seat.status === 'Available'),
+  )
+
+const ticketHasAssignedSeat = (ticket) =>
+  ticket?.hasSeat === true || (ticket?.hasSeat !== false && ticket?.rowLabel && ticket.rowLabel !== 'GA')
+
+const ticketIdentity = (ticket) =>
+  ticket?.ticketCode ||
+  `${ticket?.booking?.bookingReference || 'ticket'}-${ticket?.bookingItemId || ticket?.seatCode || 'item'}`
+
+const isTicketHistoryEvent = (event = {}, now = Date.now()) => {
+  if (event.isDeleted) return false
+  const status = String(event.status || event.eventStatus || event.state || '').toLowerCase()
+  if (['cancelled', 'canceled', 'cancelled event', 'canceled event'].includes(status)) return true
+  const startsAt = eventStartTimestamp(event)
+  return Number.isFinite(startsAt) && startsAt + 12 * 60 * 60 * 1000 <= now
+}
+
+const normalizeTicketEventSnapshot = (eventId, event = {}) => {
+  const category =
+    typeof event.category === 'object' && event.category !== null
+      ? event.category.name
+      : event.category || event.categoryName || 'Music & Concerts'
+  return {
+    id: event.id || eventId,
+    title: event.title || `Event #${eventId}`,
+    subtitle: event.artistOrOrganizer || event.organizerName || 'Live Event',
+    artistOrOrganizer: event.artistOrOrganizer || event.organizerName || 'Featured Artist',
+    cover: event.coverImage || event.imageUrl || null,
+    category,
+    venue: event.venue || event.location || 'Venue unavailable',
+    eventDate: event.eventDate || event.date,
+    startsAtUtc: event.startsAtUtc,
+    utcOffsetMinutes: event.utcOffsetMinutes,
+    eventTime: extractTimeFromEvent(event),
+    time: extractTimeFromEvent(event),
+    status: event.status,
+    isHidden: Boolean(event.isHidden || event.hidden || event.isHidder || event.IsHidder),
+  }
+}
+
 // ── Sparkling particle canvas for footer ──
+const drawTicketQrCode = async (ctx, value, x, y, size) => {
+  const dataUrl = await QRCode.toDataURL(String(value || ''), {
+    errorCorrectionLevel: 'M',
+    margin: 4,
+    width: size,
+    color: {
+      dark: '#111111',
+      light: '#ffffff',
+    },
+  })
+  await new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      ctx.drawImage(image, x, y, size, size)
+      resolve()
+    }
+    image.onerror = resolve
+    image.src = dataUrl
+  })
+}
+
+const eventAccentColor = (event = {}) => {
+  const seed = `${event.id || ''}${event.title || ''}`
+  let hash = 0
+  for (const character of seed) hash = (hash * 31 + character.charCodeAt(0)) % 360
+  return `hsl(${hash}, 82%, 46%)`
+}
+
+const TicketBarcode = ({ value, className = '' }) => {
+  const barcodeRef = useRef(null)
+
+  useEffect(() => {
+    if (!barcodeRef.current || !value) return
+    JsBarcode(barcodeRef.current, value, {
+      format: 'CODE128',
+      displayValue: false,
+      height: 42,
+      margin: 0,
+      width: 1.4,
+      lineColor: '#111111',
+      background: 'transparent',
+    })
+  }, [value])
+
+  return <svg ref={barcodeRef} className={className} aria-label={`Barcode for ticket ${value}`} />
+}
+
+const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh, onDownload, formatDate, user }) => {
+  const userDetails = getUserDetails(user)
+  const hiddenStorageKey = `exvo-hidden-tickets:${userDetails.id || userDetails.email || userDetails.name || 'guest'}`
+  const [ticketSearch, setTicketSearch] = useState('')
+  const [ticketTypeFilter, setTicketTypeFilter] = useState('all')
+  const [eventFilter, setEventFilter] = useState('all')
+  const [ticketTab, setTicketTab] = useState('active')
+  const [ticketEventSnapshots, setTicketEventSnapshots] = useState({})
+  const [hiddenTicketCodes, setHiddenTicketCodes] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]')
+    } catch {
+      return []
+    }
+  })
+  const eventById = new Map(events.map((event) => [Number(event.id), event]))
+  Object.entries(ticketEventSnapshots).forEach(([eventId, event]) => {
+    if (!eventById.has(Number(eventId))) eventById.set(Number(eventId), event)
+  })
+  const flattenedTickets = bookings.flatMap((booking) =>
+    (booking.tickets || []).map((ticket) => ({
+      ...ticket,
+      booking,
+      event: eventById.get(Number(booking.eventId)) || { id: booking.eventId, isLookupPending: true },
+    })),
+  )
+  const hiddenSet = new Set(hiddenTicketCodes)
+  const historyTickets = flattenedTickets.filter((ticket) => isTicketHistoryEvent(ticket.event))
+  const activeTickets = flattenedTickets.filter(
+    (ticket) =>
+      !ticket.event.isDeleted && !isTicketHistoryEvent(ticket.event) && !hiddenSet.has(ticketIdentity(ticket)),
+  )
+  const hiddenTickets = flattenedTickets.filter(
+    (ticket) =>
+      ticket.event.isDeleted || (!isTicketHistoryEvent(ticket.event) && hiddenSet.has(ticketIdentity(ticket))),
+  )
+  const eventOptions = [
+    ...new Map(
+      flattenedTickets.map((ticket) => {
+        const eventId = Number(ticket.booking.eventId)
+        return [eventId, { id: eventId, title: ticket.event.title || `Event #${ticket.booking.eventId}` }]
+      }),
+    ).values(),
+  ].sort((a, b) => a.title.localeCompare(b.title))
+  const tabTickets = ticketTab === 'history' ? historyTickets : ticketTab === 'hidden' ? hiddenTickets : activeTickets
+  const visibleTickets = tabTickets.filter((ticket) => {
+    const event = ticket.event
+    const booking = ticket.booking
+    const query = ticketSearch.trim().toLowerCase()
+    const hasSeat = ticketHasAssignedSeat(ticket)
+    const searchableValues = [
+      event.title,
+      event.venue,
+      event.artistOrOrganizer,
+      event.category,
+      formatDate(event.eventDate, event.eventTime),
+      booking.bookingReference,
+      ticket.ticketCode,
+      ticket.seatCode,
+      ticket.sectionName,
+      ticket.rowLabel,
+      ticket.seatNumber,
+    ]
+    const matchesSearch =
+      !query || searchableValues.filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
+    const matchesType =
+      ticketTypeFilter === 'all' ||
+      (ticketTypeFilter === 'seated' && hasSeat) ||
+      (ticketTypeFilter === 'general' && !hasSeat)
+    const matchesEvent = eventFilter === 'all' || String(booking.eventId) === eventFilter
+    return matchesSearch && matchesType && matchesEvent
+  })
+
+  useEffect(() => {
+    try {
+      setHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]'))
+    } catch {
+      setHiddenTicketCodes([])
+    }
+  }, [hiddenStorageKey])
+
+  useEffect(() => {
+    const missingEventIds = [
+      ...new Set(
+        bookings
+          .map((booking) => Number(booking.eventId))
+          .filter(
+            (eventId) =>
+              eventId && !events.some((event) => Number(event.id) === eventId) && !ticketEventSnapshots[eventId],
+          ),
+      ),
+    ]
+    if (missingEventIds.length === 0) return undefined
+    let active = true
+    missingEventIds.forEach((eventId) => {
+      getEventTicketSnapshot(eventId)
+        .then((event) => {
+          if (!active) return
+          setTicketEventSnapshots((current) => ({
+            ...current,
+            [eventId]: normalizeTicketEventSnapshot(eventId, event),
+          }))
+        })
+        .catch(() => {
+          if (!active) return
+          setTicketEventSnapshots((current) => ({
+            ...current,
+            [eventId]: {
+              id: eventId,
+              title: 'Event deleted',
+              venue: 'This event is no longer available',
+              isDeleted: true,
+              isHidden: true,
+            },
+          }))
+        })
+    })
+    return () => {
+      active = false
+    }
+  }, [bookings, events, ticketEventSnapshots])
+
+  useEffect(() => {
+    localStorage.setItem(hiddenStorageKey, JSON.stringify(hiddenTicketCodes))
+  }, [hiddenStorageKey, hiddenTicketCodes])
+
+  const toggleTicketHidden = (ticket) => {
+    const code = ticketIdentity(ticket)
+    setHiddenTicketCodes((current) =>
+      current.includes(code) ? current.filter((item) => item !== code) : [...current, code],
+    )
+  }
+
+  return (
+    <main className="ticket-manager-page">
+      <div className="ticket-manager-bg" />
+      <header className="ticket-manager-header">
+        <button type="button" className="ticket-manager-back" onClick={onBack}>
+          <span aria-hidden="true">←</span>
+          <span>BACK</span>
+        </button>
+        <div className="ticket-manager-brand">
+          <ExvoLogo />
+          <span>
+            <strong>EX</strong>VO
+          </span>
+        </div>
+        <button type="button" className="ticket-manager-refresh" onClick={onRefresh} disabled={loading}>
+          {loading ? 'SYNCING' : 'REFRESH'}
+        </button>
+      </header>
+
+      <section className="ticket-manager-shell">
+        <div className="ticket-manager-title-row">
+          <div>
+            <p className="ticket-manager-kicker"> EXVO Box Office</p>
+            <h1>My Tickets</h1>
+          </div>
+          <span className="ticket-manager-count">{flattenedTickets.length} PURCHASED</span>
+        </div>
+
+        {flattenedTickets.length > 0 && (
+          <div className="ticket-manager-tools">
+            <div className="ticket-manager-search">
+              <label htmlFor="ticket-search">Search tickets</label>
+              <input
+                id="ticket-search"
+                type="search"
+                value={ticketSearch}
+                onChange={(event) => setTicketSearch(event.target.value)}
+                placeholder="Search event, venue, code, row..."
+              />
+            </div>
+            <div className="ticket-manager-filters">
+              <label>
+                <span>Event</span>
+                <select value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
+                  <option value="all">All events</option>
+                  {eventOptions.map((event) => (
+                    <option key={event.id} value={event.id}>
+                      {event.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Type</span>
+                <select value={ticketTypeFilter} onChange={(event) => setTicketTypeFilter(event.target.value)}>
+                  <option value="all">All tickets</option>
+                  <option value="seated">Seated</option>
+                  <option value="general">General entry</option>
+                </select>
+              </label>
+            </div>
+            <div className="ticket-manager-tabs" role="tablist" aria-label="Ticket visibility">
+              <button
+                type="button"
+                className={ticketTab === 'active' ? 'is-active' : ''}
+                onClick={() => setTicketTab('active')}
+              >
+                Active <span>{activeTickets.length}</span>
+              </button>
+              <button
+                type="button"
+                className={ticketTab === 'hidden' ? 'is-active' : ''}
+                onClick={() => setTicketTab('hidden')}
+              >
+                Hidden <span>{hiddenTickets.length}</span>
+              </button>
+              <button
+                type="button"
+                className={ticketTab === 'history' ? 'is-active' : ''}
+                onClick={() => setTicketTab('history')}
+              >
+                History <span>{historyTickets.length}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="ticket-manager-alert" role="alert">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="ticket-manager-empty">
+            <strong>Loading your tickets...</strong>
+          </div>
+        )}
+
+        {!loading && flattenedTickets.length === 0 && (
+          <div className="ticket-manager-empty">
+            <strong>No reserved tickets yet.</strong>
+            <span>Your confirmed bookings will appear here.</span>
+          </div>
+        )}
+
+        {!loading && flattenedTickets.length > 0 && visibleTickets.length === 0 && (
+          <div className="ticket-manager-empty">
+            <strong>No tickets match these filters.</strong>
+            <span>Try another search term, event, type, or tab.</span>
+          </div>
+        )}
+
+        {!loading && visibleTickets.length > 0 && (
+          <div className="ticket-manager-grid">
+            {visibleTickets.map((ticket) => {
+              const event = ticket.event
+              const booking = ticket.booking
+              const accent = eventAccentColor(event)
+              const hasSeat = ticketHasAssignedSeat(ticket)
+              const isHidden = hiddenSet.has(ticketIdentity(ticket))
+              const isHistory = isTicketHistoryEvent(event)
+              const isArchived = isHistory || event.isDeleted
+              return (
+                <article
+                  key={ticketIdentity(ticket)}
+                  className="managed-ticket-card"
+                  style={{
+                    '--ticket-accent': accent,
+                    '--ticket-poster': event.cover ? `url(${event.cover})` : 'none',
+                  }}
+                >
+                  <div className="managed-ticket-main">
+                    <div className="managed-ticket-poster">
+                      <EventPoster src={event.cover} title={event.title || `Event ${booking.eventId}`} />
+                    </div>
+                    <div className="managed-ticket-copy">
+                      <p className="managed-ticket-label">
+                        {event.isDeleted ? 'EVENT DELETED' : isHistory ? 'EXVO PASS HISTORY' : 'EXVO RESERVED PASS'}
+                      </p>
+                      <h2>{event.title || `Event #${booking.eventId}`}</h2>
+                      <div className="managed-ticket-meta">
+                        <span>{formatDate(event.eventDate, event.eventTime) || 'Date unavailable'}</span>
+                        <span>{event.venue || 'Venue unavailable'}</span>
+                      </div>
+                      {hasSeat ? (
+                        <div className="managed-ticket-fields">
+                          <span>
+                            <small>SECTION</small>
+                            {ticket.sectionName || 'GENERAL'}
+                          </span>
+                          <span>
+                            <small>ROW</small>
+                            {ticket.rowLabel || '-'}
+                          </span>
+                          <span>
+                            <small>SEAT</small>
+                            {ticket.seatNumber || ticket.seatCode}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="managed-ticket-fields managed-ticket-fields--general">
+                          <span>
+                            <small>PASS TYPE</small>
+                            {ticket.sectionName || ticket.seatCode || 'General Admission'}
+                          </span>
+                          <span>
+                            <small>ACCESS</small>
+                            General Entry
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="managed-ticket-stub">
+                    <TicketBarcode value={ticket.ticketCode} className="managed-ticket-barcode" />
+                    <span>{ticket.ticketCode}</span>
+                    {!event.isDeleted && (
+                      <button type="button" onClick={() => onDownload(ticket, booking, event)}>
+                        DOWNLOAD IMAGE
+                      </button>
+                    )}
+                    {!isArchived && (
+                      <button type="button" className="managed-ticket-hide" onClick={() => toggleTicketHidden(ticket)}>
+                        {isHidden ? 'RESTORE TICKET' : 'HIDE TICKET'}
+                      </button>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
+    </main>
+  )
+}
+
 const SparkCanvas = () => {
   const canvasRef = useRef(null)
 
@@ -677,7 +1163,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               </label>
               <div className="login-input-shell">
                 <span className="login-field-icon" aria-hidden="true">
-                  ♙
+                  @
                 </span>
                 <input
                   id="login-email"
@@ -696,13 +1182,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                 <label className="login-field-label" htmlFor="login-password">
                   PASSWORD
                 </label>
-                <button
-                  className="login-forgot"
-                  type="button"
-                  onClick={() => setMessage('Password reset instructions are coming soon.')}
-                >
-                  Forgot Password?
-                </button>
               </div>
               <div className="login-input-shell">
                 <span className="login-field-icon" aria-hidden="true">
@@ -759,7 +1238,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                   </label>
                   <div className="login-input-shell">
                     <span className="login-field-icon" aria-hidden="true">
-                      ♙
+                      ID
                     </span>
                     <input
                       id="register-full-name"
@@ -831,7 +1310,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                     </label>
                     <div className="login-input-shell">
                       <span className="login-field-icon" aria-hidden="true">
-                        🏛
+                        CO
                       </span>
                       <input
                         id="company-name"
@@ -891,7 +1370,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
                     </label>
                     <div className="login-input-shell">
                       <span className="login-field-icon" aria-hidden="true">
-                        ☎
+                        TEL
                       </span>
                       <input
                         id="company-contact"
@@ -937,17 +1416,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               </>
             )}
 
-            <label className="register-terms">
-              <input type="checkbox" required />
-              <span>
-                I agree to the{' '}
-                <button type="button" onClick={() => setMessage('Terms of service will be available soon.')}>
-                  Terms
-                </button>{' '}
-                &amp; Privacy Policy.
-              </span>
-            </label>
-
             <button className="login-submit" type="submit" disabled={isLoading}>
               {isLoading ? 'CREATING...' : accountType === 'company' ? 'REGISTER COMPANY' : 'CREATE ACCOUNT'}{' '}
               <span aria-hidden="true">→</span>
@@ -988,6 +1456,14 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
 function App() {
   const [albumList, setAlbumList] = useState([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState(false)
+  const [myEventsError, setMyEventsError] = useState(false)
+  const profileMenuRef = useRef(null)
+  const profilePanelRef = useRef(null)
+  const liveRequestRef = useRef(0)
+  const myRequestRef = useRef(0)
+  const [scheduleNow, setScheduleNow] = useState(() => new Date())
   const [centerIndex, setCenterIndex] = useState(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
@@ -996,6 +1472,8 @@ function App() {
   const [profilePanelOpen, setProfilePanelOpen] = useState(false)
   const [showAddEventModal, setShowAddEventModal] = useState(false)
   const [authState, setAuthState] = useState(readAuthState)
+  const userDetails = getUserDetails(authState.user)
+  const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
@@ -1004,13 +1482,28 @@ function App() {
   const categorySearchContainerRef = useRef(null)
   const [bookingModalEvent, setBookingModalEvent] = useState(null)
   const [selectedDetailEvent, setSelectedDetailEvent] = useState(null)
-  const [selectedTier, setSelectedTier] = useState(null)
+  const [attendeeSeatingPlan, setAttendeeSeatingPlan] = useState(null)
+  const [, setAttendeeSeatingLoading] = useState(false)
+  const [, setAttendeeSeatingError] = useState(false)
+  const [eventAvailability, setEventAvailability] = useState(null)
+  const [eventInventoryById, setEventInventoryById] = useState({})
   const [selectedSeats, setSelectedSeats] = useState([])
   const [, setTicketQuantity] = useState(1)
   const [tierQuantities, setTierQuantities] = useState({})
   const [bookingSuccess, setBookingSuccess] = useState(false)
-  const [bookingSubmitting, setBookingSubmitting] = useState(false)
+  const [seatHold, setSeatHold] = useState(null)
+  const [holdSecondsRemaining, setHoldSecondsRemaining] = useState(0)
+  const [holdError, setHoldError] = useState('')
+  const [bookingConfirmation, setBookingConfirmation] = useState(null)
+  const [confirmedBookingDetails, setConfirmedBookingDetails] = useState(null)
+  const [confirmingBooking, setConfirmingBooking] = useState(false)
+  const [selectionPrepared, setSelectionPrepared] = useState(false)
+  const holdConfirmationRef = useRef(null)
   const [bookingStep, setBookingStep] = useState(1)
+  const [ticketManagerOpen, setTicketManagerOpen] = useState(false)
+  const [attendeeBookings, setAttendeeBookings] = useState([])
+  const [attendeeTicketsLoading, setAttendeeTicketsLoading] = useState(false)
+  const [attendeeTicketsError, setAttendeeTicketsError] = useState('')
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
   const [contactSubmitted, setContactSubmitted] = useState(false)
@@ -1049,11 +1542,8 @@ function App() {
     date: '',
     time: '19:00',
     venue: '',
-    ticketTiers: [
-      { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
-    ],
-    seatingConfig: createDefaultSeatingConfig(),
+    ticketTiers: [{ id: '1', name: '', price: '', quantity: '' }],
+    seatingConfig: createEmptySeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -1063,10 +1553,12 @@ function App() {
   // Organizer Dashboard & Edit Event State
   const [organizerDashboardOpen, setOrganizerDashboardOpen] = useState(false)
   const [myEventsList, setMyEventsList] = useState([])
-  const [loadingMyEvents, setLoadingMyEvents] = useState(false)
+  const eventNow = useEventExpiry(albumList, myEventsList)
+  const [loadingMyEvents, setLoadingMyEvents] = useState(true)
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [showEditEventModal, setShowEditEventModal] = useState(false)
   const [editingEventId, setEditingEventId] = useState(null)
+  const [editSeatingPlanChanged, setEditSeatingPlanChanged] = useState(false)
   const [editEventForm, setEditEventForm] = useState({
     title: '',
     artistOrOrganizer: '',
@@ -1082,9 +1574,143 @@ function App() {
   const [editEventPublishing, setEditEventPublishing] = useState(false)
   const [editEventFeedback, setEditEventFeedback] = useState({ type: '', text: '' })
 
+  useEffect(() => {
+    if (selectedDetailEvent && isEventExpired(selectedDetailEvent, eventNow)) setSelectedDetailEvent(null)
+    if (bookingModalEvent && isEventExpired(bookingModalEvent, eventNow)) setBookingModalEvent(null)
+  }, [eventNow, selectedDetailEvent, bookingModalEvent])
+
+  useEffect(() => {
+    const eventId = bookingModalEvent?.id
+    if (!eventId) {
+      setAttendeeSeatingPlan(null)
+      setEventAvailability(null)
+      return undefined
+    }
+    let active = true
+    setAttendeeSeatingLoading(true)
+    setAttendeeSeatingError(false)
+    getAttendeeSeatingPlan(eventId)
+      .then((plan) => {
+        if (active) setAttendeeSeatingPlan(plan)
+      })
+      .catch(() => {
+        if (active) {
+          setAttendeeSeatingPlan(null)
+          setAttendeeSeatingError(true)
+        }
+      })
+      .finally(() => {
+        if (active) setAttendeeSeatingLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [bookingModalEvent?.id])
+
+  useEffect(() => {
+    if (!seatHold?.expiresAtUtc) return undefined
+    const updateRemaining = () =>
+      setHoldSecondsRemaining(Math.max(0, Math.ceil((new Date(seatHold.expiresAtUtc).getTime() - Date.now()) / 1000)))
+    updateRemaining()
+    const timer = window.setInterval(updateRemaining, 1000)
+    return () => window.clearInterval(timer)
+  }, [seatHold])
+
+  useEffect(() => {
+    if (selectionPrepared && seatHold) {
+      holdConfirmationRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' })
+    }
+  }, [selectionPrepared, seatHold])
+
+  useEffect(() => {
+    if (!seatHold?.expiresAtUtc) return
+    const expiresAt = new Date(seatHold.expiresAtUtc).getTime()
+    if (!Number.isFinite(expiresAt) || expiresAt > Date.now()) return
+    setSelectedSeats([])
+    setSeatHold(null)
+    setSelectionPrepared(false)
+    setHoldError('Your five-minute seat hold expired. Please select the seats again.')
+  }, [holdSecondsRemaining, seatHold])
+
+  useEffect(() => {
+    if (!bookingModalEvent || eventAvailability?.eventId !== bookingModalEvent.id) return
+    setTierQuantities((previous) => {
+      if (bookingModalEvent.ticketTiers?.length) {
+        return Object.fromEntries(
+          bookingModalEvent.ticketTiers.map((tier, index) => {
+            const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+            const match = eventAvailability.tiers?.find(
+              (item) => String(item.ticketTierId) === String(tier.id) || Number(item.price) === Number(tier.price),
+            )
+            return [key, Math.min(Number(previous[key]) || 0, match?.availableQuantity || 0)]
+          }),
+        )
+      }
+      return { standard: Math.min(Number(previous.standard) || 0, eventAvailability.availableSeatCount || 0) }
+    })
+  }, [bookingModalEvent, eventAvailability])
+
+  useEffect(() => {
+    const eventId = bookingModalEvent?.id
+    if (!eventId) return undefined
+    let active = true
+    getEventAvailability(eventId)
+      .then((availability) => {
+        if (active) setEventAvailability(availability)
+      })
+      .catch(() => {
+        if (active) setEventAvailability(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [bookingModalEvent?.id])
+
+  useEffect(() => {
+    const closeProfile = () => {
+      setProfileMenuOpen(false)
+      setProfilePanelOpen(false)
+      setIsEditingProfile(false)
+    }
+    const outside = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) setProfileMenuOpen(false)
+      if (profilePanelRef.current && !profilePanelRef.current.contains(event.target)) {
+        setProfilePanelOpen(false)
+        setIsEditingProfile(false)
+      }
+      if (event.target.closest?.('a[href]')) closeProfile()
+    }
+    const escape = (event) => {
+      if (event.key === 'Escape') closeProfile()
+    }
+    document.addEventListener('click', outside)
+    document.addEventListener('keydown', escape)
+    window.addEventListener('popstate', closeProfile)
+    window.addEventListener('hashchange', closeProfile)
+    return () => {
+      document.removeEventListener('click', outside)
+      document.removeEventListener('keydown', escape)
+      window.removeEventListener('popstate', closeProfile)
+      window.removeEventListener('hashchange', closeProfile)
+    }
+  }, [])
+
+  useEffect(() => {
+    setProfileMenuOpen(false)
+    setProfilePanelOpen(false)
+    setIsEditingProfile(false)
+  }, [showAuth, organizerDashboardOpen, selectedDetailEvent, showAddEventModal, activeCategory])
+
+  useEffect(() => {
+    if (!showAddEventModal && !showEditEventModal) return
+    setScheduleNow(new Date())
+    const timer = setInterval(() => setScheduleNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [showAddEventModal, showEditEventModal])
+
   const handleAddTicketTier = () => {
     setNewEventForm((prev) => {
-      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
       const updatedZones = autoSync
         ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
@@ -1132,7 +1758,7 @@ function App() {
   const handleSetQuickDate = (daysFromNow) => {
     const d = new Date()
     d.setDate(d.getDate() + daysFromNow)
-    const formatted = d.toISOString().split('T')[0]
+    const formatted = localDate(d)
     setNewEventForm((prev) => ({ ...prev, date: formatted }))
   }
 
@@ -1194,6 +1820,373 @@ function App() {
       return `${formatted}${resolvedTime ? ` @ ${resolvedTime}` : ''}`
     } catch {
       return String(dateStr)
+    }
+  }
+
+  const loadAttendeeTickets = async () => {
+    if (!authState.isAuthenticated) return
+    setAttendeeTicketsLoading(true)
+    setAttendeeTicketsError('')
+    try {
+      const bookings = await getMyTickets()
+      setAttendeeBookings(Array.isArray(bookings) ? bookings : [])
+    } catch (error) {
+      setAttendeeTicketsError(error.message || 'Unable to load your tickets.')
+    } finally {
+      setAttendeeTicketsLoading(false)
+    }
+  }
+
+  const openTicketManager = async () => {
+    if (!authState.isAuthenticated) {
+      setAuthInitialMode('login')
+      setShowAuth(true)
+      return
+    }
+    setTicketManagerOpen(true)
+    setProfileMenuOpen(false)
+    setProfilePanelOpen(false)
+    await loadAttendeeTickets()
+  }
+
+  const downloadTicketImage = async (ticket, booking, event = {}, forEmail = false) => {
+    const width = 900
+    const height = 1400
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    const accent = eventAccentColor(event)
+    const accentSoft = accent.replace('hsl', 'hsla').replace(')', ', 0.72)')
+    const eventTitle = event.title || `Event #${booking.eventId}`
+    const eventDate = formatSelectedDate(event.eventDate, event.eventTime) || 'Date unavailable'
+    const venue = event.venue || 'Venue unavailable'
+    const fontFamily = "'Orbitron', 'Arial Black', sans-serif"
+    const hasSeat = ticketHasAssignedSeat(ticket)
+
+    await document.fonts?.load?.(`900 40px ${fontFamily}`).catch(() => {})
+
+    const drawText = (text, x, y, maxWidth, size, weight = 700, color = '#ffffff', align = 'left', maxLines = 2) => {
+      ctx.fillStyle = color
+      ctx.font = `${weight} ${size}px ${fontFamily}`
+      ctx.textAlign = align
+      ctx.textBaseline = 'top'
+      const words = String(text || '').split(' ')
+      let line = ''
+      let lineY = y
+      let lines = 0
+      for (const word of words) {
+        const test = line ? `${line} ${word}` : word
+        if (ctx.measureText(test).width > maxWidth && line) {
+          ctx.fillText(line, x, lineY)
+          lines += 1
+          if (lines >= maxLines) return
+          line = word
+          lineY += size * 1.12
+        } else {
+          line = test
+        }
+      }
+      if (line) ctx.fillText(line, x, lineY)
+    }
+
+    const drawFitText = (text, x, y, maxWidth, size, weight = 800, color = '#ffffff', align = 'left', minSize = 16) => {
+      const value = String(text || '')
+      let fittedSize = size
+      ctx.font = `${weight} ${fittedSize}px ${fontFamily}`
+      while (ctx.measureText(value).width > maxWidth && fittedSize > minSize) {
+        fittedSize -= 2
+        ctx.font = `${weight} ${fittedSize}px ${fontFamily}`
+      }
+      let output = value
+      if (ctx.measureText(output).width > maxWidth) {
+        while (output.length > 4 && ctx.measureText(`${output.slice(0, -1)}...`).width > maxWidth) {
+          output = output.slice(0, -1)
+        }
+        output = `${output}...`
+      }
+      ctx.fillStyle = color
+      ctx.textAlign = align
+      ctx.textBaseline = 'top'
+      ctx.fillText(output, x, y)
+    }
+
+    const roundedRect = (x, y, w, h, r) => {
+      ctx.beginPath()
+      ctx.moveTo(x + r, y)
+      ctx.lineTo(x + w - r, y)
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+      ctx.lineTo(x + w, y + h - r)
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+      ctx.lineTo(x + r, y + h)
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r)
+      ctx.lineTo(x, y + r)
+      ctx.quadraticCurveTo(x, y, x + r, y)
+      ctx.closePath()
+    }
+
+    const loadImage = (src) =>
+      new Promise((resolve) => {
+        if (!src) {
+          resolve(null)
+          return
+        }
+        const image = new Image()
+        image.crossOrigin = 'anonymous'
+        image.onload = () => resolve(image)
+        image.onerror = () => resolve(null)
+        image.src = src
+      })
+
+    const poster = await loadImage(event.cover)
+    ctx.fillStyle = '#000000'
+    ctx.fillRect(0, 0, width, height)
+
+    const ticketX = 190
+    const ticketY = 70
+    const ticketW = 520
+    const topH = 920
+    const stubY = ticketY + topH
+    const stubH = 300
+    const r = 24
+
+    ctx.save()
+    ctx.shadowColor = 'rgba(0,0,0,0.22)'
+    ctx.shadowBlur = 34
+    ctx.shadowOffsetY = 20
+    roundedRect(ticketX, ticketY, ticketW, topH + stubH, r)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+    ctx.restore()
+
+    ctx.save()
+    roundedRect(ticketX, ticketY, ticketW, topH, r)
+    ctx.clip()
+    const topGradient = ctx.createLinearGradient(ticketX, ticketY, ticketX + ticketW, ticketY + topH)
+    topGradient.addColorStop(0, accentSoft)
+    topGradient.addColorStop(0.48, '#6d20ff')
+    topGradient.addColorStop(1, '#10134f')
+    ctx.fillStyle = topGradient
+    ctx.fillRect(ticketX, ticketY, ticketW, topH)
+    if (poster) {
+      ctx.globalAlpha = 0.22
+      ctx.filter = 'saturate(1.12)'
+      ctx.drawImage(poster, ticketX, ticketY, ticketW, topH)
+      ctx.globalAlpha = 1
+      ctx.filter = 'none'
+    }
+    ctx.fillStyle = 'rgba(18, 8, 82, 0.48)'
+    ctx.fillRect(ticketX, ticketY, ticketW, topH)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.13)'
+    ctx.beginPath()
+    ctx.moveTo(ticketX, ticketY + 260)
+    ctx.bezierCurveTo(ticketX + 160, ticketY + 180, ticketX + 300, ticketY + 250, ticketX + ticketW, ticketY + 120)
+    ctx.lineTo(ticketX + ticketW, ticketY + 250)
+    ctx.bezierCurveTo(ticketX + 360, ticketY + 385, ticketX + 160, ticketY + 330, ticketX, ticketY + 430)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.09)'
+    ctx.beginPath()
+    ctx.moveTo(ticketX, ticketY + 660)
+    ctx.bezierCurveTo(ticketX + 160, ticketY + 560, ticketX + 330, ticketY + 720, ticketX + ticketW, ticketY + 580)
+    ctx.lineTo(ticketX + ticketW, ticketY + 760)
+    ctx.bezierCurveTo(ticketX + 350, ticketY + 860, ticketX + 140, ticketY + 750, ticketX, ticketY + 850)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+
+    ctx.fillStyle = '#000000'
+    ctx.beginPath()
+    ctx.arc(ticketX + ticketW / 2, ticketY, 44, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(ticketX, stubY, 44, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.beginPath()
+    ctx.arc(ticketX + ticketW, stubY, 44, 0, Math.PI * 2)
+    ctx.fill()
+
+    await drawTicketQrCode(ctx, ticket.ticketCode, ticketX + 162, ticketY + 116, 196)
+    drawFitText('SCAN HERE', ticketX + ticketW / 2, ticketY + 345, 180, 18, 700, 'rgba(255,255,255,0.82)', 'center', 14)
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.72)'
+    ctx.setLineDash([3, 13])
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.moveTo(ticketX + 52, ticketY + 408)
+    ctx.lineTo(ticketX + ticketW - 52, ticketY + 408)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    drawFitText(eventTitle.toUpperCase(), ticketX + 50, ticketY + 446, ticketW - 100, 43, 900, '#ffffff', 'left', 25)
+    drawFitText(
+      (event.artistOrOrganizer || event.category || 'LIVE EVENT').toUpperCase(),
+      ticketX + 50,
+      ticketY + 504,
+      ticketW - 100,
+      25,
+      500,
+      'rgba(255,255,255,0.88)',
+      'left',
+      16,
+    )
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.62)'
+    ctx.setLineDash([3, 13])
+    ctx.beginPath()
+    ctx.moveTo(ticketX + 52, ticketY + 570)
+    ctx.lineTo(ticketX + ticketW - 52, ticketY + 570)
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    drawFitText(
+      'DETAILS INFORMATION',
+      ticketX + ticketW / 2,
+      ticketY + 616,
+      ticketW - 90,
+      20,
+      700,
+      '#ffffff',
+      'center',
+      15,
+    )
+    drawText(
+      eventDate,
+      ticketX + ticketW / 2,
+      ticketY + 658,
+      ticketW - 100,
+      17,
+      500,
+      'rgba(255,255,255,0.86)',
+      'center',
+      2,
+    )
+    drawText(venue, ticketX + ticketW / 2, ticketY + 716, ticketW - 100, 17, 500, 'rgba(255,255,255,0.78)', 'center', 2)
+
+    const detailY = ticketY + 812
+    if (hasSeat) {
+      drawFitText('SECTION', ticketX + 70, detailY, 125, 21, 900, '#ffffff', 'left', 15)
+      drawFitText(ticket.sectionName || 'GENERAL', ticketX + 200, detailY, 250, 20, 500, '#ffffff', 'left', 13)
+      drawFitText('ROW', ticketX + 70, detailY + 42, 125, 21, 900, '#ffffff', 'left', 15)
+      drawFitText(ticket.rowLabel || '-', ticketX + 200, detailY + 42, 250, 20, 500, '#ffffff', 'left', 13)
+      drawFitText('SEAT', ticketX + 70, detailY + 84, 125, 21, 900, '#ffffff', 'left', 15)
+      drawFitText(
+        ticket.seatNumber || ticket.seatCode,
+        ticketX + 200,
+        detailY + 84,
+        250,
+        20,
+        500,
+        '#ffffff',
+        'left',
+        13,
+      )
+    } else {
+      drawFitText('PASS TYPE', ticketX + 70, detailY, 155, 21, 900, '#ffffff', 'left', 15)
+      drawFitText(
+        ticket.sectionName || ticket.seatCode || 'General Admission',
+        ticketX + 240,
+        detailY,
+        220,
+        20,
+        500,
+        '#ffffff',
+        'left',
+        13,
+      )
+      drawFitText('ACCESS', ticketX + 70, detailY + 48, 155, 21, 900, '#ffffff', 'left', 15)
+      drawFitText('General Entry', ticketX + 240, detailY + 48, 220, 20, 500, '#ffffff', 'left', 13)
+    }
+
+    ctx.fillStyle = '#f7f3ee'
+    ctx.fillRect(ticketX, stubY, ticketW, stubH)
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)'
+    ctx.beginPath()
+    ctx.moveTo(ticketX + 34, stubY)
+    ctx.lineTo(ticketX + ticketW - 34, stubY)
+    ctx.stroke()
+
+    drawFitText(
+      eventTitle.toUpperCase(),
+      ticketX + ticketW / 2,
+      stubY + 54,
+      ticketW - 90,
+      30,
+      900,
+      '#2626d9',
+      'center',
+      18,
+    )
+    drawFitText(
+      event.artistOrOrganizer || event.category || 'EVENT PASS',
+      ticketX + ticketW / 2,
+      stubY + 96,
+      ticketW - 100,
+      17,
+      500,
+      '#333333',
+      'center',
+      13,
+    )
+    drawFitText(
+      userDetails.name || 'YOUR NAME HERE',
+      ticketX + ticketW / 2,
+      stubY + 145,
+      ticketW - 90,
+      24,
+      500,
+      '#7443c8',
+      'center',
+      15,
+    )
+
+    const barcodeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    JsBarcode(barcodeSvg, ticket.ticketCode, {
+      format: 'CODE128',
+      displayValue: false,
+      height: 88,
+      margin: 0,
+      width: 2.1,
+      lineColor: '#111111',
+      background: 'transparent',
+    })
+    const barcodeUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(barcodeSvg))}`
+    const barcode = await loadImage(barcodeUrl)
+    if (barcode) ctx.drawImage(barcode, ticketX + 62, stubY + 200, ticketW - 124, 76)
+    drawFitText(
+      ticket.ticketCode.slice(-18),
+      ticketX + ticketW / 2,
+      stubY + 274,
+      ticketW - 110,
+      15,
+      600,
+      '#303030',
+      'center',
+      11,
+    )
+
+    if (forEmail) return canvas.toDataURL('image/jpeg', 0.94)
+    const link = document.createElement('a')
+    link.download = `${ticket.ticketCode}.png`
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+  }
+
+  const queueRenderedTicketEmail = async (bookingConfirmation, event) => {
+    try {
+      const bookings = await getMyTickets()
+      const booking = bookings.find((item) => Number(item.bookingId) === Number(bookingConfirmation.bookingId))
+      if (!booking?.tickets?.length) throw new Error('The confirmed tickets could not be loaded.')
+      const tickets = await Promise.all(
+        booking.tickets.map(async (ticket) => ({
+          bookingItemId: ticket.bookingItemId,
+          ticketCode: ticket.ticketCode,
+          image: await downloadTicketImage(ticket, booking, event, true),
+        })),
+      )
+      await submitBookingTicketImages(booking.bookingId, tickets)
+    } catch (error) {
+      console.error('Could not prepare the confirmation email ticket images.', error)
     }
   }
 
@@ -1261,8 +2254,12 @@ function App() {
   }, [authState.isAuthenticated, profilePanelOpen])
 
   const fetchLiveEvents = async () => {
+    const request = ++liveRequestRef.current
+    setEventsLoading(true)
+    setEventsError(false)
     try {
       const dbEvents = await getAllEvents()
+      if (request !== liveRequestRef.current) return
       if (Array.isArray(dbEvents) && dbEvents.length > 0) {
         const formattedEvents = dbEvents.map((e) => {
           let parsedTiers = []
@@ -1291,7 +2288,7 @@ function App() {
             artistOrOrganizer: e.artistOrOrganizer || e.organizerName || 'Featured Artist',
             organizerId: e.organizerId || e.OrganizerId,
             organizerName: e.organizerName || e.OrganizerName,
-            cover: e.coverImage || e.imageUrl || sarithImg,
+            cover: e.coverImage || e.imageUrl || null,
             year:
               eventDateVal && !isNaN(new Date(eventDateVal).getTime())
                 ? new Date(eventDateVal).getFullYear().toString()
@@ -1303,6 +2300,8 @@ function App() {
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
             eventDate: eventDateVal,
+            startsAtUtc: e.startsAtUtc,
+            utcOffsetMinutes: e.utcOffsetMinutes,
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
@@ -1331,14 +2330,18 @@ function App() {
       } else {
         setAlbumList([])
       }
-    } catch (err) {
-      console.warn('Failed to fetch DB events:', err)
+    } catch {
+      if (request !== liveRequestRef.current) return
+      setEventsError(true)
       setAlbumList([])
+    } finally {
+      if (request === liveRequestRef.current) setEventsLoading(false)
     }
   }
 
   // Fetch published events from database on mount & categories from Catalog API
   useEffect(() => {
+    setAlbumList([])
     fetchLiveEvents()
     getCategories().then((cats) => {
       if (Array.isArray(cats) && cats.length > 0) {
@@ -1350,7 +2353,12 @@ function App() {
         }))
       }
     })
-  }, [])
+    const requests = liveRequestRef
+    return () => {
+      requests.current++
+    }
+    // Refresh scoped results whenever the signed-in identity changes.
+  }, [authState.isAuthenticated, userDetails.id, userDetails.role])
 
   const handleLogout = () => {
     logoutUser()
@@ -1362,16 +2370,20 @@ function App() {
     setIsEditingProfile(false)
     setOrganizerDashboardOpen(false)
     setMyEventsList([])
+    setTicketManagerOpen(false)
+    setAttendeeBookings([])
+    setAttendeeTicketsError('')
   }
-
-  const userDetails = getUserDetails(authState.user)
-  const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
 
   const fetchMyEvents = async () => {
     if (!authState.isAuthenticated || !isOrganizer) return
+    const request = ++myRequestRef.current
     setLoadingMyEvents(true)
+    setMyEventsError(false)
+    setMyEventsList([])
     try {
       const dbMyEvents = await getMyEvents()
+      if (request !== myRequestRef.current) return
       if (Array.isArray(dbMyEvents)) {
         const formatted = dbMyEvents.map((e) => {
           let parsedTiers = []
@@ -1401,7 +2413,7 @@ function App() {
             organizerId: e.organizerId || e.OrganizerId || userDetails.id,
             organizerName: e.organizerName || e.OrganizerName || userDetails.name,
             createdByEmail: userDetails.email,
-            cover: e.coverImage || e.imageUrl || sarithImg,
+            cover: e.coverImage || e.imageUrl || null,
             year:
               eventDateVal && !isNaN(new Date(eventDateVal).getTime())
                 ? new Date(eventDateVal).getFullYear().toString()
@@ -1413,6 +2425,8 @@ function App() {
             ticketTiers: parsedTiers,
             totalCapacity: e.totalCapacity || e.availableTickets || 500,
             eventDate: eventDateVal,
+            startsAtUtc: e.startsAtUtc,
+            utcOffsetMinutes: e.utcOffsetMinutes,
             eventTime: extractTimeFromEvent(e),
             time: extractTimeFromEvent(e),
             description: e.description,
@@ -1438,10 +2452,12 @@ function App() {
         })
         setMyEventsList(formatted)
       }
-    } catch (err) {
-      console.warn('Could not fetch organizer events via API:', err)
+    } catch {
+      if (request !== myRequestRef.current) return
+      setMyEventsList([])
+      setMyEventsError(true)
     } finally {
-      setLoadingMyEvents(false)
+      if (request === myRequestRef.current) setLoadingMyEvents(false)
     }
   }
 
@@ -1449,11 +2465,25 @@ function App() {
     if (isOrganizer && organizerDashboardOpen) {
       fetchMyEvents()
     }
+    const requests = myRequestRef
+    return () => {
+      requests.current++
+    }
     // fetchMyEvents closes over the current authenticated user details.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizerDashboardOpen, isOrganizer])
+  }, [organizerDashboardOpen, isOrganizer, userDetails.id])
 
-  const myOrganizerEvents = myEventsList.length > 0 ? myEventsList : albumList.filter((e) => isMyEvent(e, userDetails))
+  const myOrganizerEvents = myEventsList.map((event) => ({
+    ...event,
+    isHidden: event.isHidden || isEventExpired(event, eventNow),
+  }))
+
+  const openOrganizerDashboard = () => {
+    setLoadingMyEvents(true)
+    setMyEventsError(false)
+    setMyEventsList([])
+    setOrganizerDashboardOpen(true)
+  }
 
   const handleEventCoverUpload = (e) => {
     const file = e.target.files?.[0]
@@ -1483,14 +2513,32 @@ function App() {
 
   const handleCreateEvent = async (e) => {
     e.preventDefault()
+    const scheduleError = validateEventSchedule(newEventForm.date, newEventForm.time)
+    if (scheduleError) {
+      setEventFeedback({ type: 'error', text: scheduleError })
+      return
+    }
     if (!newEventForm.title.trim() || !newEventForm.venue.trim() || !newEventForm.date) {
       setEventFeedback({ type: 'error', text: 'Please enter Event Title, Date, and Venue.' })
       return
     }
 
-    const validTiers = newEventForm.ticketTiers.filter((t) => t.name.trim() && Number(t.price) > 0)
+    const validTiers = newEventForm.ticketTiers.filter((tier) => tier.name.trim() && Number(tier.price) > 0)
     if (validTiers.length === 0) {
       setEventFeedback({ type: 'error', text: 'Please add at least one valid ticket category with a price.' })
+      return
+    }
+    if (
+      validTiers.some(
+        (tier) => tier.quantity !== '' && (!Number.isInteger(Number(tier.quantity)) || Number(tier.quantity) < 1),
+      )
+    ) {
+      setEventFeedback({ type: 'error', text: 'Ticket quantities must be whole numbers, or left empty for no limit.' })
+      return
+    }
+    const seatingErrors = seatingAllocationErrors(newEventForm.seatingConfig, validTiers)
+    if (seatingErrors.length) {
+      setEventFeedback({ type: 'error', text: seatingErrors[0] })
       return
     }
 
@@ -1525,6 +2573,9 @@ function App() {
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
       })
+      if (newEventForm.seatingConfig.enabled) {
+        await saveSeatingPlan(res.id, seatingConfigToBookingPlan(newEventForm.seatingConfig, validTiers))
+      }
 
       const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
@@ -1550,6 +2601,7 @@ function App() {
         seatingConfig: newEventForm.seatingConfig,
         totalCapacity: totalCap,
         eventDate: newEventForm.date ? `${newEventForm.date}T${newEventForm.time || '19:00'}:00` : '',
+        utcOffsetMinutes: -new Date(`${newEventForm.date}T${newEventForm.time}:00`).getTimezoneOffset(),
         date: newEventForm.date,
         eventTime: newEventForm.time || '19:00',
         time: newEventForm.time || '19:00',
@@ -1560,7 +2612,7 @@ function App() {
       setMyEventsList((prev) => [createdItem, ...prev])
       setCenterIndex(0)
       fetchLiveEvents()
-      setEventFeedback({ type: 'success', text: 'Event successfully created in database and live on EXVO!' })
+      setEventFeedback({ type: 'success', text: 'Event successfully created and live on EXVO!' })
 
       setTimeout(() => {
         setShowAddEventModal(false)
@@ -1573,18 +2625,15 @@ function App() {
           date: '',
           time: '19:00',
           venue: '',
-          ticketTiers: [
-            { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
-          ],
-          seatingConfig: createDefaultSeatingConfig(),
+          ticketTiers: [{ id: '1', name: '', price: '', quantity: '' }],
+          seatingConfig: createEmptySeatingConfig(),
           coverImage: '',
           description: '',
         })
         scrollToSection('home')
       }, 1000)
     } catch (err) {
-      setEventFeedback({ type: 'error', text: err.message || 'Failed to publish event to backend.' })
+      setEventFeedback({ type: 'error', text: err.message || 'Failed to publish event. Please try again.' })
     } finally {
       setEventPublishing(false)
     }
@@ -1592,10 +2641,13 @@ function App() {
 
   // Edit Event Handlers
   const handleStartEditEvent = (event) => {
+    const seatingConfig = event.seatingConfig || createDefaultSeatingConfig(event.ticketTiers)
+    setEditSeatingPlanChanged(false)
     setEditingEventId(event.id)
     setEditEventForm({
       title: event.title || '',
       artistOrOrganizer: event.artistOrOrganizer || event.subtitle || '',
+      categoryId: event.categoryId || event.CategoryId || '',
       category: event.category || 'Concert',
       date: formatDateForInput(event.eventDate || event.date || ''),
       time: extractTimeFromEvent(event),
@@ -1606,20 +2658,27 @@ function App() {
               id: String(t.id || Date.now()),
               name: t.name || 'Pass',
               price: String(t.price || 0),
-              quantity: String(t.quantity || 100),
+              quantity: t.quantity == null || t.quantity === '' ? '' : String(t.quantity),
             }))
           : [{ id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }],
-      seatingConfig: event.seatingConfig || createDefaultSeatingConfig(),
+      seatingConfig,
       coverImage: event.cover || '',
       description: event.description || '',
     })
     setEditEventFeedback({ type: '', text: '' })
     setShowEditEventModal(true)
+    Promise.resolve(getOrganizerSeatingPlan(event.id))
+      .then((savedPlan) => {
+        if (!savedPlan?.sections?.length) return
+        setEditEventForm((previous) => ({ ...previous, seatingConfig: bookingPlanToSeatingConfig(savedPlan) }))
+      })
+      .catch(() => {})
   }
 
   const handleAddTicketTierInEdit = () => {
+    setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
-      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
       const updatedZones = autoSync
         ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
@@ -1634,6 +2693,7 @@ function App() {
 
   const handleRemoveTicketTierInEdit = (tierId) => {
     if (editEventForm.ticketTiers.length <= 1) return
+    setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
       const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
@@ -1649,6 +2709,7 @@ function App() {
   }
 
   const handleUpdateTicketTierInEdit = (tierId, field, value) => {
+    if (field === 'name' || field === 'price') setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
       const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
@@ -1692,14 +2753,35 @@ function App() {
 
   const handleUpdateEventSubmit = async (e) => {
     e.preventDefault()
+    const scheduleError = validateEventSchedule(editEventForm.date, editEventForm.time)
+    if (scheduleError) {
+      setEditEventFeedback({ type: 'error', text: scheduleError })
+      return
+    }
     if (!editEventForm.title.trim() || !editEventForm.venue.trim() || !editEventForm.date) {
       setEditEventFeedback({ type: 'error', text: 'Please enter Event Title, Date, and Venue.' })
       return
     }
 
-    const validTiers = editEventForm.ticketTiers.filter((t) => t.name.trim() && Number(t.price) > 0)
+    const validTiers = editEventForm.ticketTiers.filter((tier) => tier.name.trim() && Number(tier.price) > 0)
     if (validTiers.length === 0) {
       setEditEventFeedback({ type: 'error', text: 'Please add at least one valid ticket category with a price.' })
+      return
+    }
+    if (
+      validTiers.some(
+        (tier) => tier.quantity !== '' && (!Number.isInteger(Number(tier.quantity)) || Number(tier.quantity) < 1),
+      )
+    ) {
+      setEditEventFeedback({
+        type: 'error',
+        text: 'Ticket quantities must be whole numbers, or left empty for no limit.',
+      })
+      return
+    }
+    const seatingErrors = seatingAllocationErrors(editEventForm.seatingConfig, validTiers)
+    if (seatingErrors.length) {
+      setEditEventFeedback({ type: 'error', text: seatingErrors[0] })
       return
     }
 
@@ -1709,12 +2791,22 @@ function App() {
     try {
       const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
+      const selectedCategoryObj = dbCategories.find(
+        (c) => String(c.id) === String(editEventForm.categoryId) || c.name === editEventForm.category,
+      )
+      const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : Number(editEventForm.categoryId) || 1
+      const categoryNameVal = selectedCategoryObj
+        ? selectedCategoryObj.name
+        : editEventForm.category || 'Music & Concerts'
 
       const payload = {
         id: editingEventId,
         title: editEventForm.title.trim(),
         artistOrOrganizer: editEventForm.artistOrOrganizer.trim() || userDetails.name || 'Organizer Event',
-        category: editEventForm.category,
+        organizerName: userDetails.name,
+        categoryId: categoryIdVal,
+        category: categoryNameVal,
+        categoryName: categoryNameVal,
         date: editEventForm.date,
         time: editEventForm.time || '19:00',
         venue: editEventForm.venue.trim(),
@@ -1725,6 +2817,9 @@ function App() {
       }
 
       await updateEvent(editingEventId, payload)
+      if (editSeatingPlanChanged) {
+        await saveSeatingPlan(editingEventId, seatingConfigToBookingPlan(editEventForm.seatingConfig, validTiers))
+      }
 
       setAlbumList((prev) =>
         prev.map((e) =>
@@ -1735,10 +2830,13 @@ function App() {
                 subtitle: payload.artistOrOrganizer,
                 artistOrOrganizer: payload.artistOrOrganizer,
                 category: payload.category,
+                categoryId: payload.categoryId,
                 venue: payload.venue,
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
                 eventDate: `${payload.date}T${payload.time}:00`,
+                startsAtUtc: undefined,
+                utcOffsetMinutes: -new Date(`${payload.date}T${payload.time}:00`).getTimezoneOffset(),
                 date: payload.date,
                 eventTime: payload.time,
                 time: payload.time,
@@ -1759,10 +2857,13 @@ function App() {
                 subtitle: payload.artistOrOrganizer,
                 artistOrOrganizer: payload.artistOrOrganizer,
                 category: payload.category,
+                categoryId: payload.categoryId,
                 venue: payload.venue,
                 minPrice: minPrice,
                 cover: payload.coverImage || e.cover,
                 eventDate: `${payload.date}T${payload.time}:00`,
+                startsAtUtc: undefined,
+                utcOffsetMinutes: -new Date(`${payload.date}T${payload.time}:00`).getTimezoneOffset(),
                 date: payload.date,
                 eventTime: payload.time,
                 time: payload.time,
@@ -1776,7 +2877,7 @@ function App() {
       )
 
       await fetchLiveEvents()
-      setEditEventFeedback({ type: 'success', text: 'Event updated successfully in Database!' })
+      setEditEventFeedback({ type: 'success', text: 'Event updated successfully!' })
 
       setTimeout(() => {
         setShowEditEventModal(false)
@@ -1790,7 +2891,7 @@ function App() {
   }
 
   const handleDeleteEvent = async (eventId, eventTitle) => {
-    if (!window.confirm(`Are you sure you want to delete "${eventTitle || 'this event'}" from the database?`)) {
+    if (!window.confirm(`Are you sure you want to delete "${eventTitle || 'this event'}"?`)) {
       return
     }
 
@@ -1813,6 +2914,13 @@ function App() {
     )
     const newHiddenState = !isCurrentlyHidden
 
+    try {
+      await setEventVisibility(eventToToggle.id, newHiddenState)
+    } catch {
+      alert('Could not update event visibility. Please try again.')
+      return
+    }
+
     if (newHiddenState) {
       addHiddenEventId(eventToToggle.id)
     } else {
@@ -1826,12 +2934,7 @@ function App() {
       prev.map((e) => (String(e.id) === String(eventToToggle.id) ? { ...e, isHidden: newHiddenState } : e)),
     )
 
-    try {
-      await updateEvent(eventToToggle.id, { ...eventToToggle, isHidden: newHiddenState, IsHidder: newHiddenState })
-      await fetchLiveEvents()
-    } catch (err) {
-      console.warn('Failed to update event visibility via backend API:', err)
-    }
+    await fetchLiveEvents()
   }
 
   const handleStartEditProfile = () => {
@@ -1935,6 +3038,7 @@ function App() {
   }
 
   const handleOpenEventDetails = (event) => {
+    if (isEventExpired(event)) return
     let tiers = event?.ticketTiers
     if (typeof tiers === 'string') {
       try {
@@ -1956,32 +3060,174 @@ function App() {
     setSelectedDetailEvent(null)
   }
 
-  const handleOpenBooking = (event) => {
+  const handleOpenBooking = async (event) => {
+    if (isEventExpired(event)) return
+    const inventoryMeta = getEventInventoryMeta(event)
+    if (inventoryMeta.disabled) {
+      setHoldError(inventoryMeta.detail)
+      return
+    }
     if (!authState.isAuthenticated) {
       setAuthInitialMode('login')
       setShowAuth(true)
       return
     }
     setBookingModalEvent(event)
-    setSelectedTier(event.ticketTiers?.[0] || null)
     const initialQtys = {}
     if (event.ticketTiers && event.ticketTiers.length > 0) {
       event.ticketTiers.forEach((tier, idx) => {
         const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
-        initialQtys[key] = idx === 0 ? 1 : 0
+        initialQtys[key] = 0
       })
     } else {
-      initialQtys['standard'] = 1
+      initialQtys['standard'] = 0
     }
     setTierQuantities(initialQtys)
-    setTicketQuantity(1)
+    setTicketQuantity(0)
     setSelectedSeats([])
     setBookingSuccess(false)
+    setSeatHold(null)
+    setHoldSecondsRemaining(0)
+    setHoldError('')
+    setBookingConfirmation(null)
+    setConfirmedBookingDetails(null)
+    setConfirmingBooking(false)
+    setSelectionPrepared(false)
     setBookingStep(1)
+    if (!attendeeSeatingPlan || attendeeSeatingPlan.eventId !== event.id) {
+      setAttendeeSeatingLoading(true)
+      setAttendeeSeatingError(false)
+      try {
+        const plan = await getAttendeeSeatingPlan(event.id)
+        setAttendeeSeatingPlan(plan)
+      } catch {
+        setAttendeeSeatingPlan(null)
+        setAttendeeSeatingError(true)
+      } finally {
+        setAttendeeSeatingLoading(false)
+      }
+    }
   }
 
   // Public events visible to attendees (excludes hidden events)
-  const publicEvents = albumList.filter((e) => !e.isHidden && !getHiddenEventIds().includes(String(e.id)))
+  const publicEvents = albumList.filter(
+    (e) => !e.isHidden && !isEventExpired(e, eventNow) && !getHiddenEventIds().includes(String(e.id)),
+  )
+
+  const getEventInventoryMeta = (event) => {
+    const inventory = eventInventoryById[String(event?.id)]
+    const status = inventory?.inventoryStatus
+    if (status === 'SoldOut') {
+      return {
+        status,
+        label: 'SOLD OUT',
+        detail: 'All tickets are sold out for this event.',
+        disabled: true,
+        className: 'is-sold-out',
+      }
+    }
+    if (status === 'TemporarilyHeld') {
+      return {
+        status,
+        label: 'TRY AGAIN SOON',
+        detail: 'All remaining tickets are currently held. You may have a chance in a few minutes.',
+        disabled: true,
+        className: 'is-temporarily-held',
+      }
+    }
+    return {
+      status: status || 'Available',
+      label: 'AVAILABLE',
+      detail: 'Tickets are available.',
+      disabled: false,
+      className: '',
+    }
+  }
+
+  const getTierInventoryMeta = (availability, tier, index = 0) => {
+    const match = availability?.tiers?.find(
+      (item) => String(item.ticketTierId) === String(tier?.id) || Number(item.price) === Number(tier?.price),
+    )
+    const availableQuantity = match?.availableQuantity ?? Number(tier?.quantity || 0)
+    const heldQuantity = match?.heldQuantity ?? 0
+    if (match?.isUnlimited) {
+      return {
+        availableQuantity,
+        disabled: false,
+        label: 'NO LIMIT',
+        detail: 'No event-wide quantity limit.',
+        className: '',
+      }
+    }
+    if (availableQuantity > 0) {
+      return {
+        availableQuantity,
+        disabled: false,
+        label: `${availableQuantity} LEFT`,
+        detail: `${availableQuantity} tickets available`,
+        className: '',
+      }
+    }
+    if (heldQuantity > 0) {
+      return {
+        availableQuantity: 0,
+        disabled: true,
+        label: 'TRY AGAIN SOON',
+        detail: 'This tier is currently fully held. You may have a chance in a few minutes.',
+        className: 'is-temporarily-held',
+      }
+    }
+    return {
+      availableQuantity: 0,
+      disabled: true,
+      label: 'SOLD OUT',
+      detail: 'This tier is sold out.',
+      className: 'is-sold-out',
+    }
+  }
+
+  const refreshEventInventory = async (eventId) => {
+    if (!eventId) return
+    try {
+      const availability = await getEventAvailability(eventId)
+      setEventAvailability((previous) => (previous?.eventId === eventId ? availability : previous))
+      setEventInventoryById((previous) => ({ ...previous, [String(eventId)]: availability }))
+    } catch {}
+  }
+
+  useEffect(() => {
+    const visibleEvents = albumList.filter(
+      (event) => !event.isHidden && !isEventExpired(event, eventNow) && !getHiddenEventIds().includes(String(event.id)),
+    )
+    if (visibleEvents.length === 0) {
+      setEventInventoryById({})
+      return undefined
+    }
+    let active = true
+    Promise.allSettled(
+      visibleEvents.map((event) =>
+        getEventAvailability(event.id).then((availability) => ({ eventId: event.id, availability })),
+      ),
+    ).then((results) => {
+      if (!active) return
+      setEventInventoryById((previous) => {
+        const next = { ...previous }
+        const liveIds = new Set(visibleEvents.map((event) => String(event.id)))
+        Object.keys(next).forEach((id) => {
+          if (!liveIds.has(id)) delete next[id]
+        })
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.availability) {
+            next[String(result.value.eventId)] = result.value.availability
+          }
+        })
+        return next
+      })
+    })
+    return () => {
+      active = false
+    }
+  }, [albumList, eventNow])
 
   // Show ONLY latest public database events (up to 7 max). If database has fewer than 7 (e.g. 1, 2, 3), show only that exact count!
   const carouselEvents = publicEvents.slice(0, 7)
@@ -2086,14 +3332,14 @@ function App() {
   }
 
   const categoryDefinitions = [
-    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)', icon: '🔥' },
-    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)', icon: '🎸' },
-    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)', icon: '🎪' },
-    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)', icon: '🎤' },
-    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)', icon: '🎧' },
-    { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)', icon: '🪕' },
-    { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)', icon: '🎙️' },
-    { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)', icon: '⚡' },
+    { id: 'all', label: 'All Events', glow: 'rgba(255,0,0,0.4)' },
+    { id: 'Concert', label: 'Concerts', glow: 'rgba(255,0,0,0.35)' },
+    { id: 'Festival', label: 'Festivals', glow: 'rgba(168,85,247,0.35)' },
+    { id: 'Live Session', label: 'Live Sessions', glow: 'rgba(59,130,246,0.35)' },
+    { id: 'DJ Night', label: 'DJ Nights', glow: 'rgba(236,72,153,0.35)' },
+    { id: 'Acoustic', label: 'Acoustic', glow: 'rgba(247,151,30,0.35)' },
+    { id: 'Stand-Up', label: 'Stand-Up', glow: 'rgba(56,239,125,0.35)' },
+    { id: 'EDM Arena', label: 'EDM Arena', glow: 'rgba(255,102,0,0.35)' },
   ]
 
   const eventCategories = categoryDefinitions.map((cat) => {
@@ -2136,6 +3382,7 @@ function App() {
 
     return matchesCategory && matchesSearch
   })
+  const selectedDetailInventory = selectedDetailEvent ? getEventInventoryMeta(selectedDetailEvent) : null
 
   if (showAuth) {
     return (
@@ -2146,6 +3393,22 @@ function App() {
           setAuthState(readAuthState())
           setShowAuth(false)
         }}
+      />
+    )
+  }
+
+  if (ticketManagerOpen) {
+    return (
+      <TicketManagerPage
+        bookings={attendeeBookings}
+        events={albumList}
+        error={attendeeTicketsError}
+        loading={attendeeTicketsLoading}
+        onBack={() => setTicketManagerOpen(false)}
+        onRefresh={loadAttendeeTickets}
+        onDownload={downloadTicketImage}
+        formatDate={formatSelectedDate}
+        user={authState.user}
       />
     )
   }
@@ -2185,7 +3448,7 @@ function App() {
             <button
               type="button"
               className="nav-dash-btn"
-              onClick={() => setOrganizerDashboardOpen(true)}
+              onClick={openOrganizerDashboard}
               title="Open Organizer Dashboard"
             >
               <svg
@@ -2230,7 +3493,27 @@ function App() {
           )}
 
           {authState.isAuthenticated && (
-            <div className="profile-menu-wrap">
+            <button type="button" className="nav-tickets-btn" onClick={openTicketManager} title="Manage tickets">
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M2 9a3 3 0 0 0 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 0 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+                <path d="M13 5v14" />
+                <path d="M7 9h3" />
+                <path d="M7 15h3" />
+              </svg>
+              <span>TICKETS</span>
+            </button>
+          )}
+
+          {authState.isAuthenticated && (
+            <div className="profile-menu-wrap" ref={profileMenuRef}>
               <button
                 className="profile-avatar"
                 type="button"
@@ -2246,7 +3529,14 @@ function App() {
               </button>
               {profileMenuOpen && (
                 <div className="profile-menu" role="menu">
-                  <div className="profile-compact-card">
+                  <div
+                    className="profile-compact-card"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setProfilePanelOpen(true)
+                      setProfileMenuOpen(false)
+                    }}
+                  >
                     {/* Left Avatar (Click to view full profile) */}
                     <button
                       type="button"
@@ -2271,6 +3561,14 @@ function App() {
                       role="button"
                       tabIndex={0}
                       title="Click to view full profile"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setProfilePanelOpen(true)
+                          setProfileMenuOpen(false)
+                        }
+                      }}
                       onClick={() => {
                         setProfilePanelOpen(true)
                         setProfileMenuOpen(false)
@@ -2296,7 +3594,10 @@ function App() {
                       className="profile-compact-logout-btn"
                       title="Logout"
                       aria-label="Logout"
-                      onClick={handleLogout}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleLogout()
+                      }}
                     >
                       <svg
                         viewBox="0 0 24 24"
@@ -2364,20 +3665,23 @@ function App() {
             {(authState.isAuthenticated
               ? isOrganizer
                 ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
-                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                : ['HOME', 'EVENTS', 'MY TICKETS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
             ).map((link) => (
               <button
                 key={link}
-                onClick={() => {
+                onClick={(event) => {
                   if (link === 'HOME') scrollToSection('home')
                   else if (link === 'EVENTS') scrollToSection('events')
                   else if (link === 'DASHBOARD') {
                     setMobileMenuOpen(false)
-                    setOrganizerDashboardOpen(true)
+                    openOrganizerDashboard()
                   } else if (link === 'ADD EVENT') {
                     setMobileMenuOpen(false)
                     setShowAddEventModal(true)
+                  } else if (link === 'MY TICKETS') {
+                    setMobileMenuOpen(false)
+                    openTicketManager()
                   } else if (link === 'ABOUT US') scrollToSection('about-us')
                   else if (link === 'CONTACT') scrollToSection('contact-us')
                   else if (link === 'LOGIN') {
@@ -2385,6 +3689,7 @@ function App() {
                     setShowAuth(true)
                     setAuthInitialMode('login')
                   } else if (link === 'PROFILE') {
+                    event.stopPropagation()
                     setMobileMenuOpen(false)
                     setProfilePanelOpen(true)
                   } else if (link === 'LOGOUT') {
@@ -2404,7 +3709,6 @@ function App() {
             <span>EXVO EVENT ECOSYSTEM // 2026</span>
             <span className="text-red-500 font-bold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              SYSTEM ONLINE
             </span>
           </div>
         </div>
@@ -2421,6 +3725,7 @@ function App() {
         >
           <section
             className="profile-panel"
+            ref={profilePanelRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="profile-title"
@@ -2633,6 +3938,21 @@ function App() {
 
                 {/* Actions */}
                 <div className="profile-action-row">
+                  <button className="profile-btn-primary" type="button" onClick={openTicketManager}>
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4"
+                    >
+                      <path d="M2 9a3 3 0 0 0 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 0 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
+                      <path d="M13 5v14" />
+                    </svg>
+                    <span>MY TICKETS</span>
+                  </button>
                   <button className="profile-btn-primary" type="button" onClick={handleStartEditProfile}>
                     <svg
                       viewBox="0 0 24 24"
@@ -2724,7 +4044,9 @@ function App() {
                 </div>
 
                 <div className="profile-edit-header">
-                  <h2 className="profile-user-name">Update Profile</h2>
+                  <h2 id="profile-title" className="profile-user-name">
+                    Update Profile
+                  </h2>
                   <p className="text-xs text-gray-400">Modify your photo and contact credentials</p>
                 </div>
 
@@ -3055,16 +4377,31 @@ function App() {
                     <input
                       type="date"
                       required
+                      min={localDate(scheduleNow)}
+                      aria-label="Event date"
                       value={newEventForm.date}
-                      onChange={(e) => setNewEventForm({ ...newEventForm, date: e.target.value })}
+                      onChange={(e) => {
+                        const next = { ...newEventForm, date: e.target.value }
+                        setNewEventForm(next)
+                        const text = validateEventSchedule(next.date, next.time)
+                        setEventFeedback({ type: text ? 'error' : '', text })
+                      }}
                       className="contact-input add-event-calendar-input"
                     />
                   </div>
                   <div>
                     <input
                       type="time"
+                      required
+                      aria-label="Event time"
+                      min={minimumEventTime(newEventForm.date, scheduleNow)}
                       value={newEventForm.time}
-                      onChange={(e) => setNewEventForm({ ...newEventForm, time: e.target.value })}
+                      onChange={(e) => {
+                        const next = { ...newEventForm, time: e.target.value }
+                        setNewEventForm(next)
+                        const text = validateEventSchedule(next.date, next.time)
+                        setEventFeedback({ type: text ? 'error' : '', text })
+                      }}
                       className="contact-input add-event-time-input"
                     />
                   </div>
@@ -3165,7 +4502,7 @@ function App() {
                           <input
                             type="number"
                             min="1"
-                            placeholder="100"
+                            placeholder="Unlimited"
                             value={tier.quantity}
                             onChange={(e) => handleUpdateTicketTier(tier.id, 'quantity', e.target.value)}
                             className="contact-input !py-1.5 text-xs"
@@ -3218,7 +4555,9 @@ function App() {
                   <span>
                     Total Capacity:{' '}
                     <strong>
-                      {newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets
+                      {newEventForm.ticketTiers.some((tier) => tier.quantity === '')
+                        ? 'Unlimited'
+                        : `${newEventForm.ticketTiers.reduce((acc, tier) => acc + (Number(tier.quantity) || 0), 0)} Tickets`}
                     </strong>
                   </span>
                   <span>
@@ -3237,12 +4576,9 @@ function App() {
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">
-                      Configure interactive seat arrangement, zones & blocked seats
-                    </p>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement and zones</p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
@@ -3266,7 +4602,7 @@ function App() {
                     />
                     {newEventForm.seatingConfig?.enabled
                       ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
-                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                      : '○ HIDE SEATING FROM ATTENDEES'}
                   </button>
                 </div>
 
@@ -3278,7 +4614,6 @@ function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{newEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
                       {newEventForm.seatingConfig?.enabled
                         ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
@@ -3341,7 +4676,7 @@ function App() {
                                   id: 'z1',
                                   name: 'ORCHESTRA',
                                   price: 4000,
-                                  rows: ['A', 'B', 'C', 'D'],
+                                  rows: ['A', 'B', 'C'],
                                   seatsPerRow: 14,
                                   occupiedSeats: [],
                                 },
@@ -3397,20 +4732,19 @@ function App() {
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
                             title="Click to sync zone names and prices with Ticket Categories above"
                           >
-                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                            SYNC WITH TICKET CATEGORIES
                           </button>
                         </div>
                         <button
                           type="button"
                           onClick={() => {
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + newEventForm.seatingConfig.zones.length * 3)
                             const newZone = {
                               id: nextId,
                               name: 'NEW ZONE',
-                              price: 2000,
-                              rows: [nextLetter],
-                              seatsPerRow: 10,
+                              price: '',
+                              rows: [],
+                              seatsPerRow: '',
                               occupiedSeats: [],
                             }
                             setNewEventForm((prev) => ({
@@ -3470,9 +4804,12 @@ function App() {
                               />
                             </div>
                             <div>
-                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <span className="text-[8px] text-neutral-500 uppercase">
+                                ROW LABELS (comma separated)
+                              </span>
                               <input
                                 type="text"
+                                placeholder="e.g. A, B, C"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
                                   const rows = e.target.value
@@ -3492,14 +4829,17 @@ function App() {
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="flex-1">
-                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW (MAX 20)</span>
                                 <input
                                   type="number"
                                   min="1"
-                                  max="25"
+                                  max="20"
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
-                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    const seatsPerRow =
+                                      e.target.value === ''
+                                        ? ''
+                                        : Math.min(20, Math.max(1, Number(e.target.value) || 1))
                                     setNewEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -3540,31 +4880,9 @@ function App() {
                     {/* Interactive Seating Layout Visual Live Preview Component! */}
                     <div className="mt-4 pt-3 border-t border-white/10">
                       <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
-                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                        LIVE SEATING CHART PREVIEW
                       </span>
-                      <SeatingChartComponent
-                        seatingConfig={newEventForm.seatingConfig}
-                        isOrganizerEdit={true}
-                        onToggleOccupied={(seatId) => {
-                          setNewEventForm((prev) => {
-                            const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map((z) => {
-                              const isOccupied = z.occupiedSeats?.includes(seatId)
-                              let newOccupied
-                              if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
-                              } else {
-                                newOccupied = [...(z.occupiedSeats || []), seatId]
-                              }
-                              return { ...z, occupiedSeats: newOccupied }
-                            })
-                            return {
-                              ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones },
-                            }
-                          })
-                        }}
-                      />
+                      <SeatingChartComponent seatingConfig={newEventForm.seatingConfig} isOrganizerEdit={true} />
                     </div>
                   </div>
                 )}
@@ -3697,7 +5015,11 @@ function App() {
                 </div>
 
                 <div className="booking-modal-hero">
-                  <img src={bookingModalEvent.cover} alt={bookingModalEvent.title} className="booking-modal-cover" />
+                  <EventPoster
+                    src={bookingModalEvent.cover}
+                    title={bookingModalEvent.title}
+                    className="booking-modal-cover"
+                  />
                   <div className="text-left">
                     <span className="event-category-pill mb-2 inline-block">
                       {bookingModalEvent.category || 'CONCERT'}
@@ -3708,9 +5030,11 @@ function App() {
                     <p className="text-xs text-red-400 font-['Orbitron'] mt-1">
                       {bookingModalEvent.artistOrOrganizer || bookingModalEvent.subtitle}
                     </p>
-                    <p className="text-[11px] text-neutral-400 mt-1.5">📍 {bookingModalEvent.venue || 'Sri Lanka'}</p>
+                    <p className="text-[11px] text-neutral-400 mt-1.5">
+                      Venue: {bookingModalEvent.venue || 'Sri Lanka'}
+                    </p>
                     <p className="text-[11px] text-neutral-400">
-                      📅{' '}
+                      Date:{' '}
                       {formatSelectedDate(bookingModalEvent.eventDate, bookingModalEvent.eventTime) ||
                         bookingModalEvent.year}
                     </p>
@@ -3722,7 +5046,7 @@ function App() {
                   const totalTicketsCount =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
                       ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
-                      : tierQuantities['standard'] || 1
+                      : tierQuantities['standard'] || 0
 
                   const totalBookingPrice =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
@@ -3731,7 +5055,7 @@ function App() {
                           const qty = tierQuantities[key] || 0
                           return sum + Number(tier.price || 0) * qty
                         }, 0)
-                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 0)
 
                   const selectedTiersSummary =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
@@ -3743,12 +5067,85 @@ function App() {
                           })
                           .filter(Boolean)
                           .join(', ')
-                      : `${tierQuantities['standard'] || 1}x Standard Pass`
+                      : `${tierQuantities['standard'] || 0}x Standard Pass`
+                  const selectedTiers = (bookingModalEvent.ticketTiers || []).filter((tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    return Number(tierQuantities[key]) > 0
+                  })
+                  const tierHasSeats = (tier) =>
+                    attendeeSeatingPlan?.sections?.some((section) =>
+                      section.seats?.some((seat) => seatMatchesTicketTier(seat, tier)),
+                    )
+                  const seatedSelectedTiers = selectedTiers.filter(tierHasSeats)
+                  const normalSelectedTiers = selectedTiers.filter((tier) => !tierHasSeats(tier))
+                  const selectedTierHasSeat = (seat) =>
+                    seatedSelectedTiers.some((tier) => seatMatchesTicketTier(seat, tier))
+                  const selectedPlan =
+                    attendeeSeatingPlan?.eventId === bookingModalEvent.id
+                      ? {
+                          ...attendeeSeatingPlan,
+                          sections: (attendeeSeatingPlan.sections || [])
+                            .map((section) => ({
+                              ...section,
+                              seats: (section.seats || []).filter(selectedTierHasSeat),
+                            }))
+                            .filter((section) => section.seats.length > 0),
+                        }
+                      : null
+                  const hasAssignedSeating = Boolean(selectedPlan?.sections?.length)
+                  const availableSeats = hasAssignedSeating ? availableSeatsInPlan(selectedPlan) : []
+                  const assignedTicketCount = (bookingModalEvent.ticketTiers || []).reduce((total, tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    return tierHasSeats(tier) ? total + (Number(tierQuantities[key]) || 0) : total
+                  }, 0)
+                  const selectedSeatRecords = availableSeats.filter((seat) => selectedSeats.includes(seat.seatCode))
+                  const selectedSeatTotal = selectedSeatRecords.reduce((sum, seat) => sum + Number(seat.price || 0), 0)
+                  const bookingSeatingConfig = hasAssignedSeating ? seatingPlanToChartConfig(selectedPlan) : null
+                  const availabilityForTier = (tier, index) => {
+                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                    const availability = eventAvailability?.eventId === bookingModalEvent.id ? eventAvailability : null
+                    const meta = getTierInventoryMeta(availability, tier, index)
+                    return { key, quantity: meta.availableQuantity, meta }
+                  }
+                  const standardAvailability =
+                    eventAvailability?.eventId === bookingModalEvent.id
+                      ? eventAvailability.availableSeatCount || 0
+                      : Number(bookingModalEvent.availableTickets) || 0
+                  const generalTicketSelections =
+                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
+                      ? selectedTiers.map((tier, index) => {
+                          const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                          return {
+                            ticketTierId: safeTicketTierId(tier.id),
+                            name: tier.name || `Tier ${index + 1}`,
+                            unitPrice: Number(tier.price || 0),
+                            quantity: Number(tierQuantities[key]) || 0,
+                          }
+                        })
+                      : [
+                          {
+                            ticketTierId: null,
+                            name: 'Standard Pass',
+                            unitPrice: Number(bookingModalEvent.minPrice || 0),
+                            quantity: Number(tierQuantities.standard || 0),
+                          },
+                        ]
+                  const mixedGeneralTicketSelections = normalSelectedTiers
+                    .map((tier, index) => {
+                      const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                      return {
+                        ticketTierId: safeTicketTierId(tier.id),
+                        name: tier.name || `Tier ${index + 1}`,
+                        unitPrice: Number(tier.price || 0),
+                        quantity: Number(tierQuantities[key]) || 0,
+                      }
+                    })
+                    .filter((ticket) => ticket.quantity > 0)
 
                   return (
                     <>
                       {/* ── STEP INDICATOR (only if seating enabled) ── */}
-                      {bookingModalEvent.seatingConfig?.enabled && (
+                      {hasAssignedSeating && (
                         <div className="flex items-center gap-2 mt-4 mb-1">
                           <div
                             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-['Orbitron'] font-bold transition-all ${bookingStep === 1 ? 'bg-red-600 text-white' : 'bg-white/10 text-neutral-400'}`}
@@ -3783,21 +5180,31 @@ function App() {
                                   const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
                                   const qty = tierQuantities[key] || 0
                                   const isSelected = qty > 0
+                                  const tierInventory = availabilityForTier(tier, idx)
+                                  const tierUnavailable = tierInventory.meta.disabled
 
                                   const handleDecrease = (e) => {
                                     e.stopPropagation()
+                                    const nextQuantity = Math.max(0, (tierQuantities[key] || 0) - 1)
                                     setTierQuantities((prev) => ({
                                       ...prev,
-                                      [key]: Math.max(0, (prev[key] || 0) - 1),
+                                      [key]: nextQuantity,
                                     }))
+                                    const tierSeatsToRemove = selectedSeatRecords
+                                      .filter((seat) => seatMatchesTicketTier(seat, tier))
+                                      .slice(nextQuantity)
+                                      .map((seat) => seat.seatCode)
+                                    if (tierSeatsToRemove.length) {
+                                      setSelectedSeats((prev) =>
+                                        prev.filter((seatCode) => !tierSeatsToRemove.includes(seatCode)),
+                                      )
+                                    }
                                   }
 
                                   const handleIncrease = (e) => {
                                     e.stopPropagation()
-                                    const totalOther = Object.entries(tierQuantities)
-                                      .filter(([k]) => k !== key)
-                                      .reduce((s, [, q]) => s + q, 0)
-                                    if (totalOther + qty >= 10) return
+                                    const availability = tierInventory.quantity
+                                    if (tierUnavailable || qty >= availability || totalTicketsCount >= 10) return
                                     setTierQuantities((prev) => ({
                                       ...prev,
                                       [key]: (prev[key] || 0) + 1,
@@ -3807,19 +5214,25 @@ function App() {
                                   return (
                                     <div
                                       key={key}
-                                      onClick={() => setSelectedTier(tier)}
+                                      onClick={() => {}}
                                       className={`booking-tier-card p-3 rounded-xl border transition-all ${
-                                        isSelected
-                                          ? 'border-red-500/80 bg-red-950/30'
-                                          : 'border-white/10 bg-black/40 hover:border-white/20'
+                                        tierUnavailable
+                                          ? 'booking-tier-card--unavailable border-neutral-700 bg-neutral-950/50'
+                                          : isSelected
+                                            ? 'border-red-500/80 bg-red-950/30'
+                                            : 'border-white/10 bg-black/40 hover:border-white/20'
                                       }`}
-                                      style={{ cursor: 'pointer' }}
+                                      style={{ cursor: tierUnavailable ? 'not-allowed' : 'pointer' }}
                                     >
                                       <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                           <div
                                             className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                                              isSelected ? 'border-red-500 bg-red-500' : 'border-neutral-600'
+                                              tierUnavailable
+                                                ? 'border-neutral-700 bg-neutral-800'
+                                                : isSelected
+                                                  ? 'border-red-500 bg-red-500'
+                                                  : 'border-neutral-600'
                                             }`}
                                           >
                                             {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -3827,6 +5240,17 @@ function App() {
                                           <div>
                                             <div className="font-bold text-sm text-white font-['Orbitron']">
                                               {tier.name || `Tier ${idx + 1}`}
+                                            </div>
+                                            <div
+                                              className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
+                                                tierInventory.meta.disabled
+                                                  ? tierInventory.meta.className === 'is-temporarily-held'
+                                                    ? 'border-amber-400/40 bg-amber-500/10 text-amber-300'
+                                                    : 'border-neutral-500/40 bg-neutral-700/30 text-neutral-300'
+                                                  : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-300'
+                                              }`}
+                                            >
+                                              {tierInventory.meta.label}
                                             </div>
                                             {tier.description && (
                                               <div className="text-[10px] text-neutral-400 mt-0.5">
@@ -3837,6 +5261,11 @@ function App() {
                                               LKR {Number(tier.price || 0).toLocaleString()}{' '}
                                               <span className="text-[9px] text-neutral-500 font-normal">per pass</span>
                                             </div>
+                                            {tierInventory.meta.disabled && (
+                                              <div className="mt-1 text-[10px] text-neutral-400">
+                                                {tierInventory.meta.detail}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
 
@@ -3863,9 +5292,13 @@ function App() {
                                           <button
                                             type="button"
                                             onClick={handleIncrease}
-                                            disabled={totalTicketsCount >= 10}
+                                            disabled={
+                                              tierUnavailable ||
+                                              qty >= tierInventory.quantity ||
+                                              totalTicketsCount >= 10
+                                            }
                                             className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
-                                              totalTicketsCount < 10
+                                              !tierUnavailable && qty < tierInventory.quantity && totalTicketsCount < 10
                                                 ? 'bg-white/10 hover:bg-red-600 text-white'
                                                 : 'bg-white/5 text-neutral-600 cursor-not-allowed'
                                             }`}
@@ -3895,7 +5328,7 @@ function App() {
                                       onClick={() =>
                                         setTierQuantities((prev) => ({
                                           ...prev,
-                                          standard: Math.max(1, (prev.standard || 1) - 1),
+                                          standard: Math.max(0, (prev.standard || 0) - 1),
                                         }))
                                       }
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
@@ -3903,16 +5336,17 @@ function App() {
                                       -
                                     </button>
                                     <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
-                                      {tierQuantities['standard'] || 1}
+                                      {tierQuantities['standard'] || 0}
                                     </span>
                                     <button
                                       type="button"
                                       onClick={() =>
                                         setTierQuantities((prev) => ({
                                           ...prev,
-                                          standard: Math.min(10, (prev.standard || 1) + 1),
+                                          standard: Math.min(10, standardAvailability, (prev.standard || 0) + 1),
                                         }))
                                       }
+                                      disabled={(tierQuantities.standard || 0) >= Math.min(10, standardAvailability)}
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
                                     >
                                       +
@@ -3945,7 +5379,7 @@ function App() {
                               </div>
                             </div>
 
-                            {bookingModalEvent.seatingConfig?.enabled ? (
+                            {hasAssignedSeating ? (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -3959,46 +5393,80 @@ function App() {
                                     : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                                 }`}
                               >
-                                <span>💺</span>
                                 CHOOSE SEATS
                                 <span>→</span>
                               </button>
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setBookingSubmitting(true)
-                                  setTimeout(() => {
-                                    setBookingSubmitting(false)
+                                onClick={async () => {
+                                  setConfirmingBooking(true)
+                                  setHoldError('')
+                                  const confirmationSnapshot = {
+                                    tickets: generalTicketSelections
+                                      .filter((ticket) => Number(ticket.quantity) > 0)
+                                      .map((ticket) => ({
+                                        ticketTierId: ticket.ticketTierId,
+                                        name: ticket.name,
+                                        unitPrice: Number(ticket.unitPrice) || 0,
+                                        quantity: Number(ticket.quantity) || 0,
+                                      })),
+                                    totalQuantity: totalTicketsCount,
+                                    totalAmount: totalBookingPrice,
+                                  }
+                                  try {
+                                    const confirmation = await confirmGeneralBooking(
+                                      bookingModalEvent.id,
+                                      generalTicketSelections,
+                                    )
+                                    setBookingConfirmation(confirmation)
+                                    setConfirmedBookingDetails({
+                                      ...confirmationSnapshot,
+                                      tickets: confirmation?.tickets?.length
+                                        ? confirmation.tickets
+                                        : confirmationSnapshot.tickets,
+                                      totalAmount:
+                                        Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
+                                      totalQuantity:
+                                        confirmation?.tickets?.reduce(
+                                          (sum, ticket) => sum + (Number(ticket.quantity) || 0),
+                                          0,
+                                        ) || confirmationSnapshot.totalQuantity,
+                                    })
                                     setBookingSuccess(true)
-                                  }, 600)
+                                    void queueRenderedTicketEmail(confirmation, bookingModalEvent)
+                                    await refreshEventInventory(bookingModalEvent.id)
+                                  } catch (error) {
+                                    setHoldError(error.message)
+                                  } finally {
+                                    setConfirmingBooking(false)
+                                  }
                                 }}
-                                disabled={bookingSubmitting || totalTicketsCount === 0}
+                                disabled={totalTicketsCount === 0 || confirmingBooking}
                                 className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
-                                  totalTicketsCount > 0
+                                  totalTicketsCount > 0 && !confirmingBooking
                                     ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
                                     : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                                 }`}
                               >
-                                {bookingSubmitting ? (
-                                  <>
-                                    <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                                    PROCESSING...
-                                  </>
-                                ) : (
-                                  <>
-                                    CONFIRM RESERVATION
-                                    <span>→</span>
-                                  </>
-                                )}
+                                {confirmingBooking ? 'CONFIRMING...' : 'CONFIRM RESERVATION'}
+                                <span>→</span>
                               </button>
                             )}
                           </div>
+                          {holdError && !hasAssignedSeating && (
+                            <div
+                              role="alert"
+                              className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200"
+                            >
+                              {holdError}
+                            </div>
+                          )}
                         </>
                       )}
 
                       {/* ── STEP 2: Interactive Seat Selection ── */}
-                      {bookingStep === 2 && bookingModalEvent.seatingConfig?.enabled && (
+                      {bookingStep === 2 && hasAssignedSeating && (
                         <>
                           <div className="mt-4 flex items-center justify-between">
                             <button
@@ -4009,13 +5477,13 @@ function App() {
                               ← BACK
                             </button>
                             <div className="text-[10px] font-['Orbitron'] text-amber-400 font-bold">
-                              {totalTicketsCount} seat{totalTicketsCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
+                              {assignedTicketCount} seat{assignedTicketCount > 1 ? 's' : ''} needed (
+                              {selectedTiersSummary})
                             </div>
                           </div>
 
                           <div className="mt-3 flex items-center justify-between">
                             <label className="text-xs font-bold text-neutral-300 font-['Orbitron'] uppercase tracking-wider flex items-center gap-1.5">
-                              <span className="text-amber-400">💺</span>
                               SELECT YOUR SEATS
                             </label>
                             {selectedSeats.length > 0 && (
@@ -4025,8 +5493,20 @@ function App() {
                             )}
                           </div>
 
+                          <div className="mt-2 flex items-center justify-between text-[10px] text-neutral-400">
+                            <span>Available: {availableSeats.length}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSeats([])}
+                              disabled={selectedSeats.length === 0}
+                              className="text-amber-400 hover:text-amber-300 disabled:text-neutral-600 disabled:cursor-not-allowed uppercase tracking-wider"
+                            >
+                              Clear Selection
+                            </button>
+                          </div>
+
                           <SeatingChartComponent
-                            seatingConfig={bookingModalEvent.seatingConfig}
+                            seatingConfig={bookingSeatingConfig}
                             isOrganizerEdit={false}
                             selectedSeats={selectedSeats}
                             onSelectSeat={(seatId) => {
@@ -4034,6 +5514,14 @@ function App() {
                               if (selectedSeats.includes(seatId)) {
                                 next = selectedSeats.filter((s) => s !== seatId)
                               } else {
+                                const seat = availableSeats.find((item) => item.seatCode === seatId)
+                                const tier = seatedSelectedTiers.find((item) => seatMatchesTicketTier(seat, item))
+                                if (!tier || selectedSeats.length >= assignedTicketCount) return
+                                const tierKey = tier.id ? String(tier.id) : tier.name
+                                if (
+                                  !canSelectSeatForTicketTier(seat, tier, selectedSeatRecords, tierQuantities[tierKey])
+                                )
+                                  return
                                 next = [...selectedSeats, seatId]
                               }
                               setSelectedSeats(next)
@@ -4049,16 +5537,7 @@ function App() {
                               <div className="text-xl font-black text-white font-['Orbitron']">
                                 LKR{' '}
                                 {selectedSeats.length > 0
-                                  ? selectedSeats
-                                      .reduce((total, seatId) => {
-                                        let p = Number(selectedTier?.price || bookingModalEvent.minPrice || 0)
-                                        bookingModalEvent.seatingConfig.zones?.forEach((z) => {
-                                          const row = seatId.charAt(0)
-                                          if (z.rows?.includes(row)) p = Number(z.price || p)
-                                        })
-                                        return total + p
-                                      }, 0)
-                                      .toLocaleString()
+                                  ? selectedSeatTotal.toLocaleString()
                                   : totalBookingPrice.toLocaleString()}
                               </div>
                               {selectedSeats.length > 0 && (
@@ -4070,59 +5549,137 @@ function App() {
 
                             <button
                               type="button"
-                              onClick={() => {
-                                setBookingSubmitting(true)
-                                setTimeout(() => {
-                                  if (bookingModalEvent.seatingConfig?.enabled && selectedSeats.length > 0) {
-                                    const updatedZones = bookingModalEvent.seatingConfig.zones.map((z) => {
-                                      const newOccupied = Array.from(
-                                        new Set([...(z.occupiedSeats || []), ...selectedSeats]),
-                                      )
-                                      return { ...z, occupiedSeats: newOccupied }
-                                    })
-                                    const updatedSeatingConfig = {
-                                      ...bookingModalEvent.seatingConfig,
-                                      zones: updatedZones,
-                                    }
-                                    setAlbumList((prev) =>
-                                      prev.map((e) =>
-                                        e.id === bookingModalEvent.id
-                                          ? { ...e, seatingConfig: updatedSeatingConfig }
-                                          : e,
-                                      ),
-                                    )
-                                    setMyEventsList((prev) =>
-                                      prev.map((e) =>
-                                        e.id === bookingModalEvent.id
-                                          ? { ...e, seatingConfig: updatedSeatingConfig }
-                                          : e,
-                                      ),
-                                    )
-                                  }
-                                  setBookingSubmitting(false)
-                                  setBookingSuccess(true)
-                                }, 600)
+                              onClick={async () => {
+                                setHoldError('')
+                                try {
+                                  const createdHold = await holdSeats(bookingModalEvent.id, selectedSeats)
+                                  setSeatHold(createdHold)
+                                  setSelectionPrepared(true)
+                                } catch (error) {
+                                  setHoldError(error.message)
+                                  setSelectedSeats([])
+                                  const refreshedPlan = await getAttendeeSeatingPlan(bookingModalEvent.id).catch(
+                                    () => null,
+                                  )
+                                  if (refreshedPlan) setAttendeeSeatingPlan(refreshedPlan)
+                                }
                               }}
-                              disabled={bookingSubmitting || selectedSeats.length === 0}
+                              disabled={selectedSeats.length === 0}
                               className={`px-6 py-3 rounded-xl font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all flex items-center gap-2 cursor-pointer ${
                                 selectedSeats.length > 0
                                   ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(255,0,0,0.6)]'
                                   : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
                               }`}
                             >
-                              {bookingSubmitting ? (
-                                <>
-                                  <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                                  PROCESSING...
-                                </>
-                              ) : (
-                                <>
-                                  CONFIRM RESERVATION
-                                  <span>→</span>
-                                </>
-                              )}
+                              CONTINUE
+                              <span>→</span>
                             </button>
                           </div>
+                          {holdError && (
+                            <div
+                              role="alert"
+                              className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200"
+                            >
+                              {holdError}
+                            </div>
+                          )}
+                          {selectionPrepared && seatHold && (
+                            <div
+                              ref={holdConfirmationRef}
+                              className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200"
+                            >
+                              <strong>Seats held for you.</strong> Confirm within{' '}
+                              <strong>
+                                {Math.floor(holdSecondsRemaining / 60)}:
+                                {String(holdSecondsRemaining % 60).padStart(2, '0')}
+                              </strong>
+                              .
+                              <button
+                                type="button"
+                                disabled={confirmingBooking || holdSecondsRemaining <= 0}
+                                className="mt-3 w-full rounded-lg bg-emerald-500 px-3 py-2 font-bold text-neutral-950 disabled:cursor-not-allowed disabled:opacity-50"
+                                onClick={async () => {
+                                  setConfirmingBooking(true)
+                                  setHoldError('')
+                                  const confirmationSnapshot = {
+                                    tickets: selectedTiers.length
+                                      ? selectedTiers
+                                          .map((tier, index) => {
+                                            const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                                            return {
+                                              ticketTierId: safeTicketTierId(tier.id),
+                                              name: tier.name || `Tier ${index + 1}`,
+                                              unitPrice: Number(tier.price || 0),
+                                              quantity: Number(tierQuantities[key]) || 0,
+                                            }
+                                          })
+                                          .filter((ticket) => ticket.quantity > 0)
+                                      : [
+                                          {
+                                            ticketTierId: null,
+                                            name: 'Reserved Seat',
+                                            unitPrice: selectedSeatRecords[0]?.price || bookingModalEvent.minPrice || 0,
+                                            quantity: selectedSeats.length,
+                                          },
+                                        ],
+                                    totalQuantity:
+                                      selectedSeats.length +
+                                      mixedGeneralTicketSelections.reduce((sum, ticket) => sum + ticket.quantity, 0),
+                                    totalAmount:
+                                      selectedSeatTotal +
+                                      mixedGeneralTicketSelections.reduce(
+                                        (sum, ticket) => sum + ticket.unitPrice * ticket.quantity,
+                                        0,
+                                      ),
+                                  }
+                                  try {
+                                    const confirmation = await confirmSeatHold(
+                                      bookingModalEvent.id,
+                                      seatHold.holdId,
+                                      mixedGeneralTicketSelections,
+                                    )
+                                    setBookingConfirmation(confirmation)
+                                    setConfirmedBookingDetails({
+                                      ...confirmationSnapshot,
+                                      tickets: confirmation?.tickets?.length
+                                        ? confirmation.tickets
+                                        : confirmationSnapshot.tickets,
+                                      totalAmount:
+                                        Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
+                                      totalQuantity:
+                                        confirmation?.tickets?.reduce(
+                                          (sum, ticket) => sum + (Number(ticket.quantity) || 0),
+                                          0,
+                                        ) || confirmationSnapshot.totalQuantity,
+                                    })
+                                    setBookingSuccess(true)
+                                    setSeatHold(null)
+                                    void queueRenderedTicketEmail(confirmation, bookingModalEvent)
+                                    await refreshEventInventory(bookingModalEvent.id)
+                                  } catch (error) {
+                                    setHoldError(error.message)
+                                  } finally {
+                                    setConfirmingBooking(false)
+                                  }
+                                }}
+                              >
+                                {confirmingBooking ? 'CONFIRMING...' : 'CONFIRM RESERVATION'}
+                              </button>
+                              <button
+                                type="button"
+                                className="block mt-2 text-emerald-300 underline"
+                                onClick={async () => {
+                                  await releaseSeatHold(bookingModalEvent.id, seatHold.holdId).catch(() => {})
+                                  setSeatHold(null)
+                                  setSelectionPrepared(false)
+                                  setSelectedSeats([])
+                                  await refreshEventInventory(bookingModalEvent.id)
+                                }}
+                              >
+                                Release held seats
+                              </button>
+                            </div>
+                          )}
                         </>
                       )}
                     </>
@@ -4132,41 +5689,47 @@ function App() {
             ) : (
               <div className="text-center py-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-2xl flex items-center justify-center mx-auto mb-3 animate-bounce">
-                  ✓
+                  <svg
+                    aria-label="Booking completed"
+                    className="w-7 h-7"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m5 12 4 4L19 6" />
+                  </svg>
                 </div>
                 <h3 className="text-xl font-black text-white font-['Orbitron'] uppercase">RESERVATION CONFIRMED!</h3>
                 <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
                   Your passes for <strong className="text-white">{bookingModalEvent.title}</strong> have been reserved
                   in the EXVO network.
                 </p>
+                {bookingConfirmation && (
+                  <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                    Booking reference: <strong>{bookingConfirmation.bookingReference}</strong>
+                  </div>
+                )}
 
                 {/* Digital Ticket Pass Card */}
                 {(() => {
+                  const confirmedTickets = bookingConfirmation?.tickets?.length
+                    ? bookingConfirmation.tickets
+                    : confirmedBookingDetails?.tickets || []
                   const totalTicketsCount =
-                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                      ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
-                      : tierQuantities['standard'] || 1
-
-                  const totalBookingPrice =
-                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                      ? bookingModalEvent.ticketTiers.reduce((sum, tier, idx) => {
-                          const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
-                          const qty = tierQuantities[key] || 0
-                          return sum + Number(tier.price || 0) * qty
-                        }, 0)
-                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
-
-                  const selectedTiersSummary =
-                    bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
-                      ? bookingModalEvent.ticketTiers
-                          .map((tier, idx) => {
-                            const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
-                            const qty = tierQuantities[key] || 0
-                            return qty > 0 ? `${qty}x ${tier.name || `Tier ${idx + 1}`}` : null
-                          })
-                          .filter(Boolean)
-                          .join(', ')
-                      : `${tierQuantities['standard'] || 1}x Standard Pass`
+                    confirmedBookingDetails?.totalQuantity ||
+                    confirmedTickets.reduce((sum, ticket) => sum + (Number(ticket.quantity) || 0), 0) ||
+                    bookingConfirmation?.seatCodes?.length ||
+                    0
+                  const totalBookingPrice = Number(
+                    bookingConfirmation?.totalAmount ?? confirmedBookingDetails?.totalAmount ?? 0,
+                  )
+                  const selectedTiersSummary = confirmedTickets
+                    .filter((ticket) => Number(ticket.quantity) > 0)
+                    .map((ticket) => `${Number(ticket.quantity)}x ${ticket.name || 'Ticket'}`)
+                    .join(', ')
 
                   return (
                     <div className="mt-5 p-4 rounded-xl bg-gradient-to-b from-neutral-900/90 to-black border border-red-500/30 text-left relative overflow-hidden">
@@ -4192,8 +5755,8 @@ function App() {
                       <div className="grid grid-cols-2 gap-2.5 my-3 text-xs">
                         <div>
                           <span className="text-[9px] text-neutral-500 block font-['Orbitron']">TIER(S)</span>
-                          <strong className="text-white font-['Orbitron'] text-[11px] block truncate">
-                            {selectedTiersSummary || 'General Admission'}
+                          <strong className="text-white font-['Orbitron'] text-[11px] block">
+                            {selectedTiersSummary || 'Confirmed Pass'}
                           </strong>
                         </div>
                         <div>
@@ -4219,7 +5782,7 @@ function App() {
 
                       <div className="pt-2.5 border-t border-dashed border-white/20 flex items-center justify-between">
                         <div className="text-[10px] text-neutral-400 font-mono">
-                          REF: EXVO-TKT-{Math.floor(100000 + Math.random() * 900000)}
+                          REF: {bookingConfirmation?.bookingReference || 'EXVO-TICKET'}
                         </div>
                         <div className="text-xs font-black text-red-400 font-['Orbitron']">
                           LKR {totalBookingPrice.toLocaleString()}
@@ -4230,6 +5793,16 @@ function App() {
                 })()}
 
                 <div className="mt-5 flex items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setBookingModalEvent(null)
+                      await openTicketManager()
+                    }}
+                    className="px-6 py-2.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold font-['Orbitron'] text-xs tracking-wider uppercase transition-all cursor-pointer"
+                  >
+                    VIEW TICKETS
+                  </button>
                   <button
                     type="button"
                     onClick={() => setBookingModalEvent(null)}
@@ -4259,7 +5832,7 @@ function App() {
           </h1>
 
           <p className="text-[10px] md:text-xs tracking-[0.25em] text-neutral-400 font-medium uppercase max-w-2xl mx-auto leading-loose">
-            LATEST SINGLES &amp; ALBUMS FROM &amp; NEWS MUSIC{' '}
+            EXPLORE WHAT'S HAPPENING ISLANDWIDE{' '}
           </p>
 
           <div className="explore-events-btn-wrapper">
@@ -4275,7 +5848,11 @@ function App() {
         </div>
 
         {/* 3D Cover Flow Carousel */}
-        {carouselEvents.length > 0 ? (
+        {eventsLoading ? (
+          <EventSkeleton />
+        ) : eventsError ? (
+          <EventLoadError onRetry={fetchLiveEvents} />
+        ) : carouselEvents.length > 0 ? (
           <div
             className="w-full relative py-6 flex items-center justify-center perspective-container overflow-hidden"
             onMouseEnter={() => setIsPaused(true)}
@@ -4299,18 +5876,11 @@ function App() {
                     className={`carousel-card ${cardClass} group cursor-pointer`}
                     title={isCenter ? `Click to view details: ${album.title}` : album.title}
                   >
-                    {album.cover ? (
-                      <img
-                        src={album.cover}
-                        alt={album.title}
-                        className="w-full h-full object-cover select-none"
-                        draggable="false"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-neutral-900 via-neutral-950 to-black flex items-center justify-center p-4 text-center">
-                        <span className="text-3xl opacity-50">🎵</span>
-                      </div>
-                    )}
+                    <EventPoster
+                      src={album.cover}
+                      title={album.title}
+                      className="w-full h-full object-cover select-none"
+                    />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-80" />
 
                     {/* Center Card Title and Tag Overlay */}
@@ -4358,11 +5928,11 @@ function App() {
           </div>
         ) : (
           <div className="text-center py-10 px-4 my-6 rounded-2xl bg-black/40 border border-white/10 max-w-md mx-auto">
-            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-xl flex items-center justify-center mx-auto mb-3">
-              🎪
+            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-bold tracking-wider flex items-center justify-center mx-auto mb-3">
+              EVENTS
             </div>
             <h3 className="text-sm font-bold font-['Orbitron'] text-white uppercase tracking-wider mb-1">
-              No Database Events Yet
+              No Events Yet
             </h3>
             <p className="text-[11px] text-neutral-400">
               Organizers can add live events using the "Add Event" button above.
@@ -4482,8 +6052,8 @@ function App() {
                     <img src={cat.image} alt={cat.label} className="category-card__photo" draggable="false" />
                   ) : (
                     <div className="category-card__photo flex items-center justify-center bg-gradient-to-b from-[#1c0808] via-[#100505] to-[#080202]">
-                      <span className="text-3xl filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
-                        {cat.icon}
+                      <span className="text-sm font-black tracking-widest filter drop-shadow-[0_0_8px_rgba(255,0,0,0.5)] opacity-60">
+                        {cat.label.slice(0, 2).toUpperCase()}
                       </span>
                     </div>
                   )}
@@ -4513,10 +6083,10 @@ function App() {
         <section id="all-events-grid" className="w-full mt-14 md:mt-20 px-2 scroll-mt-24">
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-4 border-b border-white/10 gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                LIVE DATABASE EVENTS
-              </div>
+              {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">*/}
+              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+              {/*LIVE EVENTS*/}
+              {/*</div>*/}
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
                   <>
@@ -4534,7 +6104,6 @@ function App() {
                 {categorySearchQuery && (
                   <span className="text-red-400 font-semibold ml-1.5">• Filtered by "{categorySearchQuery}"</span>
                 )}{' '}
-                • Real-time database sync
               </p>
             </div>
 
@@ -4578,12 +6147,17 @@ function App() {
           </div>
 
           {/* Events Grid */}
-          {filteredEvents.length > 0 ? (
+          {eventsLoading ? (
+            <EventSkeleton />
+          ) : eventsError ? (
+            <EventLoadError onRetry={fetchLiveEvents} />
+          ) : filteredEvents.length > 0 ? (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {(showAllEventsInGrid ? filteredEvents : filteredEvents.slice(0, 12)).map((event, idx) => {
                   const eventPrice = Number(event.minPrice || 0)
                   const dateDisplay = event.eventDate || event.year || '2026'
+                  const inventoryMeta = getEventInventoryMeta(event)
                   return (
                     <div
                       key={event.id || idx}
@@ -4591,15 +6165,20 @@ function App() {
                       className="event-cyber-card group cursor-pointer"
                     >
                       <div className="event-cyber-card__poster-box">
-                        <img src={event.cover} alt={event.title} className="event-cyber-card__poster" loading="lazy" />
+                        <EventPoster
+                          src={event.cover}
+                          title={event.title}
+                          className="event-cyber-card__poster"
+                          loading="lazy"
+                        />
                         <div className="event-cyber-card__poster-overlay" />
 
                         {/* Top Badges */}
                         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-10">
                           <span className="event-category-pill">{event.category || 'CONCERT'}</span>
-                          <span className="event-live-status-pill">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-                            AVAILABLE
+                          <span className={`event-live-status-pill ${inventoryMeta.className}`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse inline-block" />
+                            {inventoryMeta.label}
                           </span>
                         </div>
 
@@ -4717,15 +6296,15 @@ function App() {
                   <p className="text-[11px] text-neutral-400 font-sans mt-2.5">
                     {showAllEventsInGrid
                       ? `Showing all ${filteredEvents.length} events`
-                      : `Showing 12 of ${filteredEvents.length} live database events`}
+                      : `Showing 12 of ${filteredEvents.length} events`}
                   </p>
                 </div>
               )}
             </>
           ) : (
             <div className="text-center py-16 px-4 rounded-2xl bg-black/40 border border-white/10 my-6">
-              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-2xl flex items-center justify-center mx-auto mb-4">
-                🔍
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] font-bold tracking-wider flex items-center justify-center mx-auto mb-4">
+                SEARCH
               </div>
               <h3 className="text-xl font-bold font-['Orbitron'] text-white uppercase mb-2">No Events Found</h3>
               <p className="text-xs text-neutral-400 max-w-md mx-auto mb-6">
@@ -4747,10 +6326,10 @@ function App() {
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              ABOUT EXVO
-            </div>
+            {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
+            {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+            {/*ABOUT EXVO*/}
+            {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               REDEFINING LIVE <span className="text-[#FF0000]">EXPERIENCES</span>
             </h2>
@@ -4856,10 +6435,10 @@ function App() {
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              GET IN TOUCH
-            </div>
+            {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
+            {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+            {/*GET IN TOUCH*/}
+            {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               CONTACT <span className="text-[#FF0000]">US</span>
             </h2>
@@ -4986,8 +6565,7 @@ function App() {
                   <h4 className="text-xs font-bold font-['Orbitron'] text-white uppercase tracking-wider">
                     EMAIL SUPPORT
                   </h4>
-                  <p className="text-xs text-neutral-400 mt-1">infodigexa@gmail.com</p>
-                  <p className="text-xs text-neutral-400">exvo@gmail.com</p>
+                  <p className="text-xs text-neutral-400 mt-1">xchangesrilanka@gmail.com</p>
                 </div>
               </div>
 
@@ -5013,7 +6591,7 @@ function App() {
                     HEADQUARTERS
                   </h4>
 
-                  <p className="text-xs text-neutral-400">Colombo 03, Sri Lanka</p>
+                  <p className="text-xs text-neutral-400 mt-1">Malabe, Sri Lanka</p>
                 </div>
               </div>
 
@@ -5071,8 +6649,8 @@ function App() {
           <div className="footer-ticker__track">
             {[...Array(6)].map((_, i) => (
               <span key={i} className="footer-ticker__item">
-                CONCERTS &nbsp;✦&nbsp; FESTIVALS &nbsp;✦&nbsp; LIVE SESSIONS &nbsp;✦&nbsp; DJ NIGHTS &nbsp;✦&nbsp;
-                ACOUSTIC SHOWS &nbsp;✦&nbsp;
+                CONCERTS &nbsp;/&nbsp; FESTIVALS &nbsp;/&nbsp; LIVE SESSIONS &nbsp;/&nbsp; DJ NIGHTS &nbsp;/&nbsp;
+                ACOUSTIC SHOWS &nbsp;/&nbsp;
               </span>
             ))}
           </div>
@@ -5197,10 +6775,6 @@ function App() {
                   </li>
                 ))}
               </ul>
-              <div className="footer-badge">
-                <span className="footer-badge__dot" />
-                Events live now
-              </div>
             </div>
           </div>
         </div>
@@ -5210,7 +6784,7 @@ function App() {
           <span className="footer-bottom__copy">© {new Date().getFullYear()} EXVO. All rights reserved.</span>
           <span className="footer-bottom__divider" />
           <span className="footer-bottom__credit">
-            Crafted with ♥ by&nbsp;<strong>Digexa</strong>
+            Crafted by&nbsp;<strong>Digexa</strong>
           </span>
         </div>
       </footer>
@@ -5232,14 +6806,14 @@ function App() {
             {/* Drawer Header */}
             <div className="organizer-drawer-header">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 font-bold text-lg">
-                  📊
+                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 font-bold text-[8px] tracking-wider">
+                  EVENTS
                 </div>
                 <div>
                   <h2 className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase">
                     ORGANIZER DASHBOARD
                   </h2>
-                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Live Database Events</p>
+                  <p className="text-[11px] text-neutral-400 font-sans">View, Edit & Delete Your Events</p>
                 </div>
               </div>
               <button
@@ -5253,22 +6827,19 @@ function App() {
             </div>
 
             {/* Quick Stats Grid */}
-            <div className="grid grid-cols-3 gap-2.5 my-4">
+            <div className="grid grid-cols-2 gap-2.5 my-4">
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL EVENTS</span>
-                <span className="dash-stat-val text-white">{myOrganizerEvents.length}</span>
+                <span className="dash-stat-val text-white">
+                  {loadingMyEvents || myEventsError ? '—' : myOrganizerEvents.length}
+                </span>
               </div>
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL PASSES</span>
                 <span className="dash-stat-val text-red-400">
-                  {myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
-                </span>
-              </div>
-              <div className="dash-stat-card">
-                <span className="dash-stat-label">DB STATUS</span>
-                <span className="dash-stat-val text-emerald-400 text-xs flex items-center gap-1 justify-center">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  ONLINE
+                  {loadingMyEvents || myEventsError
+                    ? '—'
+                    : myOrganizerEvents.reduce((acc, e) => acc + (e.totalCapacity || 500), 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -5276,13 +6847,12 @@ function App() {
             {/* Controls Bar: Search & Add Event Button */}
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs">🔍</span>
                 <input
                   type="text"
                   placeholder="Filter events..."
                   value={dashboardSearch}
                   onChange={(e) => setDashboardSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
+                  className="w-full px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-500 transition-colors"
                 />
               </div>
               <button
@@ -5301,10 +6871,9 @@ function App() {
             {/* Events List */}
             <div className="organizer-events-scroll space-y-3 pr-1">
               {loadingMyEvents ? (
-                <div className="text-center py-12 text-neutral-400 text-xs font-['Orbitron'] flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                  Loading your events...
-                </div>
+                <EventSkeleton compact />
+              ) : myEventsError ? (
+                <EventLoadError onRetry={fetchMyEvents} />
               ) : myOrganizerEvents.filter(
                   (e) =>
                     !dashboardSearch ||
@@ -5323,17 +6892,11 @@ function App() {
                     return (
                       <div key={evt.id} className="dash-event-card group">
                         <div className="flex items-start gap-3">
-                          {evt.cover ? (
-                            <img
-                              src={evt.cover}
-                              alt={evt.title}
-                              className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-16 h-16 rounded-lg bg-red-950/40 border border-red-500/30 flex items-center justify-center text-red-500 text-xl font-bold shrink-0">
-                              🎵
-                            </div>
-                          )}
+                          <EventPoster
+                            src={evt.cover}
+                            title={evt.title}
+                            className="w-16 h-16 rounded-lg object-cover border border-white/10 shrink-0"
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-1 mb-1">
                               <div className="flex items-center gap-1.5 overflow-hidden">
@@ -5354,7 +6917,7 @@ function App() {
                               {evt.title}
                             </h4>
                             <p className="text-[11px] text-neutral-400 truncate mt-0.5">
-                              📍 {evt.venue || 'Colombo'} • 📅 {evt.eventDate || '2026'}
+                              {evt.venue || 'Colombo'} • {evt.eventDate || '2026'}
                             </p>
 
                             {/* Action Buttons: EDIT, HIDE/UNHIDE, & DELETE */}
@@ -5424,7 +6987,7 @@ function App() {
                                 type="button"
                                 onClick={() => handleDeleteEvent(evt.id, evt.title)}
                                 className="dash-action-btn dash-action-btn--delete"
-                                title="Delete Event from Database"
+                                title="Delete Event"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path
@@ -5473,7 +7036,7 @@ function App() {
             <div className="add-event-header">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                DATABASE EDIT MODE
+                EDIT EVENT
               </div>
               <h2 className="text-2xl font-black font-['Orbitron'] text-white uppercase tracking-wider">
                 EDIT <span className="text-[#FF0000]">EVENT</span>
@@ -5516,17 +7079,25 @@ function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">CATEGORY *</label>
                   <select
-                    value={editEventForm.category}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, category: e.target.value })}
+                    value={editEventForm.categoryId || editEventForm.category}
+                    onChange={(e) => {
+                      const selectedVal = e.target.value
+                      const found = dbCategories.find(
+                        (c) => String(c.id) === String(selectedVal) || c.name === selectedVal,
+                      )
+                      if (found) {
+                        setEditEventForm({ ...editEventForm, categoryId: found.id, category: found.name })
+                      } else {
+                        setEditEventForm({ ...editEventForm, category: selectedVal })
+                      }
+                    }}
                     className="add-event-input"
                   >
-                    <option value="Concert">Concert</option>
-                    <option value="Festival">Festival</option>
-                    <option value="Live Session">Live Session</option>
-                    <option value="DJ Night">DJ Night</option>
-                    <option value="Acoustic">Acoustic</option>
-                    <option value="Stand-Up">Stand-Up</option>
-                    <option value="EDM Arena">EDM Arena</option>
+                    {dbCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -5536,8 +7107,15 @@ function App() {
                   <input
                     type="date"
                     required
+                    min={localDate(scheduleNow)}
+                    aria-label="Event date"
                     value={editEventForm.date}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, date: e.target.value })}
+                    onChange={(e) => {
+                      const next = { ...editEventForm, date: e.target.value }
+                      setEditEventForm(next)
+                      const text = validateEventSchedule(next.date, next.time)
+                      setEditEventFeedback({ type: text ? 'error' : '', text })
+                    }}
                     className="add-event-input"
                   />
                 </div>
@@ -5545,8 +7123,16 @@ function App() {
                   <label className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">TIME</label>
                   <input
                     type="time"
+                    required
+                    aria-label="Event time"
+                    min={minimumEventTime(editEventForm.date, scheduleNow)}
                     value={editEventForm.time}
-                    onChange={(e) => setEditEventForm({ ...editEventForm, time: e.target.value })}
+                    onChange={(e) => {
+                      const next = { ...editEventForm, time: e.target.value }
+                      setEditEventForm(next)
+                      const text = validateEventSchedule(next.date, next.time)
+                      setEditEventFeedback({ type: text ? 'error' : '', text })
+                    }}
                     className="add-event-input"
                   />
                 </div>
@@ -5618,7 +7204,7 @@ function App() {
                     />
                     <input
                       type="number"
-                      placeholder="Qty"
+                      placeholder="Unlimited"
                       value={tier.quantity}
                       onChange={(e) => handleUpdateTicketTierInEdit(tier.id, 'quantity', e.target.value)}
                       className="col-span-2 add-event-input text-xs"
@@ -5629,7 +7215,7 @@ function App() {
                         onClick={() => handleRemoveTicketTierInEdit(tier.id)}
                         className="col-span-1 text-neutral-500 hover:text-red-400 text-sm text-center"
                       >
-                        ✕
+                        ×
                       </button>
                     )}
                   </div>
@@ -5641,18 +7227,16 @@ function App() {
                 <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                   <div>
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
-                      <span className="text-red-500 text-sm">💺</span>
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">
-                      Configure interactive seat arrangement, zones & blocked seats
-                    </p>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement and zones</p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
                   <button
                     type="button"
                     onClick={() => {
+                      setEditSeatingPlanChanged(true)
                       const curr = editEventForm.seatingConfig || createDefaultSeatingConfig()
                       setEditEventForm((prev) => ({
                         ...prev,
@@ -5670,7 +7254,7 @@ function App() {
                     />
                     {editEventForm.seatingConfig?.enabled
                       ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
-                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                      : '○ HIDE SEATING FROM ATTENDEES'}
                   </button>
                 </div>
 
@@ -5682,7 +7266,6 @@ function App() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{editEventForm.seatingConfig?.enabled ? '🎟️' : '🙈'}</span>
                     <span>
                       {editEventForm.seatingConfig?.enabled
                         ? 'Seating plan will be displayed to attendees during checkout, allowing them to choose specific seats.'
@@ -5701,6 +7284,7 @@ function App() {
                           type="text"
                           value={editEventForm.seatingConfig.stageLabel || 'SCREEN'}
                           onChange={(e) => {
+                            setEditSeatingPlanChanged(true)
                             const val = e.target.value
                             setEditEventForm((prev) => ({
                               ...prev,
@@ -5716,6 +7300,7 @@ function App() {
                         <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
                         <select
                           onChange={(e) => {
+                            setEditSeatingPlanChanged(true)
                             const preset = e.target.value
                             let newZones = editEventForm.seatingConfig.zones
                             if (preset === 'standard') {
@@ -5745,7 +7330,7 @@ function App() {
                                   id: 'z1',
                                   name: 'ORCHESTRA',
                                   price: 4000,
-                                  rows: ['A', 'B', 'C', 'D'],
+                                  rows: ['A', 'B', 'C'],
                                   seatsPerRow: 14,
                                   occupiedSeats: [],
                                 },
@@ -5789,6 +7374,7 @@ function App() {
                           <button
                             type="button"
                             onClick={() => {
+                              setEditSeatingPlanChanged(true)
                               const synced = syncSeatingZonesWithTicketTiers(
                                 editEventForm.ticketTiers,
                                 editEventForm.seatingConfig?.zones || [],
@@ -5801,20 +7387,20 @@ function App() {
                             className="px-2 py-0.5 rounded bg-red-600/20 hover:bg-red-600/40 border border-red-500/40 text-red-300 hover:text-white transition-all text-[9.5px] cursor-pointer flex items-center gap-1 font-bold tracking-wider uppercase font-['Orbitron']"
                             title="Click to sync zone names and prices with Ticket Categories above"
                           >
-                            <span>🔄</span> SYNC WITH TICKET CATEGORIES
+                            SYNC WITH TICKET CATEGORIES
                           </button>
                         </div>
                         <button
                           type="button"
                           onClick={() => {
+                            setEditSeatingPlanChanged(true)
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + editEventForm.seatingConfig.zones.length * 3)
                             const newZone = {
                               id: nextId,
                               name: 'NEW ZONE',
-                              price: 2000,
-                              rows: [nextLetter],
-                              seatsPerRow: 10,
+                              price: '',
+                              rows: [],
+                              seatsPerRow: '',
                               occupiedSeats: [],
                             }
                             setEditEventForm((prev) => ({
@@ -5843,6 +7429,7 @@ function App() {
                                 type="text"
                                 value={zone.name}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const name = e.target.value
                                   setEditEventForm((prev) => ({
                                     ...prev,
@@ -5861,6 +7448,7 @@ function App() {
                                 type="number"
                                 value={zone.price}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const price = Number(e.target.value) || 0
                                   setEditEventForm((prev) => ({
                                     ...prev,
@@ -5874,11 +7462,15 @@ function App() {
                               />
                             </div>
                             <div>
-                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <span className="text-[8px] text-neutral-500 uppercase">
+                                ROW LABELS (comma separated)
+                              </span>
                               <input
                                 type="text"
+                                placeholder="e.g. A, B, C"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const rows = e.target.value
                                     .split(',')
                                     .map((r) => r.trim().toUpperCase())
@@ -5896,14 +7488,18 @@ function App() {
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="flex-1">
-                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW (MAX 20)</span>
                                 <input
                                   type="number"
                                   min="1"
-                                  max="25"
+                                  max="20"
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
-                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setEditSeatingPlanChanged(true)
+                                    const seatsPerRow =
+                                      e.target.value === ''
+                                        ? ''
+                                        : Math.min(20, Math.max(1, Number(e.target.value) || 1))
                                     setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -5921,6 +7517,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    setEditSeatingPlanChanged(true)
                                     setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -5944,31 +7541,9 @@ function App() {
                     {/* Interactive Seating Layout Visual Live Preview Component! */}
                     <div className="mt-4 pt-3 border-t border-white/10">
                       <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
-                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                        LIVE SEATING CHART PREVIEW
                       </span>
-                      <SeatingChartComponent
-                        seatingConfig={editEventForm.seatingConfig}
-                        isOrganizerEdit={true}
-                        onToggleOccupied={(seatId) => {
-                          setEditEventForm((prev) => {
-                            const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map((z) => {
-                              const isOccupied = z.occupiedSeats?.includes(seatId)
-                              let newOccupied
-                              if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
-                              } else {
-                                newOccupied = [...(z.occupiedSeats || []), seatId]
-                              }
-                              return { ...z, occupiedSeats: newOccupied }
-                            })
-                            return {
-                              ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones },
-                            }
-                          })
-                        }}
-                      />
+                      <SeatingChartComponent seatingConfig={editEventForm.seatingConfig} isOrganizerEdit={true} />
                     </div>
                   </div>
                 )}
@@ -6033,8 +7608,14 @@ function App() {
               {/* LEFT COLUMN: Cover Poster & Title (5 cols) */}
               <div
                 className="md:col-span-5 relative flex flex-col justify-between p-6 bg-cover bg-center min-h-[260px] md:min-h-full border-b md:border-b-0 md:border-r border-white/10 shrink-0"
-                style={{ backgroundImage: `url(${selectedDetailEvent.cover || sarithImg})` }}
+                style={selectedDetailEvent.cover ? { backgroundImage: `url(${selectedDetailEvent.cover})` } : undefined}
               >
+                {!selectedDetailEvent.cover && (
+                  <EventPoster
+                    title={selectedDetailEvent.title}
+                    className="absolute inset-0 w-full h-full rounded-none"
+                  />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/60 to-black/30" />
 
                 {/* Top Badges */}
@@ -6042,9 +7623,12 @@ function App() {
                   <span className="px-3 py-1 rounded-full bg-red-950/90 border border-red-500/60 text-red-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase shadow-md">
                     {selectedDetailEvent.category || selectedDetailEvent.genre || 'LIVE EVENT'}
                   </span>
-                  <span className="px-3 py-1 rounded-full bg-emerald-950/90 border border-emerald-500/60 text-emerald-400 text-[10px] font-bold font-['Orbitron'] tracking-widest uppercase flex items-center gap-1.5 shadow-md">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    AVAILABLE NOW
+                  <span
+                    className={`event-detail-status-pill ${selectedDetailInventory?.className || ''}`}
+                    title={selectedDetailInventory?.detail}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {selectedDetailInventory?.label || 'AVAILABLE NOW'}
                   </span>
                 </div>
 
@@ -6073,7 +7657,7 @@ function App() {
                     className="w-8 h-8 rounded-full bg-white/5 border border-white/10 hover:border-red-500 hover:bg-red-950/80 text-white hover:text-red-400 flex items-center justify-center text-sm transition-all cursor-pointer"
                     aria-label="Close details"
                   >
-                    ✕
+                    ×
                   </button>
                 </div>
 
@@ -6200,6 +7784,13 @@ function App() {
                     </p>
                   </div>
 
+                  {selectedDetailInventory?.disabled && (
+                    <div className="event-inventory-message">
+                      <div className="event-inventory-message__title">{selectedDetailInventory.label}</div>
+                      <div>{selectedDetailInventory.detail}</div>
+                    </div>
+                  )}
+
                   {/* Ticket Categories & Pricing Tiers */}
                   <div className="space-y-2">
                     <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center justify-between">
@@ -6242,77 +7833,51 @@ function App() {
                                 },
                               ]
 
-                        return finalTiers.map((tier, idx) => (
-                          <div key={idx} className="event-detail-tier-card">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-7 h-7 rounded-lg bg-red-950/60 border border-red-500/40 flex items-center justify-center text-red-500 text-xs font-bold font-['Orbitron']">
-                                {idx + 1}
-                              </div>
-                              <div>
-                                <div className="text-xs font-bold font-['Orbitron'] text-white">
-                                  {tier.name || tier.tierName}
+                        return finalTiers.map((tier, idx) => {
+                          const tierInventory = getTierInventoryMeta(
+                            eventInventoryById[String(selectedDetailEvent.id)],
+                            tier,
+                            idx,
+                          )
+                          return (
+                            <div
+                              key={idx}
+                              className={`event-detail-tier-card ${tierInventory.disabled ? `event-detail-tier-card--unavailable ${tierInventory.className}` : ''}`}
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-lg bg-red-950/60 border border-red-500/40 flex items-center justify-center text-red-500 text-xs font-bold font-['Orbitron']">
+                                  {idx + 1}
                                 </div>
-                                <div className="text-[10px] text-neutral-400">
-                                  Capacity: {tier.quantity || 200} passes available
+                                <div>
+                                  <div className="text-xs font-bold font-['Orbitron'] text-white">
+                                    {tier.name || tier.tierName}
+                                  </div>
+                                  <div className="text-[10px] text-neutral-400">{tierInventory.detail}</div>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-xs font-black font-['Orbitron'] text-red-400">
+                                  LKR {(Number(tier.price) || 0).toLocaleString()}
+                                </div>
+                                <div
+                                  className={`text-[9px] font-bold uppercase ${
+                                    tierInventory.disabled
+                                      ? tierInventory.className === 'is-temporarily-held'
+                                        ? 'text-amber-300'
+                                        : 'text-neutral-300'
+                                      : 'text-emerald-400'
+                                  }`}
+                                >
+                                  {tierInventory.label}
                                 </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div className="text-xs font-black font-['Orbitron'] text-red-400">
-                                LKR {(Number(tier.price) || 0).toLocaleString()}
-                              </div>
-                              <div className="text-[9px] text-emerald-400 font-bold uppercase">INSTANT ISSUANCE</div>
-                            </div>
-                          </div>
-                        ))
+                          )
+                        })
                       })()}
                     </div>
                   </div>
                 </div>
-
-                {/* ── Seating Arrangement Preview (Attendee View) ── */}
-                {(() => {
-                  const evt = selectedDetailEvent
-                  let seatCfg = evt.seatingConfig
-                  if (!seatCfg && evt.seatingConfigJson) {
-                    try {
-                      seatCfg =
-                        typeof evt.seatingConfigJson === 'string'
-                          ? JSON.parse(evt.seatingConfigJson)
-                          : evt.seatingConfigJson
-                    } catch {}
-                  }
-                  if (seatCfg && seatCfg.enabled && seatCfg.zones && seatCfg.zones.length > 0) {
-                    return (
-                      <div className="space-y-2 mt-3">
-                        <div className="text-[11px] font-bold font-['Orbitron'] text-neutral-300 tracking-widest uppercase flex items-center gap-1.5">
-                          <svg
-                            className="w-3.5 h-3.5 text-amber-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                            />
-                          </svg>
-                          SEATING ARRANGEMENT
-                        </div>
-                        <SeatingChartComponent
-                          seatingConfig={seatCfg}
-                          isOrganizerEdit={false}
-                          selectedSeats={[]}
-                          onSelectSeat={() => {}}
-                          onToggleOccupied={() => {}}
-                        />
-                      </div>
-                    )
-                  }
-                  return null
-                })()}
 
                 {/* Bottom Actions Footer */}
                 <div className="p-3.5 bg-neutral-900/90 border-t border-white/10 flex items-center justify-between gap-3 shrink-0 mt-auto">
@@ -6326,17 +7891,30 @@ function App() {
 
                   <button
                     type="button"
+                    disabled={selectedDetailInventory?.disabled}
                     onClick={() => {
+                      if (selectedDetailInventory?.disabled) return
                       const eventToBook = selectedDetailEvent
                       handleCloseEventDetails()
                       handleOpenBooking(eventToBook)
                     }}
-                    className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer flex items-center gap-1.5"
+                    className={`px-5 py-2 rounded-xl text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all flex items-center gap-1.5 ${
+                      selectedDetailInventory?.disabled
+                        ? 'bg-neutral-700 text-neutral-300 border border-neutral-500/50 cursor-not-allowed shadow-none'
+                        : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(255,0,0,0.5)] cursor-pointer'
+                    }`}
                   >
-                    <span>GET TICKETS NOW</span>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
+                    <span>{selectedDetailInventory?.disabled ? selectedDetailInventory.label : 'GET TICKETS NOW'}</span>
+                    {!selectedDetailInventory?.disabled && (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M14 5l7 7m0 0l-7 7m7-7H3"
+                        />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </div>

@@ -7,7 +7,7 @@ describe('API configuration', () => {
     expect(buildApiUrl('/api/auth/login')).toBe('http://localhost:5000/api/auth/login')
   })
 
-  test('provides the shared unavailable-backend message', () => {
-    expect(BACKEND_UNAVAILABLE_MESSAGE).toBe('Backend service is not currently available')
+  test('provides a user-facing availability message without implementation details', () => {
+    expect(BACKEND_UNAVAILABLE_MESSAGE).toBe('The service is currently unavailable. Please try again shortly.')
   })
 })
