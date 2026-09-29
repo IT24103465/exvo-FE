@@ -3,7 +3,13 @@ import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import './App.css'
 import { EventSkeleton, EventLoadError } from './components/EventListState'
-import { localDate, minimumEventTime, validateEventSchedule, isEventExpired, eventStartTimestamp } from './services/eventDateTime'
+import {
+  localDate,
+  minimumEventTime,
+  validateEventSchedule,
+  isEventExpired,
+  eventStartTimestamp,
+} from './services/eventDateTime'
 import { useEventExpiry } from './components/useEventExpiry'
 import {
   registerUser,
@@ -36,6 +42,12 @@ import {
   saveSeatingPlan,
   submitBookingTicketImages,
 } from './services/bookingService'
+import {
+  canSelectSeatForTicketTier,
+  seatingAllocationErrors,
+  seatMatchesTicketTier,
+  seatingConfigToBookingPlan,
+} from './services/seatingPlanAdapter'
 
 import backgroundVideo from './assets/bg_video.mp4'
 const ExvoLogo = () => (
@@ -198,19 +210,12 @@ const extractTimeFromEvent = (e) => {
 
 const syncSeatingZonesWithTicketTiers = (ticketTiers, existingZones = []) => {
   if (!ticketTiers || ticketTiers.length === 0) return existingZones
-  const defaultRowSets = [
-    ['A', 'B', 'C'],
-    ['D', 'E', 'F', 'G'],
-    ['H', 'I', 'J'],
-    ['K', 'L', 'M'],
-    ['N', 'O', 'P'],
-  ]
   return ticketTiers.map((tier, idx) => {
     const existing = existingZones[idx]
     const name = (tier.name || `Category ${idx + 1}`).toUpperCase()
-    const price = Number(tier.price) || 0
-    const rows = existing?.rows?.length ? existing.rows : defaultRowSets[idx % defaultRowSets.length] || ['A', 'B']
-    const seatsPerRow = existing?.seatsPerRow || 12
+    const price = tier.price === '' || tier.price == null ? '' : Number(tier.price) || 0
+    const rows = existing?.rows || []
+    const seatsPerRow = existing?.seatsPerRow ?? ''
     const occupiedSeats = existing?.occupiedSeats || []
     const id = existing?.id || `zone-tier-${idx + 1}`
     return {
@@ -230,7 +235,7 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
     {
       id: 'z-classic',
       name: 'GENERAL ADMISSION',
-      price: 2500,
+      price: '',
       rows: ['A', 'B', 'C'],
       seatsPerRow: 13,
       occupiedSeats: [],
@@ -238,10 +243,10 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
     {
       id: 'z-premium',
       name: 'VIP PASS',
-      price: 5000,
-      rows: ['D', 'E', 'F', 'G'],
+      price: '',
+      rows: ['D', 'E', 'F'],
       seatsPerRow: 13,
-      occupiedSeats: ['E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'F5', 'F6', 'F7', 'F8', 'F9', 'G5', 'G6', 'G7', 'G8', 'G9'],
+      occupiedSeats: [],
     },
   ]
   if (ticketTiers && ticketTiers.length > 0) {
@@ -260,12 +265,28 @@ const createDefaultSeatingConfig = (ticketTiers = []) => {
   }
 }
 
+const createEmptySeatingConfig = () => ({
+  enabled: false,
+  autoSyncCategories: true,
+  stageLabel: 'SCREEN',
+  zones: [],
+})
+
+const safeTicketTierId = (id) => {
+  const value = Number(id)
+  return Number.isSafeInteger(value) && value > 0 && value <= 2147483647 ? value : null
+}
+
+const normalizedSeatCode = (code) => {
+  const match = String(code || '').match(/^([a-z]+)-?0*(\d+)$/i)
+  return match ? `${match[1].toUpperCase()}-${Number(match[2])}` : String(code || '').toUpperCase()
+}
+
 const SeatingChartComponent = ({
   seatingConfig,
   isOrganizerEdit = false,
   selectedSeats = [],
   onSelectSeat = () => {},
-  onToggleOccupied = () => {},
 }) => {
   if (!seatingConfig || !seatingConfig.enabled || !seatingConfig.zones || seatingConfig.zones.length === 0) return null
 
@@ -296,14 +317,24 @@ const SeatingChartComponent = ({
             <span className="w-3.5 h-3.5 rounded border border-neutral-500 bg-[#18181c]" />
             <span>Available</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
-            <span>Selected</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-3.5 h-3.5 rounded bg-neutral-700 border border-neutral-600" />
-            <span>Unavailable</span>
-          </div>
+          {!isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-amber-400 border border-amber-500 shadow-sm" />
+              <span>Selected</span>
+            </div>
+          )}
+          {!isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-neutral-700 border border-neutral-600" />
+              <span>Unavailable</span>
+            </div>
+          )}
+          {isOrganizerEdit && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-3.5 h-3.5 rounded bg-rose-900/70 border border-rose-500" />
+              <span>Booked / held</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -324,85 +355,101 @@ const SeatingChartComponent = ({
 
             {/* Zone Rows */}
             <div className="space-y-1.5">
-              {(zone.rows || ['A']).map((rowLetter) => (
-                <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
-                  {/* Left Row Letter */}
-                  <span className="w-6 text-right font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
-
-                  {/* Seat Grid */}
-                  <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
-                    {(zone.seatsByRow?.[rowLetter] ||
-                      Array.from({ length: zone.seatsPerRow || 10 }, (_, i) => ({
-                        seatCode: `${rowLetter}-${i + 1}`,
-                        seatNumber: i + 1,
-                        status: zone.occupiedSeats?.includes(`${rowLetter}${i + 1}`) ? 'Booked' : 'Available',
+              {(zone.rows || ['A']).map((rowLetter) => {
+                const persistedSeats = zone.seatsByRow?.[rowLetter] || []
+                const firstSeatNumber = Math.max(1, Number(zone.startingSeatNumber) || 1)
+                const storedByNumber = new Map(persistedSeats.map((seat) => [Number(seat.seatNumber), seat]))
+                const configuredSeats = Array.from(
+                  { length: Math.max(1, Number(zone.seatsPerRow) || 10) },
+                  (_, index) => {
+                    const seatNumber = firstSeatNumber + index
+                    return (
+                      storedByNumber.get(seatNumber) || {
+                        seatCode: `${rowLetter}-${String(seatNumber).padStart(2, '0')}`,
+                        seatNumber,
+                        status: 'Available',
                         isEnabled: true,
                         price: zone.price,
-                      }))).map((seat) => {
-                      const seatId = seat.seatCode
-                      const seatNum = seat.seatNumber
-                      const isUnavailable = !seat.isEnabled || seat.status !== 'Available'
-                      const isSelected = selectedSeats.includes(seatId)
-
-                      let seatClass =
-                        'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
-
-                      if (isSelected) {
-                        seatClass +=
-                          ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
-                      } else if (isUnavailable) {
-                        seatClass += ' bg-neutral-700/80 text-neutral-500 border-neutral-600 opacity-90'
-                        if (!isOrganizerEdit) {
-                          seatClass += ' cursor-not-allowed'
-                        }
-                      } else {
-                        seatClass +=
-                          ' bg-[#18181c] text-neutral-200 border-white/20 hover:border-amber-400 hover:bg-white/10'
                       }
+                    )
+                  },
+                )
+                const configuredNumbers = new Set(configuredSeats.map((seat) => Number(seat.seatNumber)))
+                const rowSeats = [
+                  ...configuredSeats,
+                  ...persistedSeats.filter((seat) => !configuredNumbers.has(Number(seat.seatNumber))),
+                ].sort((first, second) => Number(first.seatNumber) - Number(second.seatNumber))
 
-                      return (
-                        <button
-                          key={seatId}
-                          type="button"
-                          title={`Row ${rowLetter}, Seat ${seatNum} (${zone.name} - LKR ${seat.price})`}
-                          disabled={isUnavailable && !isOrganizerEdit}
-                          onClick={() => {
-                            if (isOrganizerEdit) {
-                              onToggleOccupied(seatId)
-                            } else {
-                              if (!isUnavailable) {
+                return (
+                  <div key={rowLetter} className="flex items-center justify-between gap-2 text-xs font-sans">
+                    {/* Left Row Letter */}
+                    <span className="w-6 text-right font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
+
+                    {/* Seat Grid */}
+                    <div className="flex items-center justify-center gap-1.5 flex-1 flex-wrap">
+                      {rowSeats.map((seat) => {
+                        const seatId = seat.seatCode
+                        const seatNum = seat.seatNumber
+                        const isConfiguredUnavailable = (zone.occupiedSeats || []).some(
+                          (code) => normalizedSeatCode(code) === normalizedSeatCode(seatId),
+                        )
+                        const isOccupied = seat.status === 'Booked' || seat.status === 'Held'
+                        const isUnavailable =
+                          isOccupied || (!isOrganizerEdit && (isConfiguredUnavailable || !seat.isEnabled))
+                        const isSelected = selectedSeats.includes(seatId)
+
+                        let seatClass =
+                          'w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-md border text-[10px] md:text-xs font-semibold flex items-center justify-center transition-all duration-150 cursor-pointer shadow-sm select-none'
+
+                        if (isSelected) {
+                          seatClass +=
+                            ' bg-amber-400 text-neutral-900 border-amber-500 font-bold scale-105 shadow-md shadow-amber-400/40'
+                        } else if (isUnavailable) {
+                          seatClass +=
+                            isOccupied && isOrganizerEdit
+                              ? ' bg-rose-900/70 text-rose-200 border-rose-500 opacity-90'
+                              : ' bg-neutral-700/80 text-neutral-500 border-neutral-600 opacity-90'
+                        } else {
+                          seatClass +=
+                            ' bg-[#18181c] text-neutral-200 border-white/20 hover:border-amber-400 hover:bg-white/10'
+                        }
+
+                        return (
+                          <button
+                            key={seatId}
+                            type="button"
+                            title={`Row ${rowLetter}, Seat ${seatNum} (${isOccupied ? seat.status.toLowerCase() : isUnavailable ? 'unavailable' : 'available'})`}
+                            aria-label={`Row ${rowLetter}, seat ${seatNum}, ${isOccupied ? seat.status.toLowerCase() : isUnavailable ? 'unavailable' : 'available'}`}
+                            disabled={isOrganizerEdit || isUnavailable}
+                            onClick={() => {
+                              if (!isOrganizerEdit && !isUnavailable) {
                                 onSelectSeat(seatId, zone)
                               }
-                            }
-                          }}
-                          className={seatClass}
-                        >
-                          {seatNum}
-                        </button>
-                      )
-                    })}
-                  </div>
+                            }}
+                            className={`${seatClass} ${isOrganizerEdit || isUnavailable ? 'cursor-default' : 'cursor-pointer'}`}
+                          >
+                            {seatNum}
+                          </button>
+                        )
+                      })}
+                    </div>
 
-                  {/* Right Row Letter */}
-                  <span className="w-6 text-left font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
-                </div>
-              ))}
+                    {/* Right Row Letter */}
+                    <span className="w-6 text-left font-bold text-neutral-400 text-[11px] shrink-0">{rowLetter}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         ))}
       </div>
-
-      {isOrganizerEdit && (
-        <div className="mt-4 pt-3 border-t border-neutral-200 text-center text-[10px] text-neutral-500 font-sans">
-          Click any seat above to toggle its reservation status (Occupied vs Available) for your event attendees.
-        </div>
-      )}
     </div>
   )
 }
 
 const seatingPlanToChartConfig = (plan) => ({
   enabled: true,
+  planId: plan?.id,
   stageLabel: 'SCREEN',
   zones: (plan?.sections || []).map((section) => {
     const seats = section.seats || []
@@ -417,32 +464,11 @@ const seatingPlanToChartConfig = (plan) => ({
         groups[seat.rowLabel] = [...(groups[seat.rowLabel] || []), seat]
         return groups
       }, {}),
-      occupiedSeats: [],
+      occupiedSeats: seats
+        .filter((seat) => !seat.isEnabled && seat.status === 'Available')
+        .map((seat) => seat.seatCode),
     }
   }),
-})
-
-const seatingConfigToBookingPlan = (config, ticketTiers = []) => ({
-  name: 'Event seating plan',
-  isVisibleToAttendees: Boolean(config?.enabled),
-  sections: (config?.zones || []).map((zone, index) => ({
-    name: zone.name || `Section ${index + 1}`,
-    rowCount: Array.isArray(zone.rows) && zone.rows.length > 0 ? zone.rows.length : 1,
-    seatsPerRow: Math.max(1, Number(zone.seatsPerRow) || 1),
-    startingRowLabel: zone.rows?.[0] || String.fromCharCode(65 + index),
-    startingSeatNumber: 1,
-    ticketTierId: zone.ticketTierId
-      ? Number(zone.ticketTierId)
-      : ticketTiers.find(
-          (tier) => tier.name?.toUpperCase() === zone.name?.toUpperCase() || Number(tier.price) === Number(zone.price),
-        )?.id || null,
-    price: Number(zone.price) || Number(ticketTiers[index]?.price) || 0,
-    displayOrder: index,
-    disabledSeatCodes: (zone.occupiedSeats || []).map((code) => {
-      const match = String(code).match(/^([A-Z]+)(\d+)$/i)
-      return match ? `${match[1].toUpperCase()}-${Number(match[2]).toString().padStart(2, '0')}` : code
-    }),
-  })),
 })
 
 const availableSeatsInPlan = (plan) =>
@@ -454,7 +480,8 @@ const ticketHasAssignedSeat = (ticket) =>
   ticket?.hasSeat === true || (ticket?.hasSeat !== false && ticket?.rowLabel && ticket.rowLabel !== 'GA')
 
 const ticketIdentity = (ticket) =>
-  ticket?.ticketCode || `${ticket?.booking?.bookingReference || 'ticket'}-${ticket?.bookingItemId || ticket?.seatCode || 'item'}`
+  ticket?.ticketCode ||
+  `${ticket?.booking?.bookingReference || 'ticket'}-${ticket?.bookingItemId || ticket?.seatCode || 'item'}`
 
 const isTicketHistoryEvent = (event = {}, now = Date.now()) => {
   if (event.isDeleted) return false
@@ -488,146 +515,6 @@ const normalizeTicketEventSnapshot = (eventId, event = {}) => {
 }
 
 // ── Sparkling particle canvas for footer ──
-const createTicketQrMatrix = (value) => {
-  const version = 4
-  const size = 17 + version * 4
-  const matrix = Array.from({ length: size }, () => Array(size).fill(false))
-  const reserved = Array.from({ length: size }, () => Array(size).fill(false))
-  const setModule = (row, col, dark, isReserved = true) => {
-    if (row < 0 || col < 0 || row >= size || col >= size) return
-    matrix[row][col] = Boolean(dark)
-    if (isReserved) reserved[row][col] = true
-  }
-  const setReserved = (row, col) => {
-    if (row >= 0 && col >= 0 && row < size && col < size) reserved[row][col] = true
-  }
-  const drawFinder = (row, col) => {
-    for (let r = -1; r <= 7; r += 1) {
-      for (let c = -1; c <= 7; c += 1) {
-        const rr = row + r
-        const cc = col + c
-        if (rr < 0 || cc < 0 || rr >= size || cc >= size) continue
-        const dark =
-          r >= 0 &&
-          r <= 6 &&
-          c >= 0 &&
-          c <= 6 &&
-          (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4))
-        setModule(rr, cc, dark)
-      }
-    }
-  }
-  const drawAlignment = (centerRow, centerCol) => {
-    for (let r = -2; r <= 2; r += 1) {
-      for (let c = -2; c <= 2; c += 1) {
-        setModule(centerRow + r, centerCol + c, Math.max(Math.abs(r), Math.abs(c)) !== 1)
-      }
-    }
-  }
-  const reserveFormat = () => {
-    for (let i = 0; i <= 8; i += 1) {
-      if (i !== 6) {
-        setReserved(8, i)
-        setReserved(i, 8)
-      }
-    }
-    for (let i = 0; i < 8; i += 1) setReserved(size - 1 - i, 8)
-    for (let i = 0; i < 7; i += 1) setReserved(8, size - 1 - i)
-  }
-
-  drawFinder(0, 0)
-  drawFinder(0, size - 7)
-  drawFinder(size - 7, 0)
-  drawAlignment(26, 26)
-  for (let i = 8; i < size - 8; i += 1) {
-    setModule(6, i, i % 2 === 0)
-    setModule(i, 6, i % 2 === 0)
-  }
-  setModule(size - 8, 8, true)
-  reserveFormat()
-
-  const bytes = new TextEncoder().encode(String(value || ''))
-  const bits = []
-  const appendBits = (number, count) => {
-    for (let i = count - 1; i >= 0; i -= 1) bits.push((number >>> i) & 1)
-  }
-  appendBits(0b0100, 4)
-  appendBits(Math.min(bytes.length, 78), 8)
-  bytes.slice(0, 78).forEach((byte) => appendBits(byte, 8))
-  const dataBitCapacity = 80 * 8
-  appendBits(0, Math.min(4, dataBitCapacity - bits.length))
-  while (bits.length % 8) bits.push(0)
-  const data = []
-  for (let i = 0; i < bits.length; i += 8) data.push(bits.slice(i, i + 8).reduce((acc, bit) => (acc << 1) | bit, 0))
-  for (let pad = 0; data.length < 80; pad += 1) data.push(pad % 2 === 0 ? 0xec : 0x11)
-
-  const gfExp = Array(512).fill(0)
-  const gfLog = Array(256).fill(0)
-  let gfValue = 1
-  for (let i = 0; i < 255; i += 1) {
-    gfExp[i] = gfValue
-    gfLog[gfValue] = i
-    gfValue <<= 1
-    if (gfValue & 0x100) gfValue ^= 0x11d
-  }
-  for (let i = 255; i < 512; i += 1) gfExp[i] = gfExp[i - 255]
-  const gfMul = (a, b) => (a && b ? gfExp[gfLog[a] + gfLog[b]] : 0)
-  const generator = [1]
-  for (let degree = 0; degree < 20; degree += 1) {
-    generator.push(0)
-    for (let i = generator.length - 1; i > 0; i -= 1) {
-      generator[i] = generator[i - 1] ^ gfMul(generator[i], gfExp[degree])
-    }
-    generator[0] = gfMul(generator[0], gfExp[degree])
-  }
-  const ecc = Array(20).fill(0)
-  data.forEach((byte) => {
-    const factor = byte ^ ecc.shift()
-    ecc.push(0)
-    generator.forEach((coefficient, index) => {
-      ecc[index] ^= gfMul(coefficient, factor)
-    })
-  })
-  const codewordBits = data
-    .concat(ecc)
-    .flatMap((byte) => Array.from({ length: 8 }, (_, index) => (byte >>> (7 - index)) & 1))
-
-  let bitIndex = 0
-  let upward = true
-  for (let col = size - 1; col > 0; col -= 2) {
-    if (col === 6) col -= 1
-    for (let step = 0; step < size; step += 1) {
-      const row = upward ? size - 1 - step : step
-      for (let offset = 0; offset < 2; offset += 1) {
-        const c = col - offset
-        if (reserved[row][c]) continue
-        const rawBit = bitIndex < codewordBits.length ? codewordBits[bitIndex] : 0
-        const mask = (row + c) % 2 === 0
-        matrix[row][c] = Boolean(rawBit ^ (mask ? 1 : 0))
-        bitIndex += 1
-      }
-    }
-    upward = !upward
-  }
-
-  const formatData = 0b01000
-  let format = formatData << 10
-  for (let i = 14; i >= 10; i -= 1) {
-    if ((format >>> i) & 1) format ^= 0x537 << (i - 10)
-  }
-  format = ((formatData << 10) | format) ^ 0x5412
-  const formatBit = (index) => (format >>> index) & 1
-  for (let i = 0; i <= 5; i += 1) setModule(8, i, formatBit(i))
-  setModule(8, 7, formatBit(6))
-  setModule(8, 8, formatBit(7))
-  setModule(7, 8, formatBit(8))
-  for (let i = 9; i < 15; i += 1) setModule(14 - i, 8, formatBit(i))
-  for (let i = 0; i < 8; i += 1) setModule(size - 1 - i, 8, formatBit(i))
-  for (let i = 8; i < 15; i += 1) setModule(8, size - 15 + i, formatBit(i))
-
-  return matrix
-}
-
 const drawTicketQrCode = async (ctx, value, x, y, size) => {
   const dataUrl = await QRCode.toDataURL(String(value || ''), {
     errorCorrectionLevel: 'M',
@@ -675,17 +562,7 @@ const TicketBarcode = ({ value, className = '' }) => {
   return <svg ref={barcodeRef} className={className} aria-label={`Barcode for ticket ${value}`} />
 }
 
-const TicketManagerPage = ({
-  bookings,
-  events,
-  error,
-  loading,
-  onBack,
-  onRefresh,
-  onDownload,
-  formatDate,
-  user,
-}) => {
+const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh, onDownload, formatDate, user }) => {
   const userDetails = getUserDetails(user)
   const hiddenStorageKey = `exvo-hidden-tickets:${userDetails.id || userDetails.email || userDetails.name || 'guest'}`
   const [ticketSearch, setTicketSearch] = useState('')
@@ -714,7 +591,8 @@ const TicketManagerPage = ({
   const hiddenSet = new Set(hiddenTicketCodes)
   const historyTickets = flattenedTickets.filter((ticket) => isTicketHistoryEvent(ticket.event))
   const activeTickets = flattenedTickets.filter(
-    (ticket) => !ticket.event.isDeleted && !isTicketHistoryEvent(ticket.event) && !hiddenSet.has(ticketIdentity(ticket)),
+    (ticket) =>
+      !ticket.event.isDeleted && !isTicketHistoryEvent(ticket.event) && !hiddenSet.has(ticketIdentity(ticket)),
   )
   const hiddenTickets = flattenedTickets.filter(
     (ticket) =>
@@ -770,7 +648,10 @@ const TicketManagerPage = ({
       ...new Set(
         bookings
           .map((booking) => Number(booking.eventId))
-          .filter((eventId) => eventId && !events.some((event) => Number(event.id) === eventId) && !ticketEventSnapshots[eventId]),
+          .filter(
+            (eventId) =>
+              eventId && !events.some((event) => Number(event.id) === eventId) && !ticketEventSnapshots[eventId],
+          ),
       ),
     ]
     if (missingEventIds.length === 0) return undefined
@@ -1661,11 +1542,8 @@ function App() {
     date: '',
     time: '19:00',
     venue: '',
-    ticketTiers: [
-      { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-      { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
-    ],
-    seatingConfig: createDefaultSeatingConfig(),
+    ticketTiers: [{ id: '1', name: '', price: '', quantity: '' }],
+    seatingConfig: createEmptySeatingConfig(),
     coverImage: '',
     description: '',
   })
@@ -1680,6 +1558,7 @@ function App() {
   const [dashboardSearch, setDashboardSearch] = useState('')
   const [showEditEventModal, setShowEditEventModal] = useState(false)
   const [editingEventId, setEditingEventId] = useState(null)
+  const [editSeatingPlanChanged, setEditSeatingPlanChanged] = useState(false)
   const [editEventForm, setEditEventForm] = useState({
     title: '',
     artistOrOrganizer: '',
@@ -1730,7 +1609,8 @@ function App() {
 
   useEffect(() => {
     if (!seatHold?.expiresAtUtc) return undefined
-    const updateRemaining = () => setHoldSecondsRemaining(Math.max(0, Math.ceil((new Date(seatHold.expiresAtUtc).getTime() - Date.now()) / 1000)))
+    const updateRemaining = () =>
+      setHoldSecondsRemaining(Math.max(0, Math.ceil((new Date(seatHold.expiresAtUtc).getTime() - Date.now()) / 1000)))
     updateRemaining()
     const timer = window.setInterval(updateRemaining, 1000)
     return () => window.clearInterval(timer)
@@ -1830,7 +1710,7 @@ function App() {
 
   const handleAddTicketTier = () => {
     setNewEventForm((prev) => {
-      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
       const updatedZones = autoSync
         ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
@@ -2139,7 +2019,17 @@ function App() {
     ctx.setLineDash([])
 
     drawFitText(eventTitle.toUpperCase(), ticketX + 50, ticketY + 446, ticketW - 100, 43, 900, '#ffffff', 'left', 25)
-    drawFitText((event.artistOrOrganizer || event.category || 'LIVE EVENT').toUpperCase(), ticketX + 50, ticketY + 504, ticketW - 100, 25, 500, 'rgba(255,255,255,0.88)', 'left', 16)
+    drawFitText(
+      (event.artistOrOrganizer || event.category || 'LIVE EVENT').toUpperCase(),
+      ticketX + 50,
+      ticketY + 504,
+      ticketW - 100,
+      25,
+      500,
+      'rgba(255,255,255,0.88)',
+      'left',
+      16,
+    )
 
     ctx.strokeStyle = 'rgba(255,255,255,0.62)'
     ctx.setLineDash([3, 13])
@@ -2149,8 +2039,28 @@ function App() {
     ctx.stroke()
     ctx.setLineDash([])
 
-    drawFitText('DETAILS INFORMATION', ticketX + ticketW / 2, ticketY + 616, ticketW - 90, 20, 700, '#ffffff', 'center', 15)
-    drawText(eventDate, ticketX + ticketW / 2, ticketY + 658, ticketW - 100, 17, 500, 'rgba(255,255,255,0.86)', 'center', 2)
+    drawFitText(
+      'DETAILS INFORMATION',
+      ticketX + ticketW / 2,
+      ticketY + 616,
+      ticketW - 90,
+      20,
+      700,
+      '#ffffff',
+      'center',
+      15,
+    )
+    drawText(
+      eventDate,
+      ticketX + ticketW / 2,
+      ticketY + 658,
+      ticketW - 100,
+      17,
+      500,
+      'rgba(255,255,255,0.86)',
+      'center',
+      2,
+    )
     drawText(venue, ticketX + ticketW / 2, ticketY + 716, ticketW - 100, 17, 500, 'rgba(255,255,255,0.78)', 'center', 2)
 
     const detailY = ticketY + 812
@@ -2160,10 +2070,30 @@ function App() {
       drawFitText('ROW', ticketX + 70, detailY + 42, 125, 21, 900, '#ffffff', 'left', 15)
       drawFitText(ticket.rowLabel || '-', ticketX + 200, detailY + 42, 250, 20, 500, '#ffffff', 'left', 13)
       drawFitText('SEAT', ticketX + 70, detailY + 84, 125, 21, 900, '#ffffff', 'left', 15)
-      drawFitText(ticket.seatNumber || ticket.seatCode, ticketX + 200, detailY + 84, 250, 20, 500, '#ffffff', 'left', 13)
+      drawFitText(
+        ticket.seatNumber || ticket.seatCode,
+        ticketX + 200,
+        detailY + 84,
+        250,
+        20,
+        500,
+        '#ffffff',
+        'left',
+        13,
+      )
     } else {
       drawFitText('PASS TYPE', ticketX + 70, detailY, 155, 21, 900, '#ffffff', 'left', 15)
-      drawFitText(ticket.sectionName || ticket.seatCode || 'General Admission', ticketX + 240, detailY, 220, 20, 500, '#ffffff', 'left', 13)
+      drawFitText(
+        ticket.sectionName || ticket.seatCode || 'General Admission',
+        ticketX + 240,
+        detailY,
+        220,
+        20,
+        500,
+        '#ffffff',
+        'left',
+        13,
+      )
       drawFitText('ACCESS', ticketX + 70, detailY + 48, 155, 21, 900, '#ffffff', 'left', 15)
       drawFitText('General Entry', ticketX + 240, detailY + 48, 220, 20, 500, '#ffffff', 'left', 13)
     }
@@ -2176,9 +2106,39 @@ function App() {
     ctx.lineTo(ticketX + ticketW - 34, stubY)
     ctx.stroke()
 
-    drawFitText(eventTitle.toUpperCase(), ticketX + ticketW / 2, stubY + 54, ticketW - 90, 30, 900, '#2626d9', 'center', 18)
-    drawFitText(event.artistOrOrganizer || event.category || 'EVENT PASS', ticketX + ticketW / 2, stubY + 96, ticketW - 100, 17, 500, '#333333', 'center', 13)
-    drawFitText(userDetails.name || 'YOUR NAME HERE', ticketX + ticketW / 2, stubY + 145, ticketW - 90, 24, 500, '#7443c8', 'center', 15)
+    drawFitText(
+      eventTitle.toUpperCase(),
+      ticketX + ticketW / 2,
+      stubY + 54,
+      ticketW - 90,
+      30,
+      900,
+      '#2626d9',
+      'center',
+      18,
+    )
+    drawFitText(
+      event.artistOrOrganizer || event.category || 'EVENT PASS',
+      ticketX + ticketW / 2,
+      stubY + 96,
+      ticketW - 100,
+      17,
+      500,
+      '#333333',
+      'center',
+      13,
+    )
+    drawFitText(
+      userDetails.name || 'YOUR NAME HERE',
+      ticketX + ticketW / 2,
+      stubY + 145,
+      ticketW - 90,
+      24,
+      500,
+      '#7443c8',
+      'center',
+      15,
+    )
 
     const barcodeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     JsBarcode(barcodeSvg, ticket.ticketCode, {
@@ -2193,7 +2153,17 @@ function App() {
     const barcodeUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(barcodeSvg))}`
     const barcode = await loadImage(barcodeUrl)
     if (barcode) ctx.drawImage(barcode, ticketX + 62, stubY + 200, ticketW - 124, 76)
-    drawFitText(ticket.ticketCode.slice(-18), ticketX + ticketW / 2, stubY + 274, ticketW - 110, 15, 600, '#303030', 'center', 11)
+    drawFitText(
+      ticket.ticketCode.slice(-18),
+      ticketX + ticketW / 2,
+      stubY + 274,
+      ticketW - 110,
+      15,
+      600,
+      '#303030',
+      'center',
+      11,
+    )
 
     if (forEmail) return canvas.toDataURL('image/jpeg', 0.94)
     const link = document.createElement('a')
@@ -2207,11 +2177,13 @@ function App() {
       const bookings = await getMyTickets()
       const booking = bookings.find((item) => Number(item.bookingId) === Number(bookingConfirmation.bookingId))
       if (!booking?.tickets?.length) throw new Error('The confirmed tickets could not be loaded.')
-      const tickets = await Promise.all(booking.tickets.map(async (ticket) => ({
-        bookingItemId: ticket.bookingItemId,
-        ticketCode: ticket.ticketCode,
-        image: await downloadTicketImage(ticket, booking, event, true),
-      })))
+      const tickets = await Promise.all(
+        booking.tickets.map(async (ticket) => ({
+          bookingItemId: ticket.bookingItemId,
+          ticketCode: ticket.ticketCode,
+          image: await downloadTicketImage(ticket, booking, event, true),
+        })),
+      )
       await submitBookingTicketImages(booking.bookingId, tickets)
     } catch (error) {
       console.error('Could not prepare the confirmation email ticket images.', error)
@@ -2551,9 +2523,22 @@ function App() {
       return
     }
 
-    const validTiers = newEventForm.ticketTiers.filter((t) => t.name.trim() && Number(t.price) > 0)
+    const validTiers = newEventForm.ticketTiers.filter((tier) => tier.name.trim() && Number(tier.price) > 0)
     if (validTiers.length === 0) {
       setEventFeedback({ type: 'error', text: 'Please add at least one valid ticket category with a price.' })
+      return
+    }
+    if (
+      validTiers.some(
+        (tier) => tier.quantity !== '' && (!Number.isInteger(Number(tier.quantity)) || Number(tier.quantity) < 1),
+      )
+    ) {
+      setEventFeedback({ type: 'error', text: 'Ticket quantities must be whole numbers, or left empty for no limit.' })
+      return
+    }
+    const seatingErrors = seatingAllocationErrors(newEventForm.seatingConfig, validTiers)
+    if (seatingErrors.length) {
+      setEventFeedback({ type: 'error', text: seatingErrors[0] })
       return
     }
 
@@ -2588,7 +2573,9 @@ function App() {
         coverImage: newEventForm.coverImage || null,
         description: newEventForm.description?.trim() || null,
       })
-      await saveSeatingPlan(res.id, seatingConfigToBookingPlan(newEventForm.seatingConfig, validTiers))
+      if (newEventForm.seatingConfig.enabled) {
+        await saveSeatingPlan(res.id, seatingConfigToBookingPlan(newEventForm.seatingConfig, validTiers))
+      }
 
       const minPrice = Math.min(...validTiers.map((t) => Number(t.price) || 0))
       const totalCap = validTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)
@@ -2638,11 +2625,8 @@ function App() {
           date: '',
           time: '19:00',
           venue: '',
-          ticketTiers: [
-            { id: '1', name: 'General Admission', price: '2500', quantity: '500' },
-            { id: '2', name: 'VIP Pass', price: '5000', quantity: '150' },
-          ],
-          seatingConfig: createDefaultSeatingConfig(),
+          ticketTiers: [{ id: '1', name: '', price: '', quantity: '' }],
+          seatingConfig: createEmptySeatingConfig(),
           coverImage: '',
           description: '',
         })
@@ -2658,6 +2642,7 @@ function App() {
   // Edit Event Handlers
   const handleStartEditEvent = (event) => {
     const seatingConfig = event.seatingConfig || createDefaultSeatingConfig(event.ticketTiers)
+    setEditSeatingPlanChanged(false)
     setEditingEventId(event.id)
     setEditEventForm({
       title: event.title || '',
@@ -2673,7 +2658,7 @@ function App() {
               id: String(t.id || Date.now()),
               name: t.name || 'Pass',
               price: String(t.price || 0),
-              quantity: String(t.quantity || 100),
+              quantity: t.quantity == null || t.quantity === '' ? '' : String(t.quantity),
             }))
           : [{ id: '1', name: 'General Admission', price: String(event.minPrice || 2500), quantity: '500' }],
       seatingConfig,
@@ -2691,8 +2676,9 @@ function App() {
   }
 
   const handleAddTicketTierInEdit = () => {
+    setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
-      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '100' }]
+      const nextTiers = [...prev.ticketTiers, { id: String(Date.now()), name: '', price: '', quantity: '' }]
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
       const updatedZones = autoSync
         ? syncSeatingZonesWithTicketTiers(nextTiers, prev.seatingConfig?.zones || [])
@@ -2707,6 +2693,7 @@ function App() {
 
   const handleRemoveTicketTierInEdit = (tierId) => {
     if (editEventForm.ticketTiers.length <= 1) return
+    setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
       const nextTiers = prev.ticketTiers.filter((t) => t.id !== tierId)
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
@@ -2722,6 +2709,7 @@ function App() {
   }
 
   const handleUpdateTicketTierInEdit = (tierId, field, value) => {
+    if (field === 'name' || field === 'price') setEditSeatingPlanChanged(true)
     setEditEventForm((prev) => {
       const nextTiers = prev.ticketTiers.map((t) => (t.id === tierId ? { ...t, [field]: value } : t))
       const autoSync = prev.seatingConfig?.autoSyncCategories ?? true
@@ -2775,9 +2763,25 @@ function App() {
       return
     }
 
-    const validTiers = editEventForm.ticketTiers.filter((t) => t.name.trim() && Number(t.price) > 0)
+    const validTiers = editEventForm.ticketTiers.filter((tier) => tier.name.trim() && Number(tier.price) > 0)
     if (validTiers.length === 0) {
       setEditEventFeedback({ type: 'error', text: 'Please add at least one valid ticket category with a price.' })
+      return
+    }
+    if (
+      validTiers.some(
+        (tier) => tier.quantity !== '' && (!Number.isInteger(Number(tier.quantity)) || Number(tier.quantity) < 1),
+      )
+    ) {
+      setEditEventFeedback({
+        type: 'error',
+        text: 'Ticket quantities must be whole numbers, or left empty for no limit.',
+      })
+      return
+    }
+    const seatingErrors = seatingAllocationErrors(editEventForm.seatingConfig, validTiers)
+    if (seatingErrors.length) {
+      setEditEventFeedback({ type: 'error', text: seatingErrors[0] })
       return
     }
 
@@ -2791,7 +2795,9 @@ function App() {
         (c) => String(c.id) === String(editEventForm.categoryId) || c.name === editEventForm.category,
       )
       const categoryIdVal = selectedCategoryObj ? selectedCategoryObj.id : Number(editEventForm.categoryId) || 1
-      const categoryNameVal = selectedCategoryObj ? selectedCategoryObj.name : editEventForm.category || 'Music & Concerts'
+      const categoryNameVal = selectedCategoryObj
+        ? selectedCategoryObj.name
+        : editEventForm.category || 'Music & Concerts'
 
       const payload = {
         id: editingEventId,
@@ -2811,7 +2817,9 @@ function App() {
       }
 
       await updateEvent(editingEventId, payload)
-      await saveSeatingPlan(editingEventId, seatingConfigToBookingPlan(editEventForm.seatingConfig, validTiers))
+      if (editSeatingPlanChanged) {
+        await saveSeatingPlan(editingEventId, seatingConfigToBookingPlan(editEventForm.seatingConfig, validTiers))
+      }
 
       setAlbumList((prev) =>
         prev.map((e) =>
@@ -3067,20 +3075,15 @@ function App() {
     setBookingModalEvent(event)
     const initialQtys = {}
     if (event.ticketTiers && event.ticketTiers.length > 0) {
-      const eventAvailabilitySnapshot = eventInventoryById[String(event.id)]
-      const firstAvailableTierIndex = event.ticketTiers.findIndex((tier, idx) =>
-        getTierInventoryMeta(eventAvailabilitySnapshot, tier, idx).availableQuantity > 0,
-      )
       event.ticketTiers.forEach((tier, idx) => {
         const key = tier.id ? String(tier.id) : tier.name || `tier-${idx}`
-        initialQtys[key] = idx === Math.max(0, firstAvailableTierIndex) ? 1 : 0
+        initialQtys[key] = 0
       })
     } else {
-      const available = eventInventoryById[String(event.id)]?.availableSeatCount ?? event.availableTickets ?? 1
-      initialQtys['standard'] = Number(available) > 0 ? 1 : 0
+      initialQtys['standard'] = 0
     }
     setTierQuantities(initialQtys)
-    setTicketQuantity(1)
+    setTicketQuantity(0)
     setSelectedSeats([])
     setBookingSuccess(false)
     setSeatHold(null)
@@ -3143,12 +3146,19 @@ function App() {
 
   const getTierInventoryMeta = (availability, tier, index = 0) => {
     const match = availability?.tiers?.find(
-      (item) =>
-        String(item.ticketTierId) === String(tier?.id) ||
-        Number(item.price) === Number(tier?.price),
+      (item) => String(item.ticketTierId) === String(tier?.id) || Number(item.price) === Number(tier?.price),
     )
     const availableQuantity = match?.availableQuantity ?? Number(tier?.quantity || 0)
     const heldQuantity = match?.heldQuantity ?? 0
+    if (match?.isUnlimited) {
+      return {
+        availableQuantity,
+        disabled: false,
+        label: 'NO LIMIT',
+        detail: 'No event-wide quantity limit.',
+        className: '',
+      }
+    }
     if (availableQuantity > 0) {
       return {
         availableQuantity,
@@ -3519,11 +3529,14 @@ function App() {
               </button>
               {profileMenuOpen && (
                 <div className="profile-menu" role="menu">
-                  <div className="profile-compact-card" onClick={(event) => {
-                    event.stopPropagation()
-                    setProfilePanelOpen(true)
-                    setProfileMenuOpen(false)
-                  }}>
+                  <div
+                    className="profile-compact-card"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setProfilePanelOpen(true)
+                      setProfileMenuOpen(false)
+                    }}
+                  >
                     {/* Left Avatar (Click to view full profile) */}
                     <button
                       type="button"
@@ -3696,7 +3709,6 @@ function App() {
             <span>EXVO EVENT ECOSYSTEM // 2026</span>
             <span className="text-red-500 font-bold flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              SYSTEM ONLINE
             </span>
           </div>
         </div>
@@ -4032,7 +4044,9 @@ function App() {
                 </div>
 
                 <div className="profile-edit-header">
-                  <h2 id="profile-title" className="profile-user-name">Update Profile</h2>
+                  <h2 id="profile-title" className="profile-user-name">
+                    Update Profile
+                  </h2>
                   <p className="text-xs text-gray-400">Modify your photo and contact credentials</p>
                 </div>
 
@@ -4488,7 +4502,7 @@ function App() {
                           <input
                             type="number"
                             min="1"
-                            placeholder="100"
+                            placeholder="Unlimited"
                             value={tier.quantity}
                             onChange={(e) => handleUpdateTicketTier(tier.id, 'quantity', e.target.value)}
                             className="contact-input !py-1.5 text-xs"
@@ -4541,7 +4555,9 @@ function App() {
                   <span>
                     Total Capacity:{' '}
                     <strong>
-                      {newEventForm.ticketTiers.reduce((acc, t) => acc + (Number(t.quantity) || 0), 0)} Tickets
+                      {newEventForm.ticketTiers.some((tier) => tier.quantity === '')
+                        ? 'Unlimited'
+                        : `${newEventForm.ticketTiers.reduce((acc, tier) => acc + (Number(tier.quantity) || 0), 0)} Tickets`}
                     </strong>
                   </span>
                   <span>
@@ -4562,9 +4578,7 @@ function App() {
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">
-                      Configure interactive seat arrangement, zones & blocked seats
-                    </p>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement and zones</p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
@@ -4588,7 +4602,7 @@ function App() {
                     />
                     {newEventForm.seatingConfig?.enabled
                       ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
-                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                      : '○ HIDE SEATING FROM ATTENDEES'}
                   </button>
                 </div>
 
@@ -4662,7 +4676,7 @@ function App() {
                                   id: 'z1',
                                   name: 'ORCHESTRA',
                                   price: 4000,
-                                  rows: ['A', 'B', 'C', 'D'],
+                                  rows: ['A', 'B', 'C'],
                                   seatsPerRow: 14,
                                   occupiedSeats: [],
                                 },
@@ -4725,13 +4739,12 @@ function App() {
                           type="button"
                           onClick={() => {
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + newEventForm.seatingConfig.zones.length * 3)
                             const newZone = {
                               id: nextId,
                               name: 'NEW ZONE',
-                              price: 2000,
-                              rows: [nextLetter],
-                              seatsPerRow: 10,
+                              price: '',
+                              rows: [],
+                              seatsPerRow: '',
                               occupiedSeats: [],
                             }
                             setNewEventForm((prev) => ({
@@ -4791,9 +4804,12 @@ function App() {
                               />
                             </div>
                             <div>
-                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <span className="text-[8px] text-neutral-500 uppercase">
+                                ROW LABELS (comma separated)
+                              </span>
                               <input
                                 type="text"
+                                placeholder="e.g. A, B, C"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
                                   const rows = e.target.value
@@ -4813,14 +4829,17 @@ function App() {
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="flex-1">
-                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW (MAX 20)</span>
                                 <input
                                   type="number"
                                   min="1"
-                                  max="25"
+                                  max="20"
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
-                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    const seatsPerRow =
+                                      e.target.value === ''
+                                        ? ''
+                                        : Math.min(20, Math.max(1, Number(e.target.value) || 1))
                                     setNewEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -4861,31 +4880,9 @@ function App() {
                     {/* Interactive Seating Layout Visual Live Preview Component! */}
                     <div className="mt-4 pt-3 border-t border-white/10">
                       <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
-                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                        LIVE SEATING CHART PREVIEW
                       </span>
-                      <SeatingChartComponent
-                        seatingConfig={newEventForm.seatingConfig}
-                        isOrganizerEdit={true}
-                        onToggleOccupied={(seatId) => {
-                          setNewEventForm((prev) => {
-                            const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map((z) => {
-                              const isOccupied = z.occupiedSeats?.includes(seatId)
-                              let newOccupied
-                              if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
-                              } else {
-                                newOccupied = [...(z.occupiedSeats || []), seatId]
-                              }
-                              return { ...z, occupiedSeats: newOccupied }
-                            })
-                            return {
-                              ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones },
-                            }
-                          })
-                        }}
-                      />
+                      <SeatingChartComponent seatingConfig={newEventForm.seatingConfig} isOrganizerEdit={true} />
                     </div>
                   </div>
                 )}
@@ -5049,7 +5046,7 @@ function App() {
                   const totalTicketsCount =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
                       ? Object.values(tierQuantities).reduce((sum, q) => sum + (Number(q) || 0), 0)
-                      : tierQuantities['standard'] || 1
+                      : tierQuantities['standard'] || 0
 
                   const totalBookingPrice =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
@@ -5058,7 +5055,7 @@ function App() {
                           const qty = tierQuantities[key] || 0
                           return sum + Number(tier.price || 0) * qty
                         }, 0)
-                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 1)
+                      : Number(bookingModalEvent.minPrice || 0) * (tierQuantities['standard'] || 0)
 
                   const selectedTiersSummary =
                     bookingModalEvent.ticketTiers && bookingModalEvent.ticketTiers.length > 0
@@ -5070,24 +5067,19 @@ function App() {
                           })
                           .filter(Boolean)
                           .join(', ')
-                      : `${tierQuantities['standard'] || 1}x Standard Pass`
+                      : `${tierQuantities['standard'] || 0}x Standard Pass`
                   const selectedTiers = (bookingModalEvent.ticketTiers || []).filter((tier, index) => {
                     const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
                     return Number(tierQuantities[key]) > 0
                   })
                   const tierHasSeats = (tier) =>
                     attendeeSeatingPlan?.sections?.some((section) =>
-                      section.seats?.some(
-                        (seat) =>
-                          String(seat.ticketTierId) === String(tier.id) || Number(seat.price) === Number(tier.price),
-                      ),
+                      section.seats?.some((seat) => seatMatchesTicketTier(seat, tier)),
                     )
                   const seatedSelectedTiers = selectedTiers.filter(tierHasSeats)
                   const normalSelectedTiers = selectedTiers.filter((tier) => !tierHasSeats(tier))
                   const selectedTierHasSeat = (seat) =>
-                    seatedSelectedTiers.some((tier) =>
-                      String(tier.id) === String(seat.ticketTierId) || Number(tier.price) === Number(seat.price),
-                    )
+                    seatedSelectedTiers.some((tier) => seatMatchesTicketTier(seat, tier))
                   const selectedPlan =
                     attendeeSeatingPlan?.eventId === bookingModalEvent.id
                       ? {
@@ -5124,7 +5116,7 @@ function App() {
                       ? selectedTiers.map((tier, index) => {
                           const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
                           return {
-                            ticketTierId: tier.id ? Number(tier.id) : null,
+                            ticketTierId: safeTicketTierId(tier.id),
                             name: tier.name || `Tier ${index + 1}`,
                             unitPrice: Number(tier.price || 0),
                             quantity: Number(tierQuantities[key]) || 0,
@@ -5135,18 +5127,20 @@ function App() {
                             ticketTierId: null,
                             name: 'Standard Pass',
                             unitPrice: Number(bookingModalEvent.minPrice || 0),
-                            quantity: Number(tierQuantities.standard || 1),
+                            quantity: Number(tierQuantities.standard || 0),
                           },
                         ]
-                  const mixedGeneralTicketSelections = normalSelectedTiers.map((tier, index) => {
-                    const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
-                    return {
-                      ticketTierId: tier.id ? Number(tier.id) : null,
-                      name: tier.name || `Tier ${index + 1}`,
-                      unitPrice: Number(tier.price || 0),
-                      quantity: Number(tierQuantities[key]) || 0,
-                    }
-                  }).filter((ticket) => ticket.quantity > 0)
+                  const mixedGeneralTicketSelections = normalSelectedTiers
+                    .map((tier, index) => {
+                      const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                      return {
+                        ticketTierId: safeTicketTierId(tier.id),
+                        name: tier.name || `Tier ${index + 1}`,
+                        unitPrice: Number(tier.price || 0),
+                        quantity: Number(tierQuantities[key]) || 0,
+                      }
+                    })
+                    .filter((ticket) => ticket.quantity > 0)
 
                   return (
                     <>
@@ -5191,10 +5185,20 @@ function App() {
 
                                   const handleDecrease = (e) => {
                                     e.stopPropagation()
+                                    const nextQuantity = Math.max(0, (tierQuantities[key] || 0) - 1)
                                     setTierQuantities((prev) => ({
                                       ...prev,
-                                      [key]: Math.max(0, (prev[key] || 0) - 1),
+                                      [key]: nextQuantity,
                                     }))
+                                    const tierSeatsToRemove = selectedSeatRecords
+                                      .filter((seat) => seatMatchesTicketTier(seat, tier))
+                                      .slice(nextQuantity)
+                                      .map((seat) => seat.seatCode)
+                                    if (tierSeatsToRemove.length) {
+                                      setSelectedSeats((prev) =>
+                                        prev.filter((seatCode) => !tierSeatsToRemove.includes(seatCode)),
+                                      )
+                                    }
                                   }
 
                                   const handleIncrease = (e) => {
@@ -5215,8 +5219,8 @@ function App() {
                                         tierUnavailable
                                           ? 'booking-tier-card--unavailable border-neutral-700 bg-neutral-950/50'
                                           : isSelected
-                                          ? 'border-red-500/80 bg-red-950/30'
-                                          : 'border-white/10 bg-black/40 hover:border-white/20'
+                                            ? 'border-red-500/80 bg-red-950/30'
+                                            : 'border-white/10 bg-black/40 hover:border-white/20'
                                       }`}
                                       style={{ cursor: tierUnavailable ? 'not-allowed' : 'pointer' }}
                                     >
@@ -5288,7 +5292,11 @@ function App() {
                                           <button
                                             type="button"
                                             onClick={handleIncrease}
-                                            disabled={tierUnavailable || qty >= tierInventory.quantity || totalTicketsCount >= 10}
+                                            disabled={
+                                              tierUnavailable ||
+                                              qty >= tierInventory.quantity ||
+                                              totalTicketsCount >= 10
+                                            }
                                             className={`w-7 h-7 rounded-lg font-bold text-base flex items-center justify-center transition-all cursor-pointer ${
                                               !tierUnavailable && qty < tierInventory.quantity && totalTicketsCount < 10
                                                 ? 'bg-white/10 hover:bg-red-600 text-white'
@@ -5320,7 +5328,7 @@ function App() {
                                       onClick={() =>
                                         setTierQuantities((prev) => ({
                                           ...prev,
-                                          standard: Math.max(1, (prev.standard || 1) - 1),
+                                          standard: Math.max(0, (prev.standard || 0) - 1),
                                         }))
                                       }
                                       className="w-7 h-7 rounded-lg bg-white/10 hover:bg-red-600 text-white font-bold text-base flex items-center justify-center cursor-pointer"
@@ -5328,7 +5336,7 @@ function App() {
                                       -
                                     </button>
                                     <span className="font-bold text-sm text-white font-['Orbitron'] w-5 text-center">
-                                      {tierQuantities['standard'] || 1}
+                                      {tierQuantities['standard'] || 0}
                                     </span>
                                     <button
                                       type="button"
@@ -5414,11 +5422,16 @@ function App() {
                                     setBookingConfirmation(confirmation)
                                     setConfirmedBookingDetails({
                                       ...confirmationSnapshot,
-                                      tickets: confirmation?.tickets?.length ? confirmation.tickets : confirmationSnapshot.tickets,
-                                      totalAmount: Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
+                                      tickets: confirmation?.tickets?.length
+                                        ? confirmation.tickets
+                                        : confirmationSnapshot.tickets,
+                                      totalAmount:
+                                        Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
                                       totalQuantity:
-                                        confirmation?.tickets?.reduce((sum, ticket) => sum + (Number(ticket.quantity) || 0), 0) ||
-                                        confirmationSnapshot.totalQuantity,
+                                        confirmation?.tickets?.reduce(
+                                          (sum, ticket) => sum + (Number(ticket.quantity) || 0),
+                                          0,
+                                        ) || confirmationSnapshot.totalQuantity,
                                     })
                                     setBookingSuccess(true)
                                     void queueRenderedTicketEmail(confirmation, bookingModalEvent)
@@ -5442,7 +5455,10 @@ function App() {
                             )}
                           </div>
                           {holdError && !hasAssignedSeating && (
-                            <div role="alert" className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200">
+                            <div
+                              role="alert"
+                              className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200"
+                            >
                               {holdError}
                             </div>
                           )}
@@ -5461,7 +5477,8 @@ function App() {
                               ← BACK
                             </button>
                             <div className="text-[10px] font-['Orbitron'] text-amber-400 font-bold">
-                              {assignedTicketCount} seat{assignedTicketCount > 1 ? 's' : ''} needed ({selectedTiersSummary})
+                              {assignedTicketCount} seat{assignedTicketCount > 1 ? 's' : ''} needed (
+                              {selectedTiersSummary})
                             </div>
                           </div>
 
@@ -5496,9 +5513,15 @@ function App() {
                               let next
                               if (selectedSeats.includes(seatId)) {
                                 next = selectedSeats.filter((s) => s !== seatId)
-                              } else if (selectedSeats.length >= assignedTicketCount) {
-                                return
                               } else {
+                                const seat = availableSeats.find((item) => item.seatCode === seatId)
+                                const tier = seatedSelectedTiers.find((item) => seatMatchesTicketTier(seat, item))
+                                if (!tier || selectedSeats.length >= assignedTicketCount) return
+                                const tierKey = tier.id ? String(tier.id) : tier.name
+                                if (
+                                  !canSelectSeatForTicketTier(seat, tier, selectedSeatRecords, tierQuantities[tierKey])
+                                )
+                                  return
                                 next = [...selectedSeats, seatId]
                               }
                               setSelectedSeats(next)
@@ -5535,7 +5558,9 @@ function App() {
                                 } catch (error) {
                                   setHoldError(error.message)
                                   setSelectedSeats([])
-                                  const refreshedPlan = await getAttendeeSeatingPlan(bookingModalEvent.id).catch(() => null)
+                                  const refreshedPlan = await getAttendeeSeatingPlan(bookingModalEvent.id).catch(
+                                    () => null,
+                                  )
                                   if (refreshedPlan) setAttendeeSeatingPlan(refreshedPlan)
                                 }
                               }}
@@ -5551,14 +5576,24 @@ function App() {
                             </button>
                           </div>
                           {holdError && (
-                            <div role="alert" className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200">
+                            <div
+                              role="alert"
+                              className="mt-3 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200"
+                            >
                               {holdError}
                             </div>
                           )}
                           {selectionPrepared && seatHold && (
-                            <div ref={holdConfirmationRef} className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200">
+                            <div
+                              ref={holdConfirmationRef}
+                              className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 p-3 text-xs text-emerald-200"
+                            >
                               <strong>Seats held for you.</strong> Confirm within{' '}
-                              <strong>{Math.floor(holdSecondsRemaining / 60)}:{String(holdSecondsRemaining % 60).padStart(2, '0')}</strong>.
+                              <strong>
+                                {Math.floor(holdSecondsRemaining / 60)}:
+                                {String(holdSecondsRemaining % 60).padStart(2, '0')}
+                              </strong>
+                              .
                               <button
                                 type="button"
                                 disabled={confirmingBooking || holdSecondsRemaining <= 0}
@@ -5568,34 +5603,54 @@ function App() {
                                   setHoldError('')
                                   const confirmationSnapshot = {
                                     tickets: selectedTiers.length
-                                      ? selectedTiers.map((tier, index) => {
-                                          const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
-                                          return {
-                                            ticketTierId: tier.id ? Number(tier.id) : null,
-                                            name: tier.name || `Tier ${index + 1}`,
-                                            unitPrice: Number(tier.price || 0),
-                                            quantity: Number(tierQuantities[key]) || 0,
-                                          }
-                                        }).filter((ticket) => ticket.quantity > 0)
-                                      : [{
-                                          ticketTierId: null,
-                                          name: 'Reserved Seat',
-                                          unitPrice: selectedSeatRecords[0]?.price || bookingModalEvent.minPrice || 0,
+                                      ? selectedTiers
+                                          .map((tier, index) => {
+                                            const key = tier.id ? String(tier.id) : tier.name || `tier-${index}`
+                                            return {
+                                              ticketTierId: safeTicketTierId(tier.id),
+                                              name: tier.name || `Tier ${index + 1}`,
+                                              unitPrice: Number(tier.price || 0),
+                                              quantity: Number(tierQuantities[key]) || 0,
+                                            }
+                                          })
+                                          .filter((ticket) => ticket.quantity > 0)
+                                      : [
+                                          {
+                                            ticketTierId: null,
+                                            name: 'Reserved Seat',
+                                            unitPrice: selectedSeatRecords[0]?.price || bookingModalEvent.minPrice || 0,
                                             quantity: selectedSeats.length,
-                                        }],
-                                    totalQuantity: selectedSeats.length + mixedGeneralTicketSelections.reduce((sum, ticket) => sum + ticket.quantity, 0),
-                                    totalAmount: selectedSeatTotal + mixedGeneralTicketSelections.reduce((sum, ticket) => sum + ticket.unitPrice * ticket.quantity, 0),
+                                          },
+                                        ],
+                                    totalQuantity:
+                                      selectedSeats.length +
+                                      mixedGeneralTicketSelections.reduce((sum, ticket) => sum + ticket.quantity, 0),
+                                    totalAmount:
+                                      selectedSeatTotal +
+                                      mixedGeneralTicketSelections.reduce(
+                                        (sum, ticket) => sum + ticket.unitPrice * ticket.quantity,
+                                        0,
+                                      ),
                                   }
                                   try {
-                                    const confirmation = await confirmSeatHold(bookingModalEvent.id, seatHold.holdId, mixedGeneralTicketSelections)
+                                    const confirmation = await confirmSeatHold(
+                                      bookingModalEvent.id,
+                                      seatHold.holdId,
+                                      mixedGeneralTicketSelections,
+                                    )
                                     setBookingConfirmation(confirmation)
                                     setConfirmedBookingDetails({
                                       ...confirmationSnapshot,
-                                      tickets: confirmation?.tickets?.length ? confirmation.tickets : confirmationSnapshot.tickets,
-                                      totalAmount: Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
+                                      tickets: confirmation?.tickets?.length
+                                        ? confirmation.tickets
+                                        : confirmationSnapshot.tickets,
+                                      totalAmount:
+                                        Number(confirmation?.totalAmount ?? confirmationSnapshot.totalAmount) || 0,
                                       totalQuantity:
-                                        confirmation?.tickets?.reduce((sum, ticket) => sum + (Number(ticket.quantity) || 0), 0) ||
-                                        confirmationSnapshot.totalQuantity,
+                                        confirmation?.tickets?.reduce(
+                                          (sum, ticket) => sum + (Number(ticket.quantity) || 0),
+                                          0,
+                                        ) || confirmationSnapshot.totalQuantity,
                                     })
                                     setBookingSuccess(true)
                                     setSeatHold(null)
@@ -5634,7 +5689,16 @@ function App() {
             ) : (
               <div className="text-center py-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-2xl flex items-center justify-center mx-auto mb-3 animate-bounce">
-                  <svg aria-label="Booking completed" className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    aria-label="Booking completed"
+                    className="w-7 h-7"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="m5 12 4 4L19 6" />
                   </svg>
                 </div>
@@ -5651,10 +5715,9 @@ function App() {
 
                 {/* Digital Ticket Pass Card */}
                 {(() => {
-                  const confirmedTickets =
-                    bookingConfirmation?.tickets?.length
-                      ? bookingConfirmation.tickets
-                      : confirmedBookingDetails?.tickets || []
+                  const confirmedTickets = bookingConfirmation?.tickets?.length
+                    ? bookingConfirmation.tickets
+                    : confirmedBookingDetails?.tickets || []
                   const totalTicketsCount =
                     confirmedBookingDetails?.totalQuantity ||
                     confirmedTickets.reduce((sum, ticket) => sum + (Number(ticket.quantity) || 0), 0) ||
@@ -6021,8 +6084,8 @@ function App() {
           <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-4 border-b border-white/10 gap-4">
             <div>
               {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] font-bold tracking-[0.2em] uppercase mb-2">*/}
-                {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
-                {/*LIVE EVENTS*/}
+              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+              {/*LIVE EVENTS*/}
               {/*</div>*/}
               <h2 className="text-2xl md:text-4xl font-black tracking-wider uppercase text-white font-['Orbitron']">
                 {activeCategory && activeCategory !== 'all' ? (
@@ -6264,8 +6327,8 @@ function App() {
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
-              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
-              {/*ABOUT EXVO*/}
+            {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+            {/*ABOUT EXVO*/}
             {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               REDEFINING LIVE <span className="text-[#FF0000]">EXPERIENCES</span>
@@ -6373,8 +6436,8 @@ function App() {
           {/* Section Header */}
           <div className="text-center space-y-3 mb-12">
             {/*<div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 text-[10px] md:text-xs font-bold tracking-[0.2em] uppercase">*/}
-              {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
-              {/*GET IN TOUCH*/}
+            {/*<span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />*/}
+            {/*GET IN TOUCH*/}
             {/*</div>*/}
             <h2 className="text-3xl md:text-5xl font-black font-['Orbitron'] tracking-wider text-white uppercase">
               CONTACT <span className="text-[#FF0000]">US</span>
@@ -6712,10 +6775,6 @@ function App() {
                   </li>
                 ))}
               </ul>
-              <div className="footer-badge">
-                <span className="footer-badge__dot" />
-                Events live now
-              </div>
             </div>
           </div>
         </div>
@@ -7145,7 +7204,7 @@ function App() {
                     />
                     <input
                       type="number"
-                      placeholder="Qty"
+                      placeholder="Unlimited"
                       value={tier.quantity}
                       onChange={(e) => handleUpdateTicketTierInEdit(tier.id, 'quantity', e.target.value)}
                       className="col-span-2 add-event-input text-xs"
@@ -7170,15 +7229,14 @@ function App() {
                     <label className="text-[10px] font-bold text-neutral-300 tracking-wider uppercase font-['Orbitron'] flex items-center gap-1.5">
                       RESERVED SEATING LAYOUT & PLAN
                     </label>
-                    <p className="text-[10px] text-neutral-400">
-                      Configure interactive seat arrangement, zones & blocked seats
-                    </p>
+                    <p className="text-[10px] text-neutral-400">Configure interactive seat arrangement and zones</p>
                   </div>
 
                   {/* Toggle Enable/Disable */}
                   <button
                     type="button"
                     onClick={() => {
+                      setEditSeatingPlanChanged(true)
                       const curr = editEventForm.seatingConfig || createDefaultSeatingConfig()
                       setEditEventForm((prev) => ({
                         ...prev,
@@ -7196,7 +7254,7 @@ function App() {
                     />
                     {editEventForm.seatingConfig?.enabled
                       ? '● DISPLAY SEATING TO ATTENDEES (ENABLED)'
-                      : '○ HIDE SEATING FROM ATTENDEES (DISABLED)'}
+                      : '○ HIDE SEATING FROM ATTENDEES'}
                   </button>
                 </div>
 
@@ -7226,6 +7284,7 @@ function App() {
                           type="text"
                           value={editEventForm.seatingConfig.stageLabel || 'SCREEN'}
                           onChange={(e) => {
+                            setEditSeatingPlanChanged(true)
                             const val = e.target.value
                             setEditEventForm((prev) => ({
                               ...prev,
@@ -7241,6 +7300,7 @@ function App() {
                         <label className="text-[9px] font-bold text-neutral-400 uppercase">LAYOUT PRESETS</label>
                         <select
                           onChange={(e) => {
+                            setEditSeatingPlanChanged(true)
                             const preset = e.target.value
                             let newZones = editEventForm.seatingConfig.zones
                             if (preset === 'standard') {
@@ -7270,7 +7330,7 @@ function App() {
                                   id: 'z1',
                                   name: 'ORCHESTRA',
                                   price: 4000,
-                                  rows: ['A', 'B', 'C', 'D'],
+                                  rows: ['A', 'B', 'C'],
                                   seatsPerRow: 14,
                                   occupiedSeats: [],
                                 },
@@ -7314,6 +7374,7 @@ function App() {
                           <button
                             type="button"
                             onClick={() => {
+                              setEditSeatingPlanChanged(true)
                               const synced = syncSeatingZonesWithTicketTiers(
                                 editEventForm.ticketTiers,
                                 editEventForm.seatingConfig?.zones || [],
@@ -7332,14 +7393,14 @@ function App() {
                         <button
                           type="button"
                           onClick={() => {
+                            setEditSeatingPlanChanged(true)
                             const nextId = `zone-${Date.now()}`
-                            const nextLetter = String.fromCharCode(65 + editEventForm.seatingConfig.zones.length * 3)
                             const newZone = {
                               id: nextId,
                               name: 'NEW ZONE',
-                              price: 2000,
-                              rows: [nextLetter],
-                              seatsPerRow: 10,
+                              price: '',
+                              rows: [],
+                              seatsPerRow: '',
                               occupiedSeats: [],
                             }
                             setEditEventForm((prev) => ({
@@ -7368,6 +7429,7 @@ function App() {
                                 type="text"
                                 value={zone.name}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const name = e.target.value
                                   setEditEventForm((prev) => ({
                                     ...prev,
@@ -7386,6 +7448,7 @@ function App() {
                                 type="number"
                                 value={zone.price}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const price = Number(e.target.value) || 0
                                   setEditEventForm((prev) => ({
                                     ...prev,
@@ -7399,11 +7462,15 @@ function App() {
                               />
                             </div>
                             <div>
-                              <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
+                              <span className="text-[8px] text-neutral-500 uppercase">
+                                ROW LABELS (comma separated)
+                              </span>
                               <input
                                 type="text"
+                                placeholder="e.g. A, B, C"
                                 value={(zone.rows || []).join(', ')}
                                 onChange={(e) => {
+                                  setEditSeatingPlanChanged(true)
                                   const rows = e.target.value
                                     .split(',')
                                     .map((r) => r.trim().toUpperCase())
@@ -7421,14 +7488,18 @@ function App() {
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="flex-1">
-                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW</span>
+                                <span className="text-[8px] text-neutral-500 uppercase">SEATS PER ROW (MAX 20)</span>
                                 <input
                                   type="number"
                                   min="1"
-                                  max="25"
+                                  max="20"
                                   value={zone.seatsPerRow}
                                   onChange={(e) => {
-                                    const seatsPerRow = Math.min(25, Math.max(1, Number(e.target.value) || 10))
+                                    setEditSeatingPlanChanged(true)
+                                    const seatsPerRow =
+                                      e.target.value === ''
+                                        ? ''
+                                        : Math.min(20, Math.max(1, Number(e.target.value) || 1))
                                     setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -7446,6 +7517,7 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    setEditSeatingPlanChanged(true)
                                     setEditEventForm((prev) => ({
                                       ...prev,
                                       seatingConfig: {
@@ -7469,31 +7541,9 @@ function App() {
                     {/* Interactive Seating Layout Visual Live Preview Component! */}
                     <div className="mt-4 pt-3 border-t border-white/10">
                       <span className="text-[10px] font-bold text-neutral-300 font-['Orbitron'] uppercase block mb-1">
-                        LIVE INTERACTIVE SEATING CHART PREVIEW (CLICK SEATS TO TOGGLE OCCUPIED / RESERVED)
+                        LIVE SEATING CHART PREVIEW
                       </span>
-                      <SeatingChartComponent
-                        seatingConfig={editEventForm.seatingConfig}
-                        isOrganizerEdit={true}
-                        onToggleOccupied={(seatId) => {
-                          setEditEventForm((prev) => {
-                            const currentConfig = prev.seatingConfig
-                            const updatedZones = currentConfig.zones.map((z) => {
-                              const isOccupied = z.occupiedSeats?.includes(seatId)
-                              let newOccupied
-                              if (isOccupied) {
-                                newOccupied = z.occupiedSeats.filter((s) => s !== seatId)
-                              } else {
-                                newOccupied = [...(z.occupiedSeats || []), seatId]
-                              }
-                              return { ...z, occupiedSeats: newOccupied }
-                            })
-                            return {
-                              ...prev,
-                              seatingConfig: { ...currentConfig, zones: updatedZones },
-                            }
-                          })
-                        }}
-                      />
+                      <SeatingChartComponent seatingConfig={editEventForm.seatingConfig} isOrganizerEdit={true} />
                     </div>
                   </div>
                 )}
@@ -7802,9 +7852,7 @@ function App() {
                                   <div className="text-xs font-bold font-['Orbitron'] text-white">
                                     {tier.name || tier.tierName}
                                   </div>
-                                  <div className="text-[10px] text-neutral-400">
-                                    {tierInventory.detail}
-                                  </div>
+                                  <div className="text-[10px] text-neutral-400">{tierInventory.detail}</div>
                                 </div>
                               </div>
                               <div className="text-right">
@@ -7859,7 +7907,12 @@ function App() {
                     <span>{selectedDetailInventory?.disabled ? selectedDetailInventory.label : 'GET TICKETS NOW'}</span>
                     {!selectedDetailInventory?.disabled && (
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M14 5l7 7m0 0l-7 7m7-7H3"
+                        />
                       </svg>
                     )}
                   </button>

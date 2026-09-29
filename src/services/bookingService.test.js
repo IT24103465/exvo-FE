@@ -1,5 +1,14 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import { confirmGeneralBooking, confirmSeatHold, getAttendeeSeatingPlan, getEventAvailability, getMyTickets, holdSeats, releaseSeatHold, saveSeatingPlan } from './bookingService.js'
+import {
+  confirmGeneralBooking,
+  confirmSeatHold,
+  getAttendeeSeatingPlan,
+  getEventAvailability,
+  getMyTickets,
+  holdSeats,
+  releaseSeatHold,
+  saveSeatingPlan,
+} from './bookingService.js'
 
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -27,7 +36,10 @@ test('loads attendee seating plans from the database-backed endpoint', async () 
   vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
-    json: async () => ({ eventId: 12, sections: [{ name: 'Orchestra', seats: [{ seatCode: 'A-01', isEnabled: true }] }] }),
+    json: async () => ({
+      eventId: 12,
+      sections: [{ name: 'Orchestra', seats: [{ seatCode: 'A-01', isEnabled: true }] }],
+    }),
   })
   await expect(getAttendeeSeatingPlan(12)).resolves.toMatchObject({ eventId: 12 })
   expect(globalThis.fetch).toHaveBeenCalledWith(

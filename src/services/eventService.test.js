@@ -133,6 +133,25 @@ test('create and edit send artist and category fields the catalog can persist', 
   }
 })
 
+test('blank ticket quantities are sent as unlimited instead of zero stock', async () => {
+  let payload
+  globalThis.fetch = async (_url, options) => {
+    payload = JSON.parse(options.body)
+    return Response.json({ id: 1 })
+  }
+
+  const data = {
+    title: 'Unlimited admission',
+    date: '2099-09-20',
+    time: '19:00',
+    ticketTiers: [{ id: 'temporary', name: 'General', price: '2500', quantity: '' }],
+  }
+  await createEvent(data)
+
+  expect(payload.ticketTiers[0].quantity).toBeNull()
+  expect(JSON.parse(payload.ticketTiersJson)[0].quantity).toBeNull()
+})
+
 test('category name resolves to the matching catalog id when no category id is present', async () => {
   const payloads = []
   globalThis.fetch = async (_url, options) => {

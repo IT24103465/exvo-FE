@@ -125,6 +125,10 @@ export const getMyEvents = () => requestEventList('/my-events', getAuthHeaders()
 // POST create event
 export const createEvent = async (eventData) => {
   const tiersList = eventData.ticketTiers || []
+  const normalizedTiers = tiersList.map((tier) => ({
+    ...tier,
+    quantity: tier.quantity === '' || tier.quantity == null ? null : Number(tier.quantity) || null,
+  }))
   const minPrice =
     tiersList.length > 0 ? Math.min(...tiersList.map((t) => Number(t.price) || 0)) : Number(eventData.price) || 0
 
@@ -161,12 +165,12 @@ export const createEvent = async (eventData) => {
     date: cleanDateVal,
     time: eventTimeVal,
     eventTime: eventTimeVal,
-    ticketTiersJson: JSON.stringify(tiersList),
-    ticketTiers: tiersList.map((t) => ({
+    ticketTiersJson: JSON.stringify(normalizedTiers),
+    ticketTiers: normalizedTiers.map((t) => ({
       id: String(t.id),
       name: t.name,
       price: Number(t.price) || 0,
-      quantity: Number(t.quantity) || 0,
+      quantity: t.quantity,
     })),
     coverImage: eventData.coverImage || null,
   }
@@ -181,6 +185,10 @@ export const createEvent = async (eventData) => {
 // PUT update event
 export const updateEvent = (id, eventData) => {
   const tiersList = eventData.ticketTiers || []
+  const normalizedTiers = tiersList.map((tier) => ({
+    ...tier,
+    quantity: tier.quantity === '' || tier.quantity == null ? null : Number(tier.quantity) || null,
+  }))
   const minPrice =
     tiersList.length > 0 ? Math.min(...tiersList.map((t) => Number(t.price) || 0)) : Number(eventData.price) || 0
 
@@ -227,12 +235,12 @@ export const updateEvent = (id, eventData) => {
     IsHidden: isHiddenState,
     IsHidder: isHiddenState,
     isHidder: isHiddenState,
-    ticketTiersJson: JSON.stringify(tiersList),
-    ticketTiers: tiersList.map((t) => ({
+    ticketTiersJson: JSON.stringify(normalizedTiers),
+    ticketTiers: normalizedTiers.map((t) => ({
       id: String(t.id),
       name: t.name,
       price: Number(t.price) || 0,
-      quantity: Number(t.quantity) || 0,
+      quantity: t.quantity,
     })),
   }
 
