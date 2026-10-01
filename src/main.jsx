@@ -1,3 +1,4 @@
+// Pipeline smoke-test change; application behavior is unchanged.
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
