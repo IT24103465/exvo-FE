@@ -3,6 +3,7 @@ import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import './App.css'
 import { EventSkeleton, EventLoadError } from './components/EventListState'
+import CoordinatorScannerPortal from './components/CoordinatorScannerPortal'
 import {
   localDate,
   minimumEventTime,
@@ -1057,6 +1058,13 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           password: registerPassword,
           role: 'Organizer',
         })
+      } else if (accountType === 'coordinator') {
+        await registerUser({
+          fullName,
+          email: registerEmail,
+          password: registerPassword,
+          role: 'Coordinator',
+        })
       } else {
         await registerUser({
           fullName,
@@ -1150,6 +1158,18 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               role="radio"
             >
               Register Company
+            </button>
+            <button
+              type="button"
+              className={`account-type-btn ${accountType === 'coordinator' ? 'active' : ''}`}
+              onClick={() => {
+                setAccountType('coordinator')
+                setMessage('')
+              }}
+              aria-checked={accountType === 'coordinator'}
+              role="radio"
+            >
+              Access Coordinator
             </button>
           </div>
         )}
@@ -1474,6 +1494,9 @@ function App() {
   const [authState, setAuthState] = useState(readAuthState)
   const userDetails = getUserDetails(authState.user)
   const isOrganizer = authState.isAuthenticated && (userDetails.role === 'Organizer' || userDetails.role === 'Company')
+  const canAccessScanner = isOrganizer || (authState.isAuthenticated && userDetails.role === 'Admin')
+  const [coordinatorPortalOpen, setCoordinatorPortalOpen] = useState(false)
+  const [coordinatorPortalEvent, setCoordinatorPortalEvent] = useState(null)
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
@@ -3413,6 +3436,20 @@ function App() {
     )
   }
 
+  if (coordinatorPortalOpen) {
+    return (
+      <CoordinatorScannerPortal
+        user={userDetails}
+        onBack={() => {
+          setCoordinatorPortalOpen(false)
+          setCoordinatorPortalEvent(null)
+        }}
+        ExvoLogo={ExvoLogo}
+        initialSelectedEvent={coordinatorPortalEvent}
+      />
+    )
+  }
+
   return (
     <div
       id="home"
@@ -3664,7 +3701,7 @@ function App() {
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
               ? isOrganizer
-                ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                ? ['HOME', 'EVENTS', 'DASHBOARD', 'SCANNER PORTAL', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
                 : ['HOME', 'EVENTS', 'MY TICKETS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
             ).map((link) => (
@@ -3679,6 +3716,10 @@ function App() {
                   } else if (link === 'ADD EVENT') {
                     setMobileMenuOpen(false)
                     setShowAddEventModal(true)
+                  } else if (link === 'SCANNER PORTAL') {
+                    setMobileMenuOpen(false)
+                    setCoordinatorPortalEvent(null)
+                    setCoordinatorPortalOpen(true)
                   } else if (link === 'MY TICKETS') {
                     setMobileMenuOpen(false)
                     openTicketManager()
@@ -6826,8 +6867,45 @@ function App() {
               </button>
             </div>
 
+            {/* Scanner Portal Access Button */}
+            {canAccessScanner && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrganizerDashboardOpen(false)
+                  setCoordinatorPortalEvent(null)
+                  setCoordinatorPortalOpen(true)
+                }}
+                className="dash-scanner-portal-btn mt-3 mb-1"
+                title="Launch Scanner Portal"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="dash-scanner-portal-icon">
+                    <svg
+                      className="w-4 h-4 text-emerald-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01" />
+                      <path d="M12 7v10" />
+                    </svg>
+                  </span>
+                  <div className="text-left">
+                    <span className="dash-scanner-portal-title">SCANNER PORTAL</span>
+                    <span className="dash-scanner-portal-sub">Gate ticket verification & QR scanning</span>
+                  </div>
+                </div>
+                <span className="dash-scanner-portal-arrow font-['Orbitron']">LAUNCH →</span>
+              </button>
+            )}
+
             {/* Quick Stats Grid */}
-            <div className="grid grid-cols-2 gap-2.5 my-4">
+            <div className="grid grid-cols-2 gap-2.5 my-3">
               <div className="dash-stat-card">
                 <span className="dash-stat-label">TOTAL EVENTS</span>
                 <span className="dash-stat-val text-white">
@@ -6920,8 +6998,26 @@ function App() {
                               {evt.venue || 'Colombo'} • {evt.eventDate || '2026'}
                             </p>
 
-                            {/* Action Buttons: EDIT, HIDE/UNHIDE, & DELETE */}
+                            {/* Action Buttons: SCAN, EDIT, HIDE/UNHIDE, & DELETE */}
                             <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrganizerDashboardOpen(false)
+                                  setCoordinatorPortalEvent(evt)
+                                  setCoordinatorPortalOpen(true)
+                                }}
+                                className="dash-action-btn dash-action-btn--scan"
+                                title="Open QR Scanner for this event"
+                              >
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                                  <path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01" />
+                                  <path d="M12 7v10" />
+                                </svg>
+                                <span>SCAN</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={() => handleStartEditEvent(evt)}
