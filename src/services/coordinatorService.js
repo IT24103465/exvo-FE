@@ -16,11 +16,7 @@ const request = async (path, options = {}) => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => null)
-    throw new Error(
-      error?.message ||
-        error?.Message ||
-        `Request failed with status ${response.status}`,
-    )
+    throw new Error(error?.message || error?.Message || `Request failed with status ${response.status}`)
   }
 
   return response.status === 204 ? null : response.json()

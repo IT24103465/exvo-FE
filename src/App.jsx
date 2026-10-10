@@ -3701,7 +3701,17 @@ function App() {
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
               ? isOrganizer
-                ? ['HOME', 'EVENTS', 'DASHBOARD', 'SCANNER PORTAL', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                ? [
+                    'HOME',
+                    'EVENTS',
+                    'DASHBOARD',
+                    'SCANNER PORTAL',
+                    'ADD EVENT',
+                    'ABOUT US',
+                    'CONTACT',
+                    'PROFILE',
+                    'LOGOUT',
+                  ]
                 : ['HOME', 'EVENTS', 'MY TICKETS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
             ).map((link) => (
@@ -7010,7 +7020,13 @@ function App() {
                                 className="dash-action-btn dash-action-btn--scan"
                                 title="Open QR Scanner for this event"
                               >
-                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                >
                                   <rect x="3" y="3" width="18" height="18" rx="2" />
                                   <path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01" />
                                   <path d="M12 7v10" />

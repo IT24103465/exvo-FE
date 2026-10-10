@@ -1,9 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest'
-import {
-  getCoordinatorEvents,
-  verifyCoordinatorAccess,
-  validateTicketCheckIn,
-} from './coordinatorService.js'
+import { getCoordinatorEvents, verifyCoordinatorAccess, validateTicketCheckIn } from './coordinatorService.js'
 
 beforeEach(() => {
   vi.restoreAllMocks()

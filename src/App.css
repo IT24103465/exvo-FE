@@ -4051,7 +4051,9 @@
   border-radius: 14px;
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.14) 0%, rgba(6, 78, 59, 0.22) 100%);
   border: 1px solid rgba(16, 185, 129, 0.35);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   text-decoration: none;
@@ -4060,7 +4062,9 @@
 .dash-scanner-portal-btn:hover {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(6, 78, 59, 0.35) 100%);
   border-color: rgba(52, 211, 153, 0.65);
-  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 6px 24px rgba(16, 185, 129, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
   transform: translateY(-1px);
 }
 
@@ -4086,7 +4090,10 @@
 }
 
 .dash-scanner-portal-sub {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
   font-size: 10px;
   color: #9ca3af;
   display: block;
@@ -4450,7 +4457,9 @@
 .coordinator-card:hover {
   transform: translateY(-4px);
   border-color: rgba(255, 0, 0, 0.45);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 0, 0, 0.2);
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.7),
+    0 0 20px rgba(255, 0, 0, 0.2);
 }
 
 .coordinator-card-top {
@@ -4776,7 +4785,9 @@
   right: 10%;
   height: 2px;
   background: #ff0000;
-  box-shadow: 0 0 12px #ff0000, 0 0 20px #ff3333;
+  box-shadow:
+    0 0 12px #ff0000,
+    0 0 20px #ff3333;
   animation: laserScan 2.4s ease-in-out infinite alternate;
 }
 
@@ -5215,7 +5226,9 @@
   background: rgba(18, 18, 18, 0.85);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(239, 68, 68, 0.35);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 0, 0, 0.15);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.8),
+    0 0 30px rgba(255, 0, 0, 0.15);
   border-radius: 24px;
   padding: 48px 32px;
   max-width: 560px;
@@ -5284,4 +5297,3 @@
   box-shadow: 0 6px 26px rgba(255, 0, 0, 0.6);
   transform: translateY(-2px);
 }
-

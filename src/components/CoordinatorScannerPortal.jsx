@@ -1,9 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import {
-  getCoordinatorEvents,
-  verifyCoordinatorAccess,
-  validateTicketCheckIn,
-} from '../services/coordinatorService'
+import { getCoordinatorEvents, verifyCoordinatorAccess, validateTicketCheckIn } from '../services/coordinatorService'
 
 // Play audio feedback using Web Audio API
 const playFeedbackSound = (type) => {
@@ -338,7 +334,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
         <section className="coordinator-shell">
           <div className="coordinator-rbac-card" role="alert">
             <div className="coordinator-rbac-icon" aria-hidden="true">
-              <svg className="w-14 h-14 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="w-14 h-14 text-red-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 <path d="m15 9-6 6" />
                 <path d="m9 9 6 6" />
@@ -347,9 +349,9 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
             <h1 className="coordinator-rbac-title font-['Orbitron']">ACCESS RESTRICTED</h1>
             <p className="coordinator-rbac-kicker">ORGANIZER CLEARANCE REQUIRED</p>
             <p className="coordinator-rbac-desc">
-              This terminal is strictly reserved for verified <strong>Event Organizers</strong> and administrators.
-              Your current account role (<code>{user?.role || 'Guest'}</code>) does not have authorization to scan
-              tickets or access the gate verification portal.
+              This terminal is strictly reserved for verified <strong>Event Organizers</strong> and administrators. Your
+              current account role (<code>{user?.role || 'Guest'}</code>) does not have authorization to scan tickets or
+              access the gate verification portal.
             </p>
             <div className="coordinator-rbac-actions">
               <button type="button" className="coordinator-primary-btn" onClick={onBack}>
@@ -425,7 +427,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
         {/* Access Verification Error Toast */}
         {accessError && (
           <div className="coordinator-alert coordinator-alert--error" role="alert">
-            <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              className="w-5 h-5 flex-shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -447,15 +455,19 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                 <p className="coordinator-kicker">GATE ASSIGNMENTS</p>
                 <h1 className="coordinator-heading font-['Orbitron']">Select Event to Launch Scanner</h1>
               </div>
-              <span className="coordinator-count-badge font-['Orbitron']">
-                {filteredEvents.length} AVAILABLE
-              </span>
+              <span className="coordinator-count-badge font-['Orbitron']">{filteredEvents.length} AVAILABLE</span>
             </div>
 
             {/* Filter and Search Bar */}
             <div className="coordinator-filter-bar">
               <div className="coordinator-search-input-shell">
-                <svg className="w-4 h-4 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  className="w-4 h-4 text-neutral-400"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <circle cx="11" cy="11" r="8" />
                   <line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
@@ -511,7 +523,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
             {/* Empty State */}
             {!loadingEvents && !eventsError && filteredEvents.length === 0 && (
               <div className="coordinator-empty-state">
-                <svg className="w-16 h-16 text-neutral-600 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <svg
+                  className="w-16 h-16 text-neutral-600 mb-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                   <line x1="16" y1="2" x2="16" y2="6" />
                   <line x1="8" y1="2" x2="8" y2="6" />
@@ -557,25 +575,23 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     : ''
 
                   return (
-                    <article
-                      key={evtId}
-                      className="coordinator-card"
-                      onClick={() => handleSelectEvent(evt)}
-                    >
+                    <article key={evtId} className="coordinator-card" onClick={() => handleSelectEvent(evt)}>
                       <div className="coordinator-card-top">
-                        <span className="coordinator-card-badge font-['Orbitron']">
-                          EVENT #{evtId}
-                        </span>
-                        <span className="coordinator-card-time font-['Orbitron']">
-                          {formattedTime || 'DOORS OPEN'}
-                        </span>
+                        <span className="coordinator-card-badge font-['Orbitron']">EVENT #{evtId}</span>
+                        <span className="coordinator-card-time font-['Orbitron']">{formattedTime || 'DOORS OPEN'}</span>
                       </div>
 
                       <h2 className="coordinator-card-title">{evt.title || 'Untitled Event'}</h2>
 
                       <div className="coordinator-card-meta">
                         <div className="coordinator-meta-row">
-                          <svg className="w-4 h-4 text-red-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg
+                            className="w-4 h-4 text-red-500 flex-shrink-0"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
                             <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                             <line x1="16" y1="2" x2="16" y2="6" />
                             <line x1="8" y1="2" x2="8" y2="6" />
@@ -584,7 +600,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                           <span>{formattedDate}</span>
                         </div>
                         <div className="coordinator-meta-row">
-                          <svg className="w-4 h-4 text-red-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg
+                            className="w-4 h-4 text-red-500 flex-shrink-0"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
                             <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
                             <circle cx="12" cy="10" r="3" />
                           </svg>
@@ -634,7 +656,8 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                 <div>
                   <h1 className="coordinator-active-title">{selectedEvent.title}</h1>
                   <p className="coordinator-active-sub">
-                    Venue: <strong>{selectedEvent.venue || selectedEvent.location || 'Main Arena'}</strong> • Event #{selectedEvent.eventId || selectedEvent.id}
+                    Venue: <strong>{selectedEvent.venue || selectedEvent.location || 'Main Arena'}</strong> • Event #
+                    {selectedEvent.eventId || selectedEvent.id}
                   </p>
                 </div>
               </div>
@@ -660,7 +683,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
                     {!cameraActive && (
                       <div className="coordinator-camera-placeholder">
-                        <svg className="w-16 h-16 text-red-500/60 mb-3 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <svg
+                          className="w-16 h-16 text-red-500/60 mb-3 animate-pulse"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
                           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                           <circle cx="12" cy="13" r="4" />
                         </svg>
@@ -800,9 +829,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     </div>
 
                     <div className="result-card-body">
-                      <div className="result-attendee font-['Orbitron']">
-                        {lastScanResult.attendeeName}
-                      </div>
+                      <div className="result-attendee font-['Orbitron']">{lastScanResult.attendeeName}</div>
                       <div className="result-meta-grid">
                         <div className="result-meta-item">
                           <span className="meta-label">TICKET CODE</span>
@@ -825,7 +852,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                   </div>
                 ) : (
                   <div className="coordinator-idle-card">
-                    <svg className="w-12 h-12 text-neutral-600 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <svg
+                      className="w-12 h-12 text-neutral-600 mb-2"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
                       <path d="M3 7V5a2 2 0 0 1 2-2h2" />
                       <path d="M17 3h2a2 2 0 0 1 2 2v2" />
                       <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
@@ -889,7 +922,9 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                             </span>
                             <div>
                               <div className="history-attendee">{item.attendeeName}</div>
-                              <div className="history-code font-mono">{item.ticketCode} • {item.ticketType}</div>
+                              <div className="history-code font-mono">
+                                {item.ticketCode} • {item.ticketType}
+                              </div>
                             </div>
                           </div>
                           <div className="history-time font-['Orbitron']">
