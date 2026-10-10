@@ -100,7 +100,7 @@ test('create and edit preserve local wall time and send its explicit UTC offset'
   await updateEvent(1, data)
   for (const payload of payloads) {
     expect(payload.eventDate).toBe('2099-09-20T00:15:00')
-    expect(payload.utcOffsetMinutes).toBe(-new Date('2099-09-20T00:15:00').getTimezoneOffset())
+    expect(payload.utcOffsetMinutes).toBe(-new Date('2099-09-20T00:15:00').getTimezoneOffset() || 0)
   }
   expect(payloads[0]).not.toHaveProperty('organizerId')
 })

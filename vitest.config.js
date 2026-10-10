@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
+    pool: 'threads',
     setupFiles: './src/test/setup.js',
     include: ['src/**/*.{test,spec}.{js,jsx}'],
     coverage: {
