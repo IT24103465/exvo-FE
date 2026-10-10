@@ -1527,6 +1527,7 @@ function App() {
   const [attendeeBookings, setAttendeeBookings] = useState([])
   const [attendeeTicketsLoading, setAttendeeTicketsLoading] = useState(false)
   const [attendeeTicketsError, setAttendeeTicketsError] = useState('')
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', subject: 'General Query', message: '' })
   const [contactSubmitted, setContactSubmitted] = useState(false)
@@ -2383,9 +2384,16 @@ function App() {
     // Refresh scoped results whenever the signed-in identity changes.
   }, [authState.isAuthenticated, userDetails.id, userDetails.role])
 
+  const promptLogout = () => {
+    setProfileMenuOpen(false)
+    setMobileMenuOpen(false)
+    setShowLogoutConfirm(true)
+  }
+
   const handleLogout = () => {
     logoutUser()
     setAuthState({ isAuthenticated: false, user: null })
+    setShowLogoutConfirm(false)
     setMobileMenuOpen(false)
     setProfileMenuOpen(false)
     setProfilePanelOpen(false)
@@ -3633,7 +3641,7 @@ function App() {
                       aria-label="Logout"
                       onClick={(event) => {
                         event.stopPropagation()
-                        handleLogout()
+                        promptLogout()
                       }}
                     >
                       <svg
@@ -3745,7 +3753,7 @@ function App() {
                     setProfilePanelOpen(true)
                   } else if (link === 'LOGOUT') {
                     setMobileMenuOpen(false)
-                    handleLogout()
+                    promptLogout()
                   }
                 }}
                 className="nav-overlay-item group"
@@ -4019,7 +4027,7 @@ function App() {
                     </svg>
                     <span>EDIT PROFILE</span>
                   </button>
-                  <button className="profile-btn-logout" type="button" onClick={handleLogout}>
+                  <button className="profile-btn-logout" type="button" onClick={promptLogout}>
                     <svg
                       viewBox="0 0 24 24"
                       fill="none"
@@ -8030,6 +8038,72 @@ function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="logout-confirm-title"
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div
+            className="logout-confirm-card relative w-full max-w-sm rounded-2xl bg-[#0f0f12] border border-red-500/30 p-6 text-center shadow-[0_0_50px_rgba(255,0,0,0.2)] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Ambient Background Glow */}
+            <div className="absolute -top-16 -left-16 w-32 h-32 bg-red-600/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-16 -right-16 w-32 h-32 bg-red-600/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Warning Icon */}
+            <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 shadow-[0_0_20px_rgba(255,0,0,0.2)]">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-6 h-6"
+              >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </div>
+
+            {/* Heading & Text */}
+            <h3
+              id="logout-confirm-title"
+              className="text-base font-black font-['Orbitron'] text-white tracking-wider uppercase mb-2"
+            >
+              CONFIRM LOGOUT
+            </h3>
+            <p className="text-xs text-neutral-400 mb-6 font-sans">
+              Are you sure you want to log out of your <strong className="text-white">EXVO</strong> account?
+            </p>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all cursor-pointer"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-['Orbitron'] font-bold tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(255,0,0,0.4)] cursor-pointer"
+              >
+                LOG OUT
+              </button>
             </div>
           </div>
         </div>
