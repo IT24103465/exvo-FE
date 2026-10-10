@@ -64,13 +64,15 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   // Device/Viewport Mode (Mobile camera vs Web Terminal manual entry)
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false
-    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator?.userAgent || '')
+    const nav = typeof globalThis.navigator !== 'undefined' ? globalThis.navigator : null
+    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(nav?.userAgent || '')
   })
 
   // Responsive resize watcher
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator?.userAgent || '')
+      const nav = typeof globalThis.navigator !== 'undefined' ? globalThis.navigator : null
+      const mobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(nav?.userAgent || '')
       setIsMobile(mobile)
     }
     window.addEventListener('resize', handleResize)
@@ -803,7 +805,13 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                         <div className="sync-wave-ring ring-2" />
                         <div className="sync-wave-ring ring-3" />
                         <div className="sync-badge font-['Orbitron']">
-                          <svg className="w-3.5 h-3.5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <svg
+                            className="w-3.5 h-3.5 text-emerald-400"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
                             <path d="M5 12.55a11 11 0 0 1 14.08 0" />
                             <path d="M1.42 9a16 16 0 0 1 21.16 0" />
                             <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
@@ -815,11 +823,11 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     </div>
 
                     <div className="desktop-sync-info-box">
-                      <h3 className="desktop-sync-title font-['Orbitron']">
-                        Mobile QR Scanner & Web Gate Terminal
-                      </h3>
+                      <h3 className="desktop-sync-title font-['Orbitron']">Mobile QR Scanner & Web Gate Terminal</h3>
                       <p className="desktop-sync-desc">
-                        Camera scanning is active on mobile devices. On this desktop terminal, enter or scan ticket codes via handheld barcode/RFID reader or keyboard input below to validate gate access instantly.
+                        Camera scanning is active on mobile devices. On this desktop terminal, enter or scan ticket
+                        codes via handheld barcode/RFID reader or keyboard input below to validate gate access
+                        instantly.
                       </p>
                     </div>
                   </div>

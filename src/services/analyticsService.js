@@ -1,6 +1,4 @@
 import { fetchApi } from './apiConfig.js'
-import { getEventAvailability } from './bookingService.js'
-import { getEventTicketSnapshot } from './eventService.js'
 
 const authHeaders = () => {
   const token = localStorage.getItem('token')
@@ -65,7 +63,8 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
   let parsedTiers = []
   try {
     if (event.ticketTiersJson) {
-      parsedTiers = typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson || []
+      parsedTiers =
+        typeof event.ticketTiersJson === 'string' ? JSON.parse(event.ticketTiersJson) : event.ticketTiersJson || []
     } else if (event.ticketTiers) {
       parsedTiers = typeof event.ticketTiers === 'string' ? JSON.parse(event.ticketTiers) : event.ticketTiers || []
     }
@@ -76,7 +75,8 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
   // Calculate total capacity
   const totalCapacity =
     parsedTiers.length > 0
-      ? parsedTiers.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0) || Number(event.totalCapacity || event.availableTickets || 500)
+      ? parsedTiers.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0) ||
+        Number(event.totalCapacity || event.availableTickets || 500)
       : Number(event.totalCapacity || event.availableTickets || 500)
 
   // Calculate real-time available tickets & sold tickets
@@ -94,15 +94,14 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
     let tierAvailable = tierCap
     if (availability?.tiers && Array.isArray(availability.tiers)) {
       const match = availability.tiers.find(
-        (t) => String(t.ticketTierId) === String(tier.id) || t.name === tier.name || Number(t.price) === Number(tier.price),
+        (t) =>
+          String(t.ticketTierId) === String(tier.id) || t.name === tier.name || Number(t.price) === Number(tier.price),
       )
       if (match != null && match.availableQuantity != null) {
         tierAvailable = Number(match.availableQuantity)
       }
     } else if (snapshot?.tiers && Array.isArray(snapshot.tiers)) {
-      const match = snapshot.tiers.find(
-        (t) => String(t.id) === String(tier.id) || t.name === tier.name,
-      )
+      const match = snapshot.tiers.find((t) => String(t.id) === String(tier.id) || t.name === tier.name)
       if (match != null && match.availableQuantity != null) {
         tierAvailable = Number(match.availableQuantity)
       }
@@ -209,17 +208,20 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
     }
   }
 
-  const eventAnalyticsList = events.map((event) => {
-    const avail = availabilitiesById[String(event.id || event.eventId)] || null
-    return calculateEventRealTimeAnalytics(event, avail)
-  }).filter(Boolean)
+  const eventAnalyticsList = events
+    .map((event) => {
+      const avail = availabilitiesById[String(event.id || event.eventId)] || null
+      return calculateEventRealTimeAnalytics(event, avail)
+    })
+    .filter(Boolean)
 
   const totalCapacity = eventAnalyticsList.reduce((sum, item) => sum + item.totalCapacity, 0)
   const totalTicketsSold = eventAnalyticsList.reduce((sum, item) => sum + item.totalTicketsSold, 0)
   const totalRevenue = eventAnalyticsList.reduce((sum, item) => sum + item.totalRevenue, 0)
   const availableTickets = eventAnalyticsList.reduce((sum, item) => sum + item.availableTickets, 0)
   const checkedInAttendees = eventAnalyticsList.reduce((sum, item) => sum + item.checkedInAttendees, 0)
-  const attendancePercentage = totalTicketsSold > 0 ? Number(((checkedInAttendees / totalTicketsSold) * 100).toFixed(1)) : 0
+  const attendancePercentage =
+    totalTicketsSold > 0 ? Number(((checkedInAttendees / totalTicketsSold) * 100).toFixed(1)) : 0
 
   // Aggregate 7-day timeline
   const now = new Date()

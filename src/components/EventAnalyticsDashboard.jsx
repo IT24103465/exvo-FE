@@ -15,13 +15,13 @@ const formatLKR = (amount) => {
 
 export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initialSelectedEventId = null }) {
   // ── Role-Based Access Control (RBAC) ──
-  const isAuthorized = Boolean(
-    user && (user.role === 'Organizer' || user.role === 'Company' || user.role === 'Admin'),
-  )
+  const isAuthorized = Boolean(user && (user.role === 'Organizer' || user.role === 'Company' || user.role === 'Admin'))
 
   // ── State Management ──
   const [organizerEvents, setOrganizerEvents] = useState([])
-  const [selectedEventId, setSelectedEventId] = useState(initialSelectedEventId ? String(initialSelectedEventId) : 'all')
+  const [selectedEventId, setSelectedEventId] = useState(
+    initialSelectedEventId ? String(initialSelectedEventId) : 'all',
+  )
   const [analyticsData, setAnalyticsData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -57,70 +57,73 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
   }, [organizerEvents])
 
   // ── Fetch Analytics Data with Real-time Backend Calculation ──
-  const fetchAnalytics = useCallback(async (isManual = false) => {
-    if (!isAuthorized) return
-    if (isManual) setIsRefreshing(true)
-    else setLoading(true)
-    setError(null)
-
-    try {
-      const targetId = selectedEventId === 'all' ? null : selectedEventId
-      let data = null
+  const fetchAnalytics = useCallback(
+    async (isManual = false) => {
+      if (!isAuthorized) return
+      if (isManual) setIsRefreshing(true)
+      else setLoading(true)
+      setError(null)
 
       try {
-        data = await getEventAnalytics(targetId)
-      } catch (err) {
-        // Backend analytics API returned error or is unmounted; fall back to real-time calculation engine
-        console.warn('Backend analytics endpoint error, deriving real-time calculation:', err)
-      }
+        const targetId = selectedEventId === 'all' ? null : selectedEventId
+        let data = null
 
-      // If backend direct endpoint is not available or returned partial data, calculate from live database events & booking availability
-      if (!data) {
-        const currentEvents = organizerEventsRef.current || []
-
-        if (targetId) {
-          const selectedEvt = currentEvents.find((e) => String(e.id || e.eventId) === String(targetId))
-          if (selectedEvt) {
-            // Fetch live inventory availability from BookingService
-            let liveAvailability = null
-            try {
-              liveAvailability = await getEventAvailability(targetId)
-            } catch {
-              // ignore
-            }
-            data = calculateEventRealTimeAnalytics(selectedEvt, liveAvailability)
-          }
-        } else {
-          // Fetch live availabilities for all organizer events in parallel
-          const availabilitiesById = {}
-          await Promise.allSettled(
-            currentEvents.map(async (evt) => {
-              const evtId = evt.id || evt.eventId
-              if (evtId) {
-                try {
-                  const avail = await getEventAvailability(evtId)
-                  if (avail) {
-                    availabilitiesById[String(evtId)] = avail
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-            }),
-          )
-          data = calculateAggregateRealTimeAnalytics(currentEvents, availabilitiesById)
+        try {
+          data = await getEventAnalytics(targetId)
+        } catch (err) {
+          // Backend analytics API returned error or is unmounted; fall back to real-time calculation engine
+          console.warn('Backend analytics endpoint error, deriving real-time calculation:', err)
         }
-      }
 
-      setAnalyticsData(data)
-      setLastUpdated(new Date())
-    } catch (err) {
-      setError(err.message || 'Failed to load event analytics. Please try again.')
-    } finally {
-      setLoading(false)
-      setIsRefreshing(false)
-    }
-  }, [isAuthorized, selectedEventId])
+        // If backend direct endpoint is not available or returned partial data, calculate from live database events & booking availability
+        if (!data) {
+          const currentEvents = organizerEventsRef.current || []
+
+          if (targetId) {
+            const selectedEvt = currentEvents.find((e) => String(e.id || e.eventId) === String(targetId))
+            if (selectedEvt) {
+              // Fetch live inventory availability from BookingService
+              let liveAvailability = null
+              try {
+                liveAvailability = await getEventAvailability(targetId)
+              } catch {
+                // ignore
+              }
+              data = calculateEventRealTimeAnalytics(selectedEvt, liveAvailability)
+            }
+          } else {
+            // Fetch live availabilities for all organizer events in parallel
+            const availabilitiesById = {}
+            await Promise.allSettled(
+              currentEvents.map(async (evt) => {
+                const evtId = evt.id || evt.eventId
+                if (evtId) {
+                  try {
+                    const avail = await getEventAvailability(evtId)
+                    if (avail) {
+                      availabilitiesById[String(evtId)] = avail
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
+              }),
+            )
+            data = calculateAggregateRealTimeAnalytics(currentEvents, availabilitiesById)
+          }
+        }
+
+        setAnalyticsData(data)
+        setLastUpdated(new Date())
+      } catch (err) {
+        setError(err.message || 'Failed to load event analytics. Please try again.')
+      } finally {
+        setLoading(false)
+        setIsRefreshing(false)
+      }
+    },
+    [isAuthorized, selectedEventId],
+  )
 
   // Initial fetch and on event change
   useEffect(() => {
@@ -173,7 +176,13 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
         <section className="coordinator-shell">
           <div className="coordinator-rbac-card">
             <div className="coordinator-rbac-icon">
-              <svg className="w-12 h-12 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="w-12 h-12 text-red-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 <path d="m15 9-6 6" />
                 <path d="m9 9 6 6" />
@@ -182,7 +191,9 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
             <h1 className="coordinator-rbac-title font-['Orbitron']">ACCESS RESTRICTED</h1>
             <p className="coordinator-rbac-kicker">ORGANIZER CLEARANCE REQUIRED</p>
             <p className="coordinator-rbac-desc">
-              The Event Analytics Dashboard is strictly reserved for verified <strong>Event Organizers</strong> and administrators. Your current account role (<code>{user?.role || 'Guest'}</code>) does not have authorization to view financial and attendance analytics.
+              The Event Analytics Dashboard is strictly reserved for verified <strong>Event Organizers</strong> and
+              administrators. Your current account role (<code>{user?.role || 'Guest'}</code>) does not have
+              authorization to view financial and attendance analytics.
             </p>
             <div className="coordinator-rbac-actions">
               <button type="button" className="coordinator-primary-btn" onClick={onBack}>
@@ -229,7 +240,9 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
 
           {/* Auto-Refresh Select */}
           <div className="analytics-refresh-select-wrap">
-            <label htmlFor="auto-refresh-select" className="sr-only">Auto Refresh Interval</label>
+            <label htmlFor="auto-refresh-select" className="sr-only">
+              Auto Refresh Interval
+            </label>
             <select
               id="auto-refresh-select"
               value={autoRefreshInterval}
@@ -308,7 +321,13 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
         {/* Error Alert Display */}
         {error && (
           <div className="analytics-alert analytics-alert--error" role="alert">
-            <svg className="w-5 h-5 flex-shrink-0 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              className="w-5 h-5 flex-shrink-0 text-red-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -490,8 +509,8 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                           {activeChartTab === 'revenue'
                             ? 'Daily Revenue Generation (LKR)'
                             : activeChartTab === 'sales'
-                            ? 'Daily Ticket Sales Volume'
-                            : '7-Day Performance Dynamics'}
+                              ? 'Daily Ticket Sales Volume'
+                              : '7-Day Performance Dynamics'}
                         </h3>
                         <div className="analytics-legend">
                           {(activeChartTab === 'overview' || activeChartTab === 'sales') && (
@@ -522,9 +541,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                                     style={{ height: `${Math.max(salesHeightPercent, 6)}%` }}
                                     title={`${item.label}: ${item.ticketsSold} tickets`}
                                   >
-                                    <span className="analytics-bar-tooltip">
-                                      {item.ticketsSold} passes
-                                    </span>
+                                    <span className="analytics-bar-tooltip">{item.ticketsSold} passes</span>
                                   </div>
                                 )}
                                 {(activeChartTab === 'overview' || activeChartTab === 'revenue') && (
@@ -533,9 +550,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                                     style={{ height: `${Math.max(revenueHeightPercent, 6)}%` }}
                                     title={`${item.label}: ${formatLKR(item.revenue)}`}
                                   >
-                                    <span className="analytics-bar-tooltip">
-                                      {formatLKR(item.revenue)}
-                                    </span>
+                                    <span className="analytics-bar-tooltip">{formatLKR(item.revenue)}</span>
                                   </div>
                                 )}
                               </div>
@@ -551,11 +566,10 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                   {activeChartTab === 'attendance' && (
                     <div className="analytics-attendance-chart-container">
                       <div className="analytics-chart-title-row">
-                        <h3 className="analytics-chart-heading font-['Orbitron']">
-                          Hourly Gate Check-In Velocity
-                        </h3>
+                        <h3 className="analytics-chart-heading font-['Orbitron']">Hourly Gate Check-In Velocity</h3>
                         <span className="text-xs text-neutral-400">
-                          Total Check-Ins: <strong className="text-purple-300">{analyticsData.checkedInAttendees}</strong>
+                          Total Check-Ins:{' '}
+                          <strong className="text-purple-300">{analyticsData.checkedInAttendees}</strong>
                         </span>
                       </div>
 
@@ -565,10 +579,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                           return (
                             <div key={slot.time || idx} className="analytics-hourly-col">
                               <div className="analytics-hourly-bar-wrap">
-                                <div
-                                  className="analytics-hourly-bar"
-                                  style={{ height: `${Math.max(heightPct, 8)}%` }}
-                                >
+                                <div className="analytics-hourly-bar" style={{ height: `${Math.max(heightPct, 8)}%` }}>
                                   <span className="analytics-hourly-val">{slot.count}</span>
                                 </div>
                               </div>
@@ -588,9 +599,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
               <div className="analytics-breakdown-section">
                 {selectedEventId !== 'all' && analyticsData.ticketTiers?.length > 0 ? (
                   <div className="analytics-table-card">
-                    <h3 className="analytics-card-title font-['Orbitron']">
-                      TICKET TIER PERFORMANCE BREAKDOWN
-                    </h3>
+                    <h3 className="analytics-card-title font-['Orbitron']">TICKET TIER PERFORMANCE BREAKDOWN</h3>
                     <div className="analytics-table-responsive">
                       <table className="analytics-data-table">
                         <thead>
@@ -631,9 +640,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
                   </div>
                 ) : (
                   <div className="analytics-table-card">
-                    <h3 className="analytics-card-title font-['Orbitron']">
-                      ORGANIZER MANAGED EVENTS OVERVIEW
-                    </h3>
+                    <h3 className="analytics-card-title font-['Orbitron']">ORGANIZER MANAGED EVENTS OVERVIEW</h3>
                     <div className="analytics-table-responsive">
                       <table className="analytics-data-table">
                         <thead>

@@ -37,9 +37,7 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
       venue: 'Auditorium A',
       totalCapacity: 500,
       minPrice: 2000,
-      ticketTiers: [
-        { id: 3, name: 'Delegate', price: 2000, quantity: 500 },
-      ],
+      ticketTiers: [{ id: 3, name: 'Delegate', price: 2000, quantity: 500 }],
     },
   ]
 
@@ -64,7 +62,14 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
       { time: '19:00', count: 160 },
     ],
     eventsBreakdown: [
-      { id: 101, title: 'Neon Horizon Music Fest 2026', ticketsSold: 650, available: 350, revenue: 2500000, checkedIn: 500 },
+      {
+        id: 101,
+        title: 'Neon Horizon Music Fest 2026',
+        ticketsSold: 650,
+        available: 350,
+        revenue: 2500000,
+        checkedIn: 500,
+      },
       { id: 102, title: 'Global Tech Summit 2026', ticketsSold: 300, available: 200, revenue: 950000, checkedIn: 220 },
     ],
   }

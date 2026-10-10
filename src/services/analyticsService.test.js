@@ -1,7 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 import {
   getEventAnalytics,
-  getEventAttendanceData,
   calculateEventRealTimeAnalytics,
   calculateAggregateRealTimeAnalytics,
 } from './analyticsService.js'
@@ -118,8 +117,8 @@ test('calculateAggregateRealTimeAnalytics calculates total numbers across multip
   ]
 
   const availabilities = {
-    '1': { tiers: [{ ticketTierId: '1', availableQuantity: 40 }] }, // 60 sold = 60,000
-    '2': { tiers: [{ ticketTierId: '2', availableQuantity: 50 }] }, // 50 sold = 100,000
+    1: { tiers: [{ ticketTierId: '1', availableQuantity: 40 }] }, // 60 sold = 60,000
+    2: { tiers: [{ ticketTierId: '2', availableQuantity: 50 }] }, // 50 sold = 100,000
   }
 
   const aggregate = calculateAggregateRealTimeAnalytics(mockEvents, availabilities)
