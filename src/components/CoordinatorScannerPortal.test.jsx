@@ -104,7 +104,7 @@ describe('CoordinatorScannerPortal (SCRUM-30)', () => {
     await waitFor(() => {
       expect(coordinatorService.verifyCoordinatorAccess).toHaveBeenCalledWith(101)
       expect(screen.getByText(/SWITCH EVENT/i)).toBeInTheDocument()
-      expect(screen.getByText(/ALIGN QR CODE/i)).toBeInTheDocument()
+      expect(screen.getByText(/DESKTOP GATE TERMINAL/i)).toBeInTheDocument()
       expect(screen.getByLabelText(/MANUAL TICKET CODE ENTRY/i)).toBeInTheDocument()
     })
   })
