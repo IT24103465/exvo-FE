@@ -61,6 +61,24 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   const [verifyingAccess, setVerifyingAccess] = useState(false)
   const [accessError, setAccessError] = useState(null)
 
+  // Device/Viewport Mode (Mobile camera vs Web Terminal manual entry)
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const nav = typeof globalThis.navigator !== 'undefined' ? globalThis.navigator : null
+    return window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(nav?.userAgent || '')
+  })
+
+  // Responsive resize watcher
+  useEffect(() => {
+    const handleResize = () => {
+      const nav = typeof globalThis.navigator !== 'undefined' ? globalThis.navigator : null
+      const mobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|Mobile/i.test(nav?.userAgent || '')
+      setIsMobile(mobile)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
   // Camera & Scan state
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState(null)
@@ -111,8 +129,12 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     setTorchOn(false)
   }, [])
 
-  // ── Start Camera Stream ──
+  // ── Start Camera Stream (Mobile Viewport Only) ──
   const startCameraStream = useCallback(async () => {
+    if (!isMobile) {
+      stopCameraStream()
+      return
+    }
     setCameraError(null)
     stopCameraStream()
     const nav = typeof window !== 'undefined' ? window.navigator : null
@@ -140,7 +162,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       )
       setCameraActive(false)
     }
-  }, [facingMode, stopCameraStream])
+  }, [isMobile, facingMode, stopCameraStream])
 
   // Toggle Torch if supported
   const toggleTorch = async () => {
@@ -169,14 +191,14 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     }
   }, [stopCameraStream])
 
-  // Auto-start camera when entering scanner view
+  // Auto-start camera when entering scanner view on mobile devices
   useEffect(() => {
-    if (selectedEvent) {
+    if (selectedEvent && isMobile) {
       startCameraStream()
     } else {
       stopCameraStream()
     }
-  }, [selectedEvent, facingMode, startCameraStream, stopCameraStream])
+  }, [selectedEvent, isMobile, facingMode, startCameraStream, stopCameraStream])
 
   // ── Event Selection & Access Verification ──
   const handleSelectEvent = async (eventItem) => {
@@ -668,86 +690,148 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
               </div>
             </div>
 
+            {/* Split Screen Grid: Scanner / Connect Widget & Results */}
             <div className="coordinator-scanner-layout">
-              {/* Left Column: Camera Viewfinder & Controls */}
+              {/* Left Column: Web Desktop Manual Entry & Mobile QR Connect Animation OR Mobile Live Camera */}
               <div className="coordinator-scanner-column">
-                <div className="coordinator-viewfinder-shell">
-                  {/* Real video feed or fallback overlay */}
-                  <div className="coordinator-viewfinder">
-                    <video
-                      ref={videoRef}
-                      playsInline
-                      muted
-                      className={`coordinator-video-stream ${cameraActive ? 'active' : 'hidden'}`}
-                    />
+                {isMobile ? (
+                  /* ── MOBILE VIEWPORT: Live Camera Viewfinder ── */
+                  <div className="coordinator-viewfinder-shell">
+                    <div className="coordinator-viewfinder">
+                      <video
+                        ref={videoRef}
+                        playsInline
+                        muted
+                        className={`coordinator-video-stream ${cameraActive ? 'active' : 'hidden'}`}
+                      />
 
-                    {!cameraActive && (
-                      <div className="coordinator-camera-placeholder">
-                        <svg
-                          className="w-16 h-16 text-red-500/60 mb-3 animate-pulse"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                        >
-                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                          <circle cx="12" cy="13" r="4" />
-                        </svg>
-                        <span className="font-['Orbitron'] text-xs text-neutral-400">
-                          {cameraError || 'STANDBY CAMERA SENSOR'}
-                        </span>
-                        <button
-                          type="button"
-                          className="coordinator-retry-cam-btn mt-3 font-['Orbitron']"
-                          onClick={startCameraStream}
-                        >
-                          START CAMERA
-                        </button>
-                      </div>
-                    )}
+                      {!cameraActive && (
+                        <div className="coordinator-camera-placeholder">
+                          <svg
+                            className="w-16 h-16 text-red-500/60 mb-3 animate-pulse"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                          >
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                          <span className="font-['Orbitron'] text-xs text-neutral-400">
+                            {cameraError || 'STANDBY CAMERA SENSOR'}
+                          </span>
+                          <button
+                            type="button"
+                            className="coordinator-retry-cam-btn mt-3 font-['Orbitron']"
+                            onClick={startCameraStream}
+                          >
+                            START CAMERA
+                          </button>
+                        </div>
+                      )}
 
-                    {/* HUD Reticle Overlay */}
-                    <div className="coordinator-hud-overlay">
-                      <div className="hud-corner top-left" />
-                      <div className="hud-corner top-right" />
-                      <div className="hud-corner bottom-left" />
-                      <div className="hud-corner bottom-right" />
-                      {/* Laser Sweeper */}
-                      <div className="hud-laser-line" />
-                      <div className="hud-target-box">
-                        <span className="font-['Orbitron'] hud-target-text">ALIGN QR CODE</span>
+                      {/* HUD Reticle Overlay */}
+                      <div className="coordinator-hud-overlay">
+                        <div className="hud-corner top-left" />
+                        <div className="hud-corner top-right" />
+                        <div className="hud-corner bottom-left" />
+                        <div className="hud-corner bottom-right" />
+                        {/* Laser Sweeper */}
+                        <div className="hud-laser-line" />
+                        <div className="hud-target-box">
+                          <span className="font-['Orbitron'] hud-target-text">ALIGN QR CODE</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Camera Control Toolbar */}
-                  <div className="coordinator-cam-toolbar">
-                    <button
-                      type="button"
-                      className={`cam-tool-btn ${cameraActive ? 'active' : ''}`}
-                      onClick={() => (cameraActive ? stopCameraStream() : startCameraStream())}
-                      title={cameraActive ? 'Pause Camera' : 'Start Camera'}
-                    >
-                      {cameraActive ? 'PAUSE CAM' : 'RESUME CAM'}
-                    </button>
-                    <button
-                      type="button"
-                      className="cam-tool-btn"
-                      onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
-                      title="Flip Camera Direction"
-                    >
-                      FLIP CAMERA
-                    </button>
-                    <button
-                      type="button"
-                      className={`cam-tool-btn ${torchOn ? 'active' : ''}`}
-                      onClick={toggleTorch}
-                      title="Toggle Flash / Torch"
-                    >
-                      TORCH: {torchOn ? 'ON' : 'OFF'}
-                    </button>
+                    {/* Camera Control Toolbar */}
+                    <div className="coordinator-cam-toolbar">
+                      <button
+                        type="button"
+                        className={`cam-tool-btn ${cameraActive ? 'active' : ''}`}
+                        onClick={() => (cameraActive ? stopCameraStream() : startCameraStream())}
+                        title={cameraActive ? 'Pause Camera' : 'Start Camera'}
+                      >
+                        {cameraActive ? 'PAUSE CAM' : 'RESUME CAM'}
+                      </button>
+                      <button
+                        type="button"
+                        className="cam-tool-btn"
+                        onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
+                        title="Flip Camera Direction"
+                      >
+                        FLIP CAMERA
+                      </button>
+                      <button
+                        type="button"
+                        className={`cam-tool-btn ${torchOn ? 'active' : ''}`}
+                        onClick={toggleTorch}
+                        title="Toggle Flash / Torch"
+                      >
+                        TORCH: {torchOn ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  /* ── WEB / DESKTOP VIEWPORT: Animated Mobile Sync Terminal ── */
+                  <div className="coordinator-desktop-sync-card">
+                    <div className="desktop-sync-header">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/50 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold tracking-widest font-['Orbitron']">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                        DESKTOP GATE TERMINAL
+                      </div>
+                      <span className="text-xs text-neutral-400 font-mono">LIVE SYNC READY</span>
+                    </div>
+
+                    {/* Animated Mobile Device Sync Visualizer */}
+                    <div className="phone-connect-animation-shell">
+                      <div className="phone-device-frame">
+                        <div className="phone-notch" />
+                        <div className="phone-screen">
+                          <div className="phone-qr-scan-line" />
+                          <div className="phone-qr-mock">
+                            <div className="qr-corner qr-tl" />
+                            <div className="qr-corner qr-tr" />
+                            <div className="qr-corner qr-bl" />
+                            <div className="qr-dot-grid" />
+                          </div>
+                          <span className="phone-scan-label font-['Orbitron']">SCANNER ACTIVE</span>
+                        </div>
+                      </div>
+
+                      {/* Sync Wave Particle Stream */}
+                      <div className="sync-wave-stream">
+                        <div className="sync-wave-ring ring-1" />
+                        <div className="sync-wave-ring ring-2" />
+                        <div className="sync-wave-ring ring-3" />
+                        <div className="sync-badge font-['Orbitron']">
+                          <svg
+                            className="w-3.5 h-3.5 text-emerald-400"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                            <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                            <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                            <circle cx="12" cy="20" r="1" fill="currentColor" />
+                          </svg>
+                          <span>MOBILE COMPANION CONNECTED</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="desktop-sync-info-box">
+                      <h3 className="desktop-sync-title font-['Orbitron']">Mobile QR Scanner & Web Gate Terminal</h3>
+                      <p className="desktop-sync-desc">
+                        Camera scanning is active on mobile devices. On this desktop terminal, enter or scan ticket
+                        codes via handheld barcode/RFID reader or keyboard input below to validate gate access
+                        instantly.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Manual Ticket Input Shell */}
                 <div className="coordinator-manual-box">

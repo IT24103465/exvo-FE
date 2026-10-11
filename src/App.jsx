@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import './App.css'
 import { EventSkeleton, EventLoadError } from './components/EventListState'
 import CoordinatorScannerPortal from './components/CoordinatorScannerPortal'
+import EventAnalyticsDashboard from './components/EventAnalyticsDashboard'
 import {
   localDate,
   minimumEventTime,
@@ -1497,6 +1498,8 @@ function App() {
   const canAccessScanner = isOrganizer || (authState.isAuthenticated && userDetails.role === 'Admin')
   const [coordinatorPortalOpen, setCoordinatorPortalOpen] = useState(false)
   const [coordinatorPortalEvent, setCoordinatorPortalEvent] = useState(null)
+  const [analyticsDashboardOpen, setAnalyticsDashboardOpen] = useState(false)
+  const [analyticsDashboardEventId, setAnalyticsDashboardEventId] = useState(null)
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
@@ -3458,6 +3461,20 @@ function App() {
     )
   }
 
+  if (analyticsDashboardOpen) {
+    return (
+      <EventAnalyticsDashboard
+        user={userDetails}
+        onBack={() => {
+          setAnalyticsDashboardOpen(false)
+          setAnalyticsDashboardEventId(null)
+        }}
+        ExvoLogo={ExvoLogo}
+        initialSelectedEventId={analyticsDashboardEventId}
+      />
+    )
+  }
+
   return (
     <div
       id="home"
@@ -3511,6 +3528,33 @@ function App() {
                 <rect x="3" y="14" width="7" height="7" />
               </svg>
               <span>DASHBOARD</span>
+            </button>
+          )}
+
+          {isOrganizer && (
+            <button
+              type="button"
+              className="nav-dash-btn"
+              onClick={() => {
+                setAnalyticsDashboardEventId(null)
+                setAnalyticsDashboardOpen(true)
+              }}
+              title="Open Real-time Event Analytics"
+            >
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+              <span>ANALYTICS</span>
             </button>
           )}
 
@@ -3713,6 +3757,7 @@ function App() {
                     'HOME',
                     'EVENTS',
                     'DASHBOARD',
+                    'ANALYTICS',
                     'SCANNER PORTAL',
                     'ADD EVENT',
                     'ABOUT US',
@@ -3731,6 +3776,10 @@ function App() {
                   else if (link === 'DASHBOARD') {
                     setMobileMenuOpen(false)
                     openOrganizerDashboard()
+                  } else if (link === 'ANALYTICS') {
+                    setMobileMenuOpen(false)
+                    setAnalyticsDashboardEventId(null)
+                    setAnalyticsDashboardOpen(true)
                   } else if (link === 'ADD EVENT') {
                     setMobileMenuOpen(false)
                     setShowAddEventModal(true)
@@ -6885,6 +6934,43 @@ function App() {
               </button>
             </div>
 
+            {/* Analytics Portal Access Button */}
+            {isOrganizer && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrganizerDashboardOpen(false)
+                  setAnalyticsDashboardEventId(null)
+                  setAnalyticsDashboardOpen(true)
+                }}
+                className="dash-analytics-portal-btn mt-3 mb-1"
+                title="Launch Event Analytics Dashboard"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="dash-analytics-portal-icon">
+                    <svg
+                      className="w-4 h-4 text-red-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="18" y1="20" x2="18" y2="10" />
+                      <line x1="12" y1="20" x2="12" y2="4" />
+                      <line x1="6" y1="20" x2="6" y2="14" />
+                    </svg>
+                  </span>
+                  <div className="text-left">
+                    <span className="dash-analytics-portal-title">REAL-TIME ANALYTICS</span>
+                    <span className="dash-analytics-portal-sub">Revenue, ticket sales & attendance metrics</span>
+                  </div>
+                </div>
+                <span className="dash-analytics-portal-arrow font-['Orbitron']">VIEW →</span>
+              </button>
+            )}
+
             {/* Scanner Portal Access Button */}
             {canAccessScanner && (
               <button
@@ -6894,7 +6980,7 @@ function App() {
                   setCoordinatorPortalEvent(null)
                   setCoordinatorPortalOpen(true)
                 }}
-                className="dash-scanner-portal-btn mt-3 mb-1"
+                className="dash-scanner-portal-btn mt-1 mb-1"
                 title="Launch Scanner Portal"
               >
                 <div className="flex items-center gap-2.5">
@@ -7016,8 +7102,32 @@ function App() {
                               {evt.venue || 'Colombo'} • {evt.eventDate || '2026'}
                             </p>
 
-                            {/* Action Buttons: SCAN, EDIT, HIDE/UNHIDE, & DELETE */}
-                            <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/5">
+                            {/* Action Buttons: STATS, SCAN, EDIT, HIDE/UNHIDE, & DELETE */}
+                            <div className="flex items-center gap-1.5 mt-2.5 pt-2 border-t border-white/5 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrganizerDashboardOpen(false)
+                                  setAnalyticsDashboardEventId(evt.id)
+                                  setAnalyticsDashboardOpen(true)
+                                }}
+                                className="dash-action-btn dash-action-btn--analytics"
+                                title="View Event Analytics"
+                              >
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                >
+                                  <line x1="18" y1="20" x2="18" y2="10" />
+                                  <line x1="12" y1="20" x2="12" y2="4" />
+                                  <line x1="6" y1="20" x2="6" y2="14" />
+                                </svg>
+                                <span>STATS</span>
+                              </button>
+
                               <button
                                 type="button"
                                 onClick={() => {
