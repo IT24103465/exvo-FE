@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { getCoordinatorEvents, verifyCoordinatorAccess, validateTicketCheckIn } from '../services/coordinatorService'
+import * as coordinatorService from '../services/coordinatorService'
 
 // Play audio feedback using Web Audio API
 const playFeedbackSound = (type) => {
@@ -13,7 +13,7 @@ const playFeedbackSound = (type) => {
     gain.connect(ctx.destination)
 
     const now = ctx.currentTime
-    if (type === 'VALID') {
+    if (type === 'VALID' || type === 'CHECKED_IN') {
       osc.type = 'sine'
       osc.frequency.setValueAtTime(880, now)
       osc.frequency.exponentialRampToValueAtTime(1320, now + 0.15)
@@ -21,10 +21,26 @@ const playFeedbackSound = (type) => {
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25)
       osc.start(now)
       osc.stop(now + 0.25)
-    } else if (type === 'DUPLICATE') {
+    } else if (type === 'DUPLICATE' || type === 'ALREADY_USED') {
       osc.type = 'triangle'
       osc.frequency.setValueAtTime(440, now)
       osc.frequency.setValueAtTime(330, now + 0.12)
+      gain.gain.setValueAtTime(0.3, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3)
+      osc.start(now)
+      osc.stop(now + 0.3)
+    } else if (type === 'WRONG_EVENT') {
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(350, now)
+      osc.frequency.setValueAtTime(250, now + 0.15)
+      gain.gain.setValueAtTime(0.3, now)
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3)
+      osc.start(now)
+      osc.stop(now + 0.3)
+    } else if (type === 'NOT_ELIGIBLE') {
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(300, now)
+      osc.frequency.exponentialRampToValueAtTime(200, now + 0.2)
       gain.gain.setValueAtTime(0.3, now)
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3)
       osc.start(now)
@@ -41,6 +57,30 @@ const playFeedbackSound = (type) => {
   } catch {
     // AudioContext blocked or unavailable in environment
   }
+}
+
+// Helper to determine if an event date is today (ignoring time)
+export const isEventToday = (eventDate) => {
+  if (!eventDate) return false
+  const evtDate = new Date(eventDate)
+  if (isNaN(evtDate.getTime())) return false
+  const now = new Date()
+  return (
+    evtDate.getFullYear() === now.getFullYear() &&
+    evtDate.getMonth() === now.getMonth() &&
+    evtDate.getDate() === now.getDate()
+  )
+}
+
+// Helper to determine if an event is past (before today, ignoring time)
+export const isEventPast = (eventDate) => {
+  if (!eventDate) return false
+  const evtDate = new Date(eventDate)
+  if (isNaN(evtDate.getTime())) return false
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const evtStart = new Date(evtDate.getFullYear(), evtDate.getMonth(), evtDate.getDate()).getTime()
+  return evtStart < todayStart
 }
 
 export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initialSelectedEvent = null }) {
@@ -86,6 +126,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   const [torchOn, setTorchOn] = useState(false)
   const [manualCode, setManualCode] = useState('')
   const [scanning, setScanning] = useState(false)
+  const [confirmingCheckIn, setConfirmingCheckIn] = useState(false)
 
   // Validation Result
   const [lastScanResult, setLastScanResult] = useState(null)
@@ -94,6 +135,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const scanIntervalRef = useRef(null)
 
   // ── Load Assigned Events ──
   const loadAssignedEvents = useCallback(async () => {
@@ -101,7 +143,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     setLoadingEvents(true)
     setEventsError(null)
     try {
-      const data = await getCoordinatorEvents()
+      const data = await coordinatorService.getCoordinatorEvents()
       setEvents(Array.isArray(data) ? data : [])
     } catch (err) {
       setEventsError(err.message || 'Failed to load assigned events.')
@@ -118,6 +160,10 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
   // ── Stop Camera Stream Helper ──
   const stopCameraStream = useCallback(() => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current)
+      scanIntervalRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -154,6 +200,28 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
         videoRef.current.play().catch(() => {})
       }
       setCameraActive(true)
+
+      // Start BarcodeDetector scan interval if supported
+      if ('BarcodeDetector' in window) {
+        try {
+          const detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'ean_13'] })
+          const intervalId = setInterval(async () => {
+            if (videoRef.current && videoRef.current.readyState >= 2 && !scanning && !confirmingCheckIn) {
+              try {
+                const barcodes = await detector.detect(videoRef.current)
+                if (barcodes.length > 0 && barcodes[0].rawValue) {
+                  handleProcessScan(barcodes[0].rawValue)
+                }
+              } catch {
+                // Ignore detection errors for single frames
+              }
+            }
+          }, 450)
+          scanIntervalRef.current = intervalId
+        } catch {
+          // BarcodeDetector initialization fallback
+        }
+      }
     } catch (err) {
       setCameraError(
         err.name === 'NotAllowedError'
@@ -162,7 +230,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       )
       setCameraActive(false)
     }
-  }, [isMobile, facingMode, stopCameraStream])
+  }, [isMobile, facingMode, stopCameraStream, scanning, confirmingCheckIn])
 
   // Toggle Torch if supported
   const toggleTorch = async () => {
@@ -202,12 +270,23 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
   // ── Event Selection & Access Verification ──
   const handleSelectEvent = async (eventItem) => {
+    // Only allow scanner launch on the day of the event
+    if (!isEventToday(eventItem.eventDate)) {
+      if (isEventPast(eventItem.eventDate)) {
+        setAccessError('This event has already expired. Scanner cannot be launched for past events.')
+      } else {
+        const dateStr = eventItem.eventDate ? new Date(eventItem.eventDate).toLocaleDateString() : 'its scheduled date'
+        setAccessError(`Scanner can only be launched on the day of the event (${dateStr}).`)
+      }
+      return
+    }
+
     setVerifyingAccess(true)
     setAccessError(null)
     setLastScanResult(null)
     try {
       const eventId = eventItem.eventId || eventItem.id
-      await verifyCoordinatorAccess(eventId)
+      await coordinatorService.verifyCoordinatorAccess(eventId)
       setSelectedEvent(eventItem)
     } catch (err) {
       setAccessError(err.message || 'Access verification failed for this event.')
@@ -216,33 +295,36 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     }
   }
 
-  // ── Process Ticket Code Verification ──
+  // ── Process Ticket Code Verification (Validation without check-in) ──
   const handleProcessScan = async (codeToVerify) => {
     const code = String(codeToVerify || '').trim()
-    if (!code || !selectedEvent || scanning) return
+    if (!code || !selectedEvent || scanning || confirmingCheckIn) return
 
     setScanning(true)
     const eventId = selectedEvent.eventId || selectedEvent.id
+    const eventName = selectedEvent.title || `Event #${eventId}`
 
     // Check for duplicate in current session scan history
     const existingScan = scanHistory.find(
-      (item) => item.ticketCode.toUpperCase() === code.toUpperCase() && item.status === 'VALID',
+      (item) => item.ticketCode.toUpperCase() === code.toUpperCase() && (item.status === 'VALID' || item.status === 'CHECKED_IN'),
     )
 
     if (existingScan) {
       const duplicateResult = {
+        ticketId: existingScan.ticketId || code,
         ticketCode: code,
         eventId,
+        eventName,
         isValid: false,
-        status: 'DUPLICATE',
+        status: 'ALREADY_USED',
         attendeeName: existingScan.attendeeName || 'Attendee',
         ticketType: existingScan.ticketType || 'Standard',
         seatCode: existingScan.seatCode || 'General',
-        checkedInAt: new Date().toISOString(),
-        firstCheckedInAt: existingScan.checkedInAt,
-        message: `Already checked in at ${new Date(existingScan.checkedInAt).toLocaleTimeString()}`,
+        validatedAt: new Date().toISOString(),
+        checkedInAt: existingScan.checkedInAt || existingScan.validatedAt || new Date().toISOString(),
+        message: `Already checked in at ${new Date(existingScan.checkedInAt || existingScan.validatedAt || Date.now()).toLocaleTimeString()}`,
       }
-      playFeedbackSound('DUPLICATE')
+      playFeedbackSound('ALREADY_USED')
       setLastScanResult(duplicateResult)
       setScanHistory((prev) => [duplicateResult, ...prev])
       setScanning(false)
@@ -251,20 +333,48 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     }
 
     try {
-      const response = await validateTicketCheckIn(eventId, code)
-      const isSuccess = response.isValid !== false && response.status !== 'INVALID'
-      const status = isSuccess ? 'VALID' : 'INVALID'
+      let response
+      if (typeof coordinatorService.validateTicket === 'function') {
+        response = await coordinatorService.validateTicket(eventId, code)
+      } else if (typeof coordinatorService.validateTicketCheckIn === 'function') {
+        response = await coordinatorService.validateTicketCheckIn(eventId, code)
+      }
+      if (!response && typeof coordinatorService.validateTicketCheckIn === 'function') {
+        response = await coordinatorService.validateTicketCheckIn(eventId, code)
+      }
+
+      const rawStatus = (response?.status || (response?.isValid ? 'VALID' : 'INVALID')).toUpperCase()
+      const status = ['VALID', 'INVALID', 'WRONG_EVENT', 'ALREADY_USED', 'NOT_ELIGIBLE'].includes(rawStatus)
+        ? rawStatus
+        : response?.isValid
+          ? 'VALID'
+          : 'INVALID'
+      const isSuccess = status === 'VALID'
 
       const result = {
+        ticketId: response?.ticketId || response?.id || code,
         ticketCode: code,
-        eventId,
+        eventId: response?.eventId || eventId,
+        eventName: response?.eventName || eventName,
         isValid: isSuccess,
         status,
-        attendeeName: response.attendeeName || 'Verified Guest',
-        ticketType: response.ticketType || (code.toUpperCase().includes('VIP') ? 'VIP Pass' : 'General Admission'),
-        seatCode: response.seatCode || (code.length > 8 ? `S-${code.slice(-3).toUpperCase()}` : 'General'),
-        checkedInAt: response.checkedInAt || new Date().toISOString(),
-        message: response.message || (isSuccess ? 'Check-in confirmed!' : 'Ticket verification rejected'),
+        isCheckedIn: false,
+        attendeeName: response?.attendeeName || 'Verified Guest',
+        ticketType: response?.ticketType || (code.toUpperCase().includes('VIP') ? 'VIP Pass' : 'General Admission'),
+        seatCode: response?.seatCode || (code.length > 8 ? `S-${code.slice(-3).toUpperCase()}` : 'General'),
+        validatedAt: response?.validatedAt || new Date().toISOString(),
+        checkedInAt: response?.checkedInAt || null,
+        message:
+          response?.message ||
+          (isSuccess
+            ? 'Ticket is valid. Ready for check-in.'
+            : status === 'ALREADY_USED'
+              ? 'Ticket has already been used for entry.'
+              : status === 'WRONG_EVENT'
+                ? 'Ticket is registered for a different event.'
+                : status === 'NOT_ELIGIBLE'
+                  ? 'Ticket is not eligible for entry at this gate.'
+                  : 'Ticket verification rejected'),
       }
 
       playFeedbackSound(status)
@@ -272,14 +382,17 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       setScanHistory((prev) => [result, ...prev])
     } catch (err) {
       const failedResult = {
+        ticketId: code,
         ticketCode: code,
         eventId,
+        eventName,
         isValid: false,
         status: 'INVALID',
+        isCheckedIn: false,
         attendeeName: 'Unknown',
         ticketType: 'Unknown',
         seatCode: 'None',
-        checkedInAt: new Date().toISOString(),
+        validatedAt: new Date().toISOString(),
         message: err.message || 'Invalid or unrecognized ticket code.',
       }
       playFeedbackSound('INVALID')
@@ -288,6 +401,41 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
     } finally {
       setScanning(false)
       setManualCode('')
+    }
+  }
+
+  // ── Confirm Check-In for Valid Tickets (SCRUM-31 Requirement) ──
+  const handleConfirmCheckIn = async (ticketItem) => {
+    if (!ticketItem || !selectedEvent || confirmingCheckIn) return
+
+    setConfirmingCheckIn(true)
+    const eventId = selectedEvent.eventId || selectedEvent.id
+    const code = ticketItem.ticketCode
+
+    try {
+      const checkInResponse = await coordinatorService.confirmTicketCheckIn(eventId, code)
+      const checkedInTime = checkInResponse.checkedInAt || new Date().toISOString()
+
+      const updatedResult = {
+        ...ticketItem,
+        isCheckedIn: true,
+        checkedInAt: checkedInTime,
+        message: checkInResponse.message || 'Check-in confirmed successfully!',
+        checkInError: null,
+      }
+
+      playFeedbackSound('CHECKED_IN')
+      setLastScanResult(updatedResult)
+      setScanHistory((prev) =>
+        prev.map((item) => (item.ticketCode === code && item.status === 'VALID' ? updatedResult : item)),
+      )
+    } catch (err) {
+      setLastScanResult((prev) => (prev ? {
+        ...prev,
+        checkInError: err.message || 'Failed to confirm check-in. Please retry.',
+      } : null))
+    } finally {
+      setConfirmingCheckIn(false)
     }
   }
 
@@ -301,7 +449,6 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
   // ── Filtered Events Calculations ──
   const filteredEvents = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0]
     return events.filter((evt) => {
       const title = (evt.title || '').toLowerCase()
       const venue = (evt.venue || '').toLowerCase()
@@ -311,11 +458,19 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       const matchesSearch = !query || title.includes(query) || venue.includes(query) || loc.includes(query)
       if (!matchesSearch) return false
 
-      const evtDateStr = evt.eventDate ? evt.eventDate.split('T')[0] : ''
-      if (eventFilter === 'today') return evtDateStr === todayStr
-      if (eventFilter === 'upcoming') return evtDateStr >= todayStr
-      if (eventFilter === 'past') return evtDateStr < todayStr
-      return true
+      const isToday = isEventToday(evt.eventDate)
+      const isPast = isEventPast(evt.eventDate)
+
+      // Past/expired events only display in the 'past' category
+      if (isPast) {
+        return eventFilter === 'past'
+      }
+
+      // Non-past events
+      if (eventFilter === 'past') return false
+      if (eventFilter === 'today') return isToday
+      if (eventFilter === 'upcoming') return !isPast && !isToday
+      return true // 'all' tab shows active/today/upcoming events (expired events excluded)
     })
   }, [events, eventSearch, eventFilter])
 
@@ -333,7 +488,10 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
   // Stats
   const validScansCount = scanHistory.filter((s) => s.status === 'VALID').length
-  const duplicateScansCount = scanHistory.filter((s) => s.status === 'DUPLICATE').length
+  const checkedInCount = scanHistory.filter((s) => s.isCheckedIn).length
+  const alreadyUsedScansCount = scanHistory.filter((s) => s.status === 'ALREADY_USED' || s.status === 'DUPLICATE').length
+  const wrongEventScansCount = scanHistory.filter((s) => s.status === 'WRONG_EVENT').length
+  const notEligibleScansCount = scanHistory.filter((s) => s.status === 'NOT_ELIGIBLE').length
   const invalidScansCount = scanHistory.filter((s) => s.status === 'INVALID').length
 
   // ── If NOT an authorized scanner, render RBAC barrier ──
@@ -434,15 +592,23 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
           </div>
           <div className="coordinator-stat-box">
             <span className="coordinator-stat-num text-emerald-400">{validScansCount}</span>
-            <span className="coordinator-stat-label">CHECKED IN (VALID)</span>
+            <span className="coordinator-stat-label">VALID TICKETS</span>
           </div>
           <div className="coordinator-stat-box">
-            <span className="coordinator-stat-num text-amber-400">{duplicateScansCount}</span>
-            <span className="coordinator-stat-label">DUPLICATES</span>
+            <span className="coordinator-stat-num text-cyan-400">{checkedInCount}</span>
+            <span className="coordinator-stat-label">CONFIRMED CHECK-IN</span>
           </div>
           <div className="coordinator-stat-box">
-            <span className="coordinator-stat-num text-red-400">{invalidScansCount}</span>
-            <span className="coordinator-stat-label">REJECTED</span>
+            <span className="coordinator-stat-num text-amber-400">{alreadyUsedScansCount}</span>
+            <span className="coordinator-stat-label">ALREADY USED</span>
+          </div>
+          <div className="coordinator-stat-box">
+            <span className="coordinator-stat-num text-purple-400">{wrongEventScansCount}</span>
+            <span className="coordinator-stat-label">WRONG EVENT</span>
+          </div>
+          <div className="coordinator-stat-box">
+            <span className="coordinator-stat-num text-red-400">{invalidScansCount + notEligibleScansCount}</span>
+            <span className="coordinator-stat-label">REJECTED / INELIGIBLE</span>
           </div>
         </div>
 
@@ -583,6 +749,8 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
               <div className="coordinator-grid">
                 {filteredEvents.map((evt) => {
                   const evtId = evt.eventId || evt.id
+                  const isToday = isEventToday(evt.eventDate)
+                  const isPast = isEventPast(evt.eventDate)
                   const dateObj = evt.eventDate ? new Date(evt.eventDate) : null
                   const formattedDate = dateObj
                     ? dateObj.toLocaleDateString(undefined, {
@@ -597,10 +765,24 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     : ''
 
                   return (
-                    <article key={evtId} className="coordinator-card" onClick={() => handleSelectEvent(evt)}>
+                    <article
+                      key={evtId}
+                      className={`coordinator-card ${!isToday ? 'coordinator-card--disabled' : ''}`}
+                      onClick={() => handleSelectEvent(evt)}
+                    >
                       <div className="coordinator-card-top">
                         <span className="coordinator-card-badge font-['Orbitron']">EVENT #{evtId}</span>
-                        <span className="coordinator-card-time font-['Orbitron']">{formattedTime || 'DOORS OPEN'}</span>
+                        {isPast ? (
+                          <span className="coordinator-card-badge text-neutral-400 font-['Orbitron']" style={{ borderColor: 'rgba(255,255,255,0.2)' }}>
+                            EXPIRED
+                          </span>
+                        ) : isToday ? (
+                          <span className="coordinator-card-time font-['Orbitron']">{formattedTime || 'DOORS OPEN'}</span>
+                        ) : (
+                          <span className="coordinator-card-badge text-amber-400 font-['Orbitron']" style={{ borderColor: 'rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+                            UPCOMING
+                          </span>
+                        )}
                       </div>
 
                       <h2 className="coordinator-card-title">{evt.title || 'Untitled Event'}</h2>
@@ -620,6 +802,11 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                             <line x1="3" y1="10" x2="21" y2="10" />
                           </svg>
                           <span>{formattedDate}</span>
+                          {isToday && (
+                            <span className="text-[10px] font-bold text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 font-['Orbitron']">
+                              TODAY
+                            </span>
+                          )}
                         </div>
                         <div className="coordinator-meta-row">
                           <svg
@@ -639,14 +826,27 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       <div className="coordinator-card-footer">
                         <button
                           type="button"
-                          className="coordinator-launch-btn font-['Orbitron']"
-                          disabled={verifyingAccess}
+                          className={`coordinator-launch-btn font-['Orbitron'] ${!isToday ? 'coordinator-launch-btn--locked' : ''}`}
+                          disabled={verifyingAccess || !isToday}
                           onClick={(e) => {
                             e.stopPropagation()
                             handleSelectEvent(evt)
                           }}
+                          title={
+                            isPast
+                              ? 'Event has expired. Cannot launch scanner.'
+                              : !isToday
+                                ? 'Scanner can only be launched on the event date.'
+                                : 'Launch QR Ticket Scanner'
+                          }
                         >
-                          {verifyingAccess ? 'VERIFYING...' : 'LAUNCH SCANNER →'}
+                          {verifyingAccess
+                            ? 'VERIFYING...'
+                            : isPast
+                              ? 'EVENT EXPIRED'
+                              : isToday
+                                ? 'LAUNCH SCANNER →'
+                                : 'LOCKED (TODAY ONLY)'}
                         </button>
                       </div>
                     </article>
@@ -694,6 +894,91 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
             <div className="coordinator-scanner-layout">
               {/* Left Column: Web Desktop Manual Entry & Mobile QR Connect Animation OR Mobile Live Camera */}
               <div className="coordinator-scanner-column">
+                {/* Manual Ticket Input Shell (at the top) */}
+                <div className="coordinator-manual-box">
+                  <form onSubmit={handleManualSubmit} className="coordinator-manual-form">
+                    <label htmlFor="manual-ticket-input" className="manual-input-label font-['Orbitron']">
+                      MANUAL TICKET CODE ENTRY
+                    </label>
+                    <div className="manual-input-row">
+                      <input
+                        id="manual-ticket-input"
+                        type="text"
+                        placeholder="e.g. EXVO-TICK-9082 or scan value..."
+                        value={manualCode}
+                        onChange={(e) => setManualCode(e.target.value)}
+                        className="coordinator-manual-input"
+                        autoComplete="off"
+                        spellCheck="false"
+                      />
+                      <button
+                        type="submit"
+                        className="coordinator-manual-btn font-['Orbitron']"
+                        disabled={!manualCode.trim() || scanning}
+                        aria-label="VALIDATE / CHECK IN"
+                      >
+                        {scanning ? 'VALIDATING...' : 'VALIDATE / CHECK IN'}
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Quick Simulation Bar for Fast Testing / Verification */}
+                  <div className="coordinator-sim-bar">
+                    <span className="sim-label font-['Orbitron']">DEMO SIMULATOR:</span>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--valid"
+                      onClick={() => handleProcessScan(`EXVO-GA-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + VALID TICKET
+                    </button>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--vip"
+                      onClick={() => handleProcessScan(`EXVO-VIP-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + VIP PASS
+                    </button>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--already"
+                      style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                      onClick={() => handleProcessScan(`EXVO-USED-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + ALREADY USED
+                    </button>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--wrong"
+                      style={{ background: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+                      onClick={() => handleProcessScan(`EXVO-WRONG-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + WRONG EVENT
+                    </button>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--noteligible"
+                      style={{ background: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.4)', color: '#fb923c' }}
+                      onClick={() => handleProcessScan(`EXVO-NOT_ELIGIBLE-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + NOT ELIGIBLE
+                    </button>
+                    <button
+                      type="button"
+                      className="sim-btn sim-btn--invalid"
+                      onClick={() => handleProcessScan(`INVALID-${Math.floor(1000 + Math.random() * 9000)}`)}
+                      disabled={scanning || confirmingCheckIn}
+                    >
+                      + INVALID CODE
+                    </button>
+                  </div>
+                </div>
+
                 {isMobile ? (
                   /* ── MOBILE VIEWPORT: Live Camera Viewfinder ── */
                   <div className="coordinator-viewfinder-shell">
@@ -826,69 +1111,12 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       <h3 className="desktop-sync-title font-['Orbitron']">Mobile QR Scanner & Web Gate Terminal</h3>
                       <p className="desktop-sync-desc">
                         Camera scanning is active on mobile devices. On this desktop terminal, enter or scan ticket
-                        codes via handheld barcode/RFID reader or keyboard input below to validate gate access
+                        codes via handheld barcode/RFID reader or keyboard input above to validate gate access
                         instantly.
                       </p>
                     </div>
                   </div>
                 )}
-
-                {/* Manual Ticket Input Shell */}
-                <div className="coordinator-manual-box">
-                  <form onSubmit={handleManualSubmit} className="coordinator-manual-form">
-                    <label htmlFor="manual-ticket-input" className="manual-input-label font-['Orbitron']">
-                      MANUAL TICKET CODE ENTRY
-                    </label>
-                    <div className="manual-input-row">
-                      <input
-                        id="manual-ticket-input"
-                        type="text"
-                        placeholder="e.g. EXVO-TICK-9082 or scan value..."
-                        value={manualCode}
-                        onChange={(e) => setManualCode(e.target.value)}
-                        className="coordinator-manual-input"
-                        autoComplete="off"
-                        spellCheck="false"
-                      />
-                      <button
-                        type="submit"
-                        className="coordinator-manual-btn font-['Orbitron']"
-                        disabled={!manualCode.trim() || scanning}
-                      >
-                        {scanning ? 'VERIFYING...' : 'CHECK IN'}
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Quick Simulation Bar for Fast Testing / Verification */}
-                  <div className="coordinator-sim-bar">
-                    <span className="sim-label font-['Orbitron']">DEMO SIMULATOR:</span>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--valid"
-                      onClick={() => handleProcessScan(`EXVO-GA-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning}
-                    >
-                      + VALID TICKET
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--vip"
-                      onClick={() => handleProcessScan(`EXVO-VIP-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning}
-                    >
-                      + VIP PASS
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--invalid"
-                      onClick={() => handleProcessScan(`INVALID-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning}
-                    >
-                      + INVALID CODE
-                    </button>
-                  </div>
-                </div>
               </div>
 
               {/* Right Column: Scan Result & Live Session Log */}
@@ -902,13 +1130,17 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     <div className="result-card-header">
                       <span className="result-status-badge font-['Orbitron']">
                         {lastScanResult.status === 'VALID'
-                          ? '✓ ACCESS GRANTED'
-                          : lastScanResult.status === 'DUPLICATE'
-                            ? '⚠ ALREADY CHECKED IN'
-                            : '✕ ACCESS DENIED'}
+                          ? '✓ ACCESS GRANTED (VALID)'
+                          : lastScanResult.status === 'ALREADY_USED' || lastScanResult.status === 'DUPLICATE'
+                            ? '⚠ ALREADY CHECKED IN (ALREADY_USED)'
+                            : lastScanResult.status === 'WRONG_EVENT'
+                              ? '⊘ WRONG_EVENT'
+                              : lastScanResult.status === 'NOT_ELIGIBLE'
+                                ? '⛔ NOT_ELIGIBLE'
+                                : '✕ ACCESS DENIED (INVALID)'}
                       </span>
                       <span className="result-time font-['Orbitron']">
-                        {new Date(lastScanResult.checkedInAt).toLocaleTimeString()}
+                        {new Date(lastScanResult.validatedAt || lastScanResult.checkedInAt).toLocaleTimeString()}
                       </span>
                     </div>
 
@@ -916,45 +1148,92 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       <div className="result-attendee font-['Orbitron']">{lastScanResult.attendeeName}</div>
                       <div className="result-meta-grid">
                         <div className="result-meta-item">
-                          <span className="meta-label">TICKET CODE</span>
-                          <span className="meta-value font-mono">{lastScanResult.ticketCode}</span>
+                          <span className="meta-label">TICKET ID</span>
+                          <span className="meta-value font-mono">{lastScanResult.ticketId || lastScanResult.ticketCode}</span>
                         </div>
                         <div className="result-meta-item">
-                          <span className="meta-label">PASS TIER</span>
+                          <span className="meta-label">EVENT NAME</span>
+                          <span className="meta-value">{lastScanResult.eventName || selectedEvent?.title || 'Current Event'}</span>
+                        </div>
+                        <div className="result-meta-item">
+                          <span className="meta-label">TICKET TYPE</span>
                           <span className="meta-value">{lastScanResult.ticketType}</span>
+                        </div>
+                        <div className="result-meta-item">
+                          <span className="meta-label">VALIDATION STATUS</span>
+                          <span className="meta-value font-['Orbitron'] font-bold text-emerald-400">
+                            {lastScanResult.status}
+                          </span>
                         </div>
                         <div className="result-meta-item">
                           <span className="meta-label">SEAT ALLOCATION</span>
                           <span className="meta-value">{lastScanResult.seatCode}</span>
                         </div>
                         <div className="result-meta-item">
-                          <span className="meta-label">GATE STATUS</span>
+                          <span className="meta-label">GATE MESSAGE</span>
                           <span className="meta-value">{lastScanResult.message}</span>
                         </div>
                       </div>
+
+                      {/* Separate Confirm Check-In Button for VALID Tickets (SCRUM-31 Requirement) */}
+                      {lastScanResult.status === 'VALID' && !lastScanResult.isCheckedIn && (
+                        <div className="coordinator-action-container mt-3">
+                          <button
+                            type="button"
+                            className="coordinator-confirm-btn font-['Orbitron']"
+                            disabled={confirmingCheckIn}
+                            onClick={() => handleConfirmCheckIn(lastScanResult)}
+                          >
+                            {confirmingCheckIn ? (
+                              'CONFIRMING CHECK-IN...'
+                            ) : (
+                              <>
+                                <svg
+                                  className="w-4 h-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.5"
+                                >
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                CONFIRM CHECK-IN
+                              </>
+                            )}
+                          </button>
+                          {lastScanResult.checkInError && (
+                            <div className="text-red-400 text-xs mt-2 text-center" role="alert">
+                              {lastScanResult.checkInError}
+                              <button
+                                type="button"
+                                className="underline ml-2 text-white font-bold cursor-pointer"
+                                onClick={() => handleConfirmCheckIn(lastScanResult)}
+                              >
+                                Retry
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Checked In Confirmation Banner */}
+                      {lastScanResult.isCheckedIn && (
+                        <div className="coordinator-checked-in-banner font-['Orbitron']">
+                          <svg
+                            className="w-4 h-4 text-emerald-400"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                          <span>CHECK-IN CONFIRMED ({new Date(lastScanResult.checkedInAt).toLocaleTimeString()})</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                ) : (
-                  <div className="coordinator-idle-card">
-                    <svg
-                      className="w-12 h-12 text-neutral-600 mb-2"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    >
-                      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-                      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-                      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-                      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-                      <rect x="7" y="7" width="10" height="10" rx="1" />
-                    </svg>
-                    <span className="font-['Orbitron'] text-xs text-neutral-400">READY FOR NEXT SCAN</span>
-                    <p className="text-neutral-500 text-xs mt-1">
-                      Point camera at attendee QR badge or submit ticket code.
-                    </p>
-                  </div>
-                )}
+                ) : null}
 
                 {/* Live Session Scan History */}
                 <div className="coordinator-history-shell">
@@ -1012,7 +1291,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                             </div>
                           </div>
                           <div className="history-time font-['Orbitron']">
-                            {new Date(item.checkedInAt).toLocaleTimeString()}
+                            {new Date(item.validatedAt || item.checkedInAt || Date.now()).toLocaleTimeString()}
                           </div>
                         </div>
                       ))
