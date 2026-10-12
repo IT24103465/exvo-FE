@@ -60,7 +60,7 @@ const playFeedbackSound = (type) => {
 }
 
 // Helper to determine if an event date is today (ignoring time)
-export const isEventToday = (eventDate) => {
+const isEventToday = (eventDate) => {
   if (!eventDate) return false
   const evtDate = new Date(eventDate)
   if (isNaN(evtDate.getTime())) return false
@@ -73,7 +73,7 @@ export const isEventToday = (eventDate) => {
 }
 
 // Helper to determine if an event is past (before today, ignoring time)
-export const isEventPast = (eventDate) => {
+const isEventPast = (eventDate) => {
   if (!eventDate) return false
   const evtDate = new Date(eventDate)
   if (isNaN(evtDate.getTime())) return false
@@ -136,6 +136,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const scanIntervalRef = useRef(null)
+  const handleProcessScanRef = useRef(null)
 
   // ── Load Assigned Events ──
   const loadAssignedEvents = useCallback(async () => {
@@ -209,8 +210,8 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
             if (videoRef.current && videoRef.current.readyState >= 2 && !scanning && !confirmingCheckIn) {
               try {
                 const barcodes = await detector.detect(videoRef.current)
-                if (barcodes.length > 0 && barcodes[0].rawValue) {
-                  handleProcessScan(barcodes[0].rawValue)
+                if (barcodes.length > 0 && barcodes[0].rawValue && handleProcessScanRef.current) {
+                  handleProcessScanRef.current(barcodes[0].rawValue)
                 }
               } catch {
                 // Ignore detection errors for single frames
@@ -306,7 +307,9 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
 
     // Check for duplicate in current session scan history
     const existingScan = scanHistory.find(
-      (item) => item.ticketCode.toUpperCase() === code.toUpperCase() && (item.status === 'VALID' || item.status === 'CHECKED_IN'),
+      (item) =>
+        item.ticketCode.toUpperCase() === code.toUpperCase() &&
+        (item.status === 'VALID' || item.status === 'CHECKED_IN'),
     )
 
     if (existingScan) {
@@ -403,6 +406,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       setManualCode('')
     }
   }
+  handleProcessScanRef.current = handleProcessScan
 
   // ── Confirm Check-In for Valid Tickets (SCRUM-31 Requirement) ──
   const handleConfirmCheckIn = async (ticketItem) => {
@@ -430,10 +434,14 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
         prev.map((item) => (item.ticketCode === code && item.status === 'VALID' ? updatedResult : item)),
       )
     } catch (err) {
-      setLastScanResult((prev) => (prev ? {
-        ...prev,
-        checkInError: err.message || 'Failed to confirm check-in. Please retry.',
-      } : null))
+      setLastScanResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              checkInError: err.message || 'Failed to confirm check-in. Please retry.',
+            }
+          : null,
+      )
     } finally {
       setConfirmingCheckIn(false)
     }
@@ -489,7 +497,9 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   // Stats
   const validScansCount = scanHistory.filter((s) => s.status === 'VALID').length
   const checkedInCount = scanHistory.filter((s) => s.isCheckedIn).length
-  const alreadyUsedScansCount = scanHistory.filter((s) => s.status === 'ALREADY_USED' || s.status === 'DUPLICATE').length
+  const alreadyUsedScansCount = scanHistory.filter(
+    (s) => s.status === 'ALREADY_USED' || s.status === 'DUPLICATE',
+  ).length
   const wrongEventScansCount = scanHistory.filter((s) => s.status === 'WRONG_EVENT').length
   const notEligibleScansCount = scanHistory.filter((s) => s.status === 'NOT_ELIGIBLE').length
   const invalidScansCount = scanHistory.filter((s) => s.status === 'INVALID').length
@@ -773,13 +783,21 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       <div className="coordinator-card-top">
                         <span className="coordinator-card-badge font-['Orbitron']">EVENT #{evtId}</span>
                         {isPast ? (
-                          <span className="coordinator-card-badge text-neutral-400 font-['Orbitron']" style={{ borderColor: 'rgba(255,255,255,0.2)' }}>
+                          <span
+                            className="coordinator-card-badge text-neutral-400 font-['Orbitron']"
+                            style={{ borderColor: 'rgba(255,255,255,0.2)' }}
+                          >
                             EXPIRED
                           </span>
                         ) : isToday ? (
-                          <span className="coordinator-card-time font-['Orbitron']">{formattedTime || 'DOORS OPEN'}</span>
+                          <span className="coordinator-card-time font-['Orbitron']">
+                            {formattedTime || 'DOORS OPEN'}
+                          </span>
                         ) : (
-                          <span className="coordinator-card-badge text-amber-400 font-['Orbitron']" style={{ borderColor: 'rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+                          <span
+                            className="coordinator-card-badge text-amber-400 font-['Orbitron']"
+                            style={{ borderColor: 'rgba(245,158,11,0.3)', color: '#fbbf24' }}
+                          >
                             UPCOMING
                           </span>
                         )}
@@ -944,7 +962,11 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     <button
                       type="button"
                       className="sim-btn sim-btn--already"
-                      style={{ background: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24' }}
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.15)',
+                        borderColor: 'rgba(245, 158, 11, 0.4)',
+                        color: '#fbbf24',
+                      }}
                       onClick={() => handleProcessScan(`EXVO-USED-${Math.floor(1000 + Math.random() * 9000)}`)}
                       disabled={scanning || confirmingCheckIn}
                     >
@@ -953,7 +975,11 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     <button
                       type="button"
                       className="sim-btn sim-btn--wrong"
-                      style={{ background: 'rgba(168, 85, 247, 0.15)', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+                      style={{
+                        background: 'rgba(168, 85, 247, 0.15)',
+                        borderColor: 'rgba(168, 85, 247, 0.4)',
+                        color: '#c084fc',
+                      }}
                       onClick={() => handleProcessScan(`EXVO-WRONG-${Math.floor(1000 + Math.random() * 9000)}`)}
                       disabled={scanning || confirmingCheckIn}
                     >
@@ -962,7 +988,11 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                     <button
                       type="button"
                       className="sim-btn sim-btn--noteligible"
-                      style={{ background: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.4)', color: '#fb923c' }}
+                      style={{
+                        background: 'rgba(249, 115, 22, 0.15)',
+                        borderColor: 'rgba(249, 115, 22, 0.4)',
+                        color: '#fb923c',
+                      }}
                       onClick={() => handleProcessScan(`EXVO-NOT_ELIGIBLE-${Math.floor(1000 + Math.random() * 9000)}`)}
                       disabled={scanning || confirmingCheckIn}
                     >
@@ -1149,11 +1179,15 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       <div className="result-meta-grid">
                         <div className="result-meta-item">
                           <span className="meta-label">TICKET ID</span>
-                          <span className="meta-value font-mono">{lastScanResult.ticketId || lastScanResult.ticketCode}</span>
+                          <span className="meta-value font-mono">
+                            {lastScanResult.ticketId || lastScanResult.ticketCode}
+                          </span>
                         </div>
                         <div className="result-meta-item">
                           <span className="meta-label">EVENT NAME</span>
-                          <span className="meta-value">{lastScanResult.eventName || selectedEvent?.title || 'Current Event'}</span>
+                          <span className="meta-value">
+                            {lastScanResult.eventName || selectedEvent?.title || 'Current Event'}
+                          </span>
                         </div>
                         <div className="result-meta-item">
                           <span className="meta-label">TICKET TYPE</span>

@@ -518,4 +518,3 @@ describe('CoordinatorScannerPortal (SCRUM-30)', () => {
     expect(expiredBtn).toBeDisabled()
   })
 })
-

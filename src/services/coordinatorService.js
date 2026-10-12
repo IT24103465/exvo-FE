@@ -88,7 +88,13 @@ export const validateTicket = async (eventId, ticketCode) => {
   } catch (err) {
     // If backend endpoint is 404, not found, or unavailable, provide fallback with status parsing for resilience
     const errText = (err.message || '').toLowerCase()
-    if (errText.includes('404') || errText.includes('500') || errText.includes('unavailable') || errText.includes('not found') || errText.includes('failed')) {
+    if (
+      errText.includes('404') ||
+      errText.includes('500') ||
+      errText.includes('unavailable') ||
+      errText.includes('not found') ||
+      errText.includes('failed')
+    ) {
       const upper = normalizedCode.toUpperCase()
       let status = 'VALID'
       let message = 'Ticket is valid. Ready for check-in.'
