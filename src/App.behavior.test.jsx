@@ -2,7 +2,17 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
 import { getAllEvents, getMyEvents, createEvent, updateEvent } from './services/eventService'
+import { updateUserProfile } from './services/authService'
 import { localDate } from './services/eventDateTime'
+import {
+  confirmGeneralBooking,
+  confirmSeatHold,
+  getAttendeeSeatingPlan,
+  getEventAvailability,
+  getMyTickets,
+  holdSeats,
+  releaseSeatHold,
+} from './services/bookingService'
 
 vi.mock('./services/eventService', () => ({
   getAllEvents: vi.fn(),
@@ -21,12 +31,36 @@ vi.mock('./services/authService', () => ({
   updateUserProfile: vi.fn(),
   deleteUserAccount: vi.fn(),
 }))
+vi.mock('./services/bookingService', () => ({
+  getAttendeeSeatingPlan: vi.fn(),
+  getEventAvailability: vi.fn(),
+  holdSeats: vi.fn(),
+  confirmGeneralBooking: vi.fn(),
+  confirmSeatHold: vi.fn(),
+  getMyTickets: vi.fn(),
+  releaseSeatHold: vi.fn(),
+  getOrganizerSeatingPlan: vi.fn(),
+  saveSeatingPlan: vi.fn(),
+  bookingPlanToSeatingConfig: vi.fn((plan) => ({ enabled: Boolean(plan?.isVisibleToAttendees), zones: [] })),
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   getAllEvents.mockResolvedValue([])
   getMyEvents.mockResolvedValue([])
+  getAttendeeSeatingPlan.mockResolvedValue(null)
+  getEventAvailability.mockResolvedValue(null)
+  holdSeats.mockResolvedValue({
+    holdId: 1,
+    eventId: 1,
+    seatCodes: ['A-01'],
+    expiresAtUtc: new Date(Date.now() + 300000).toISOString(),
+  })
+  releaseSeatHold.mockResolvedValue(null)
+  confirmGeneralBooking.mockResolvedValue({ bookingReference: 'EXVO-GA' })
+  confirmSeatHold.mockResolvedValue({ bookingReference: 'EXVO-TEST' })
+  getMyTickets.mockResolvedValue([])
 })
 afterEach(() => {
   localStorage.clear()
@@ -49,6 +83,43 @@ const signIn = () => {
   )
 }
 const openDashboard = () => fireEvent.click(screen.getByRole('button', { name: 'DASHBOARD' }))
+
+test.each(['View full profile', 'Click to view full profile', 'card'])(
+  'profile popup opens profile and edit controls through %s',
+  async (title) => {
+    signIn()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Open profile options' }))
+    fireEvent.click(title === 'card' ? screen.getByTitle('View full profile').parentElement : screen.getByTitle(title))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
+    expect(within(dialog).getByDisplayValue('Shared company')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /Save Changes/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close profile' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  },
+)
+
+test('hidden navigation profile opens the full profile editor directly', async () => {
+  signIn()
+  render(<App />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle Navigation Menu' }))
+  fireEvent.click(screen.getByRole('button', { name: 'PROFILE' }))
+
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(within(dialog).getByRole('button', { name: /Edit Profile/i }))
+  fireEvent.click(within(dialog).getByRole('button', { name: /Save Changes/i }))
+
+  await waitFor(() =>
+    expect(updateUserProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Shared company',
+        email: 'owner@example.com',
+      }),
+    ),
+  )
+})
 
 test.each(['home', 'dashboard', 'details', 'booking'])(
   'expired events are removed from public %s views and retained as hidden in the dashboard',
@@ -95,6 +166,92 @@ test.each(['home', 'dashboard', 'details', 'booking'])(
     expect(getAllEvents).toHaveBeenCalledTimes(1)
   },
 )
+
+test('attendee selects and clears only available database seats and sees live totals', async () => {
+  signIn()
+  getAllEvents.mockResolvedValue([
+    {
+      id: 1,
+      title: 'Assigned seating event',
+      availableTickets: 2,
+      ticketTiers: [{ id: 'tier-1', name: 'Premium', price: 2500, quantity: 2 }],
+    },
+  ])
+  getAttendeeSeatingPlan.mockResolvedValue({
+    eventId: 1,
+    isVisibleToAttendees: true,
+    status: 'Published',
+    sections: [
+      {
+        id: 10,
+        name: 'Orchestra',
+        rowCount: 1,
+        seatsPerRow: 2,
+        price: 2500,
+        seats: [
+          {
+            id: 100,
+            seatCode: 'A-01',
+            rowLabel: 'A',
+            seatNumber: 1,
+            ticketTierId: 1,
+            price: 2500,
+            isEnabled: true,
+            status: 'Available',
+          },
+          {
+            id: 101,
+            seatCode: 'A-02',
+            rowLabel: 'A',
+            seatNumber: 2,
+            ticketTierId: 1,
+            price: 2500,
+            isEnabled: true,
+            status: 'Held',
+          },
+        ],
+      },
+    ],
+  })
+
+  render(<App />)
+  await waitFor(() => expect(screen.getByTitle('Click to view details: Assigned seating event')).toBeInTheDocument())
+  fireEvent.click(screen.getByTitle('Click to view details: Assigned seating event'))
+  fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
+  fireEvent.click(screen.getAllByRole('button', { name: '+' })[0])
+  expect(await screen.findByRole('button', { name: /CHOOSE SEATS/i })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /CHOOSE SEATS/i }))
+
+  const unavailableSeat = screen.getByTitle(/Row A, Seat 2/)
+  expect(unavailableSeat).toBeDisabled()
+  fireEvent.click(screen.getByTitle(/Row A, Seat 1/))
+  expect(screen.getByText(/A-01/)).toBeInTheDocument()
+  expect(screen.getByText(/2500/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: /CONTINUE/i }))
+  expect(await screen.findByText(/Seats held for you/i)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /CONFIRM RESERVATION/i })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Clear Selection/i }))
+  expect(screen.getByRole('button', { name: /CONTINUE/i })).toBeDisabled()
+})
+
+test('general admission quantity cannot exceed BookingService availability', async () => {
+  signIn()
+  getAllEvents.mockResolvedValue([
+    { id: 2, title: 'General admission event', availableTickets: 50, minPrice: 1200, ticketTiers: [] },
+  ])
+  getAttendeeSeatingPlan.mockResolvedValue(null)
+  getEventAvailability.mockResolvedValue({ eventId: 2, availableSeatCount: 1, tiers: [] })
+
+  render(<App />)
+  fireEvent.click(await screen.findByTitle('Click to view details: General admission event'))
+  fireEvent.click(await screen.findByRole('button', { name: /GET TICKETS NOW/i }))
+  const increase = screen.getByRole('button', { name: '+' })
+  await waitFor(() => expect(increase).toBeEnabled())
+  fireEvent.click(increase)
+  expect(increase).toBeDisabled()
+  expect(screen.getByText('1')).toBeInTheDocument()
+})
 
 test('public lists show skeletons until a successful empty response', async () => {
   const request = deferred()
@@ -255,6 +412,7 @@ test.each(['create', 'edit'])(
         venue: 'Arena',
         eventDate: '2099-10-12T19:30:00',
         ticketTiers: [{ id: '1', name: 'General', price: 100, quantity: 10 }],
+        seatingConfig: { enabled: false, autoSyncCategories: true, zones: [] },
       },
     ])
     render(<App />)

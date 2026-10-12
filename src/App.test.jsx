@@ -69,7 +69,7 @@ describe('Exvo homepage', () => {
       artistOrOrganizer: 'The Signal',
       category: 'Concert',
       venue: 'Colombo Arena',
-      eventDate: '2026-10-14T19:30:00',
+      eventDate: '2099-10-12T19:30:00',
       price: 2500,
       availableTickets: 300,
       imageUrl: '/event.jpg',

@@ -77,18 +77,7 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
 
         // If backend direct endpoint is not available or returned partial data, calculate from live database events & booking availability
         if (!data) {
-          let currentEvents = organizerEventsRef.current || []
-          if (currentEvents.length === 0) {
-            try {
-              const freshEvents = await getMyEvents()
-              if (Array.isArray(freshEvents) && freshEvents.length > 0) {
-                currentEvents = freshEvents
-                setOrganizerEvents(freshEvents)
-              }
-            } catch {
-              // ignore
-            }
-          }
+          const currentEvents = organizerEventsRef.current || []
 
           if (targetId) {
             const selectedEvt = currentEvents.find((e) => String(e.id || e.eventId) === String(targetId))

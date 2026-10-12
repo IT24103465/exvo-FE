@@ -2701,6 +2701,57 @@
   gap: 5px;
 }
 
+.event-live-status-pill.is-sold-out,
+.event-detail-status-pill.is-sold-out {
+  background: rgba(82, 82, 91, 0.45);
+  border-color: rgba(161, 161, 170, 0.45);
+  color: #d4d4d8;
+}
+
+.event-live-status-pill.is-temporarily-held,
+.event-detail-status-pill.is-temporarily-held {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.event-detail-status-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  color: #34d399;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.event-inventory-message {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(39, 39, 42, 0.72);
+  border: 1px solid rgba(212, 212, 216, 0.22);
+  color: #d4d4d8;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.event-inventory-message__title {
+  margin-bottom: 3px;
+  color: #ffffff;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .event-cyber-card__content {
   padding: 16px;
   display: flex;
@@ -2782,6 +2833,15 @@
 .booking-tier-card:hover {
   border-color: rgba(255, 0, 0, 0.4);
   background: rgba(255, 0, 0, 0.05);
+}
+
+.booking-tier-card--unavailable {
+  opacity: 0.72;
+}
+
+.booking-tier-card--unavailable:hover {
+  border-color: rgba(82, 82, 91, 0.8);
+  background: rgba(9, 9, 11, 0.55);
 }
 
 .booking-tier-card--active {
@@ -3010,6 +3070,19 @@
   border-color: #ef4444;
   color: #ffffff;
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+.dash-action-btn--scan {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+
+.dash-action-btn--scan:hover {
+  background: rgba(16, 185, 129, 0.3);
+  border-color: #10b981;
+  color: #ffffff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
 }
 
 /* ══════════════ ADD & EDIT EVENT MODAL STYLES ══════════════ */
@@ -3395,6 +3468,22 @@
 .event-detail-tier-card:hover {
   border-color: rgba(255, 0, 0, 0.4);
   background: rgba(255, 0, 0, 0.04);
+}
+
+.event-detail-tier-card--unavailable {
+  background: rgba(39, 39, 42, 0.35);
+  border-color: rgba(113, 113, 122, 0.35);
+  opacity: 0.82;
+}
+
+.event-detail-tier-card--unavailable:hover {
+  background: rgba(39, 39, 42, 0.42);
+  border-color: rgba(161, 161, 170, 0.38);
+}
+
+.event-detail-tier-card--unavailable.is-temporarily-held {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.07);
 }
 
 /* Custom Cyber Scrollbar for Modals and Containers */

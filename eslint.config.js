@@ -19,6 +19,8 @@ const browserGlobals = {
   setInterval: 'readonly',
   clearInterval: 'readonly',
   URL: 'readonly',
+  TextEncoder: 'readonly',
+  XMLSerializer: 'readonly',
   Blob: 'readonly',
   alert: 'readonly',
   Image: 'readonly',

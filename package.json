@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
+    "jsbarcode": "^3.12.3",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -24,6 +26,7 @@
     "@eslint/js": "^9.39.5",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.2.17",
@@ -40,7 +43,7 @@
     "oxlint": "^1.75.0",
     "postcss": "^8.5.30",
     "prettier": "^3.9.6",
-    "tailwindcss": "^3.4.19",
+    "tailwindcss": "^4.3.3",
     "vite": "^8.2.0",
     "vitest": "^5.0.0"
   }
