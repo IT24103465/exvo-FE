@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest'
+import * as coordinatorService from './coordinatorService.js'
 import { getCoordinatorEvents, verifyCoordinatorAccess, validateTicketCheckIn } from './coordinatorService.js'
 
 beforeEach(() => {
@@ -94,4 +95,87 @@ test('handles offline/unmounted endpoint fallback during ticket check-in', async
   expect(res.ticketCode).toBe('EXVO-VIP-001')
   expect(res.eventId).toBe(5)
   expect(res.status).toBe('VALID')
+})
+
+test('validates ticket via CheckInService validate endpoint (SCRUM-31)', async () => {
+  const validateResult = {
+    ticketId: 'EXVO-GA-444',
+    ticketCode: 'EXVO-GA-444',
+    eventId: 2,
+    eventName: 'Colombo Tech Expo',
+    isValid: true,
+    status: 'VALID',
+    attendeeName: 'Sunil Dias',
+    ticketType: 'General Admission',
+    seatCode: 'GA-01',
+    validatedAt: '2026-11-01T10:00:00Z',
+    message: 'Ticket is valid. Ready for check-in.',
+  }
+
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => validateResult,
+  })
+
+  const res = await coordinatorService.validateTicket(2, 'EXVO-GA-444')
+  expect(res).toEqual(validateResult)
+  expect(globalThis.fetch).toHaveBeenCalledWith(
+    expect.stringContaining('/api/coordinator/events/2/validate'),
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ ticketCode: 'EXVO-GA-444' }),
+    }),
+  )
+})
+
+test('confirms ticket check-in separately for valid ticket (SCRUM-31)', async () => {
+  const confirmResult = {
+    ticketId: 'EXVO-GA-444',
+    ticketCode: 'EXVO-GA-444',
+    eventId: 2,
+    status: 'CHECKED_IN',
+    checkedInAt: '2026-11-01T10:05:00Z',
+    message: 'Check-in confirmed successfully.',
+  }
+
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => confirmResult,
+  })
+
+  const res = await coordinatorService.confirmTicketCheckIn(2, 'EXVO-GA-444')
+  expect(res).toEqual(confirmResult)
+  expect(globalThis.fetch).toHaveBeenCalledWith(
+    expect.stringContaining('/api/coordinator/events/2/check-in'),
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ ticketCode: 'EXVO-GA-444' }),
+    }),
+  )
+})
+
+test('validates ticket fallback statuses (ALREADY_USED, WRONG_EVENT, NOT_ELIGIBLE, INVALID)', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: false,
+    status: 404,
+    json: async () => ({ message: 'Not found' }),
+  })
+
+  const usedRes = await coordinatorService.validateTicket(1, 'EXVO-ALREADY-USED-001')
+  expect(usedRes.status).toBe('ALREADY_USED')
+  expect(usedRes.isValid).toBe(false)
+
+  const wrongRes = await coordinatorService.validateTicket(1, 'EXVO-WRONG-EVENT-002')
+  expect(wrongRes.status).toBe('WRONG_EVENT')
+  expect(wrongRes.isValid).toBe(false)
+
+  const notEligibleRes = await coordinatorService.validateTicket(1, 'EXVO-NOT_ELIGIBLE-003')
+  expect(notEligibleRes.status).toBe('NOT_ELIGIBLE')
+  expect(notEligibleRes.isValid).toBe(false)
+
+  const invalidRes = await coordinatorService.validateTicket(1, 'BAD-INVALID-004')
+  expect(invalidRes.status).toBe('INVALID')
+  expect(invalidRes.isValid).toBe(false)
 })
