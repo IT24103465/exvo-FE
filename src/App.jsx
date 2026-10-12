@@ -1049,6 +1049,18 @@ function App() {
     if (bookingModalEvent && isEventExpired(bookingModalEvent, eventNow)) setBookingModalEvent(null)
   }, [eventNow, selectedDetailEvent, bookingModalEvent])
 
+
+  // Lock web page background scroll when menu overlay is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
+    }
+  }, [mobileMenuOpen])
+
   useEffect(() => {
     const closeProfile = () => {
       setProfileMenuOpen(false)
@@ -2424,11 +2436,13 @@ function App() {
           </div>
 
           {/* Overlay Menu Items */}
-          <div className="nav-overlay-body">
+          <div
+            className={`nav-overlay-body ${authState.isAuthenticated && isOrganizer ? 'nav-overlay-body--organizer' : ''}`}
+          >
             {(authState.isAuthenticated
               ? isOrganizer
-                ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
-                : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                ? ['HOME', 'EVENTS', 'DASHBOARD', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
+                : ['HOME', 'EVENTS', 'MY TICKETS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
             ).map((link) => (
               <button
@@ -2456,9 +2470,26 @@ function App() {
                     handleLogout()
                   }
                 }}
-                className="nav-overlay-item group"
+                className={`nav-overlay-item group ${link === 'LOGOUT' ? 'nav-overlay-item--logout' : ''}`}
               >
-                <span className="nav-overlay-label">{link}</span>
+                <span className="nav-overlay-label flex items-center gap-2">
+                  {link === 'LOGOUT' && (
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-4 h-4 md:w-5 md:h-5 text-red-500 inline-block"
+                    >
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                      <polyline points="16 17 21 12 16 7" />
+                      <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                  )}
+                  {link}
+                </span>
               </button>
             ))}
           </div>
@@ -3551,9 +3582,13 @@ function App() {
                               <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
                               <input
                                 type="text"
-                                value={(zone.rows || []).join(', ')}
+                                placeholder="e.g. A, B, C"
+                                value={
+                                  zone.rowLabelsText !== undefined ? zone.rowLabelsText : (zone.rows || []).join(', ')
+                                }
                                 onChange={(e) => {
-                                  const rows = e.target.value
+                                  const textVal = e.target.value
+                                  const rows = textVal
                                     .split(',')
                                     .map((r) => r.trim().toUpperCase())
                                     .filter(Boolean)
@@ -3561,7 +3596,9 @@ function App() {
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                      zones: prev.seatingConfig.zones.map((z, i) =>
+                                        i === zIdx ? { ...z, rows, rowLabelsText: textVal } : z,
+                                      ),
                                     },
                                   }))
                                 }}
@@ -5966,9 +6003,13 @@ function App() {
                               <span className="text-[8px] text-neutral-500 uppercase">ROWS (comma separated)</span>
                               <input
                                 type="text"
-                                value={(zone.rows || []).join(', ')}
+                                placeholder="e.g. A, B, C"
+                                value={
+                                  zone.rowLabelsText !== undefined ? zone.rowLabelsText : (zone.rows || []).join(', ')
+                                }
                                 onChange={(e) => {
-                                  const rows = e.target.value
+                                  const textVal = e.target.value
+                                  const rows = textVal
                                     .split(',')
                                     .map((r) => r.trim().toUpperCase())
                                     .filter(Boolean)
@@ -5976,7 +6017,9 @@ function App() {
                                     ...prev,
                                     seatingConfig: {
                                       ...prev.seatingConfig,
-                                      zones: prev.seatingConfig.zones.map((z, i) => (i === zIdx ? { ...z, rows } : z)),
+                                      zones: prev.seatingConfig.zones.map((z, i) =>
+                                        i === zIdx ? { ...z, rows, rowLabelsText: textVal } : z,
+                                      ),
                                     },
                                   }))
                                 }}
