@@ -13,7 +13,14 @@ const formatLKR = (amount) => {
   return `LKR ${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 }
 
-export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initialSelectedEventId = null }) {
+export default function EventAnalyticsDashboard({
+  user,
+  onBack,
+  ExvoLogo,
+  initialSelectedEventId = null,
+  onOpenReports = null,
+  onLaunchScanner = null,
+}) {
   // ── Role-Based Access Control (RBAC) ──
   const isAuthorized = Boolean(user && (user.role === 'Organizer' || user.role === 'Company' || user.role === 'Admin'))
 
@@ -279,6 +286,54 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
             <span>{isRefreshing ? 'REFRESHING...' : 'REFRESH'}</span>
           </button>
 
+          {/* Reports Navigation Button */}
+          {onOpenReports && (
+            <button
+              type="button"
+              className="analytics-reports-btn font-['Orbitron']"
+              onClick={() => onOpenReports(selectedEventId === 'all' ? null : selectedEventId)}
+              title="Open Official Sales & Attendance Reports (SCRUM-37)"
+            >
+              <svg
+                className="w-4 h-4 text-amber-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+                <polyline points="10 9 9 9 8 9" />
+              </svg>
+              <span>REPORTS</span>
+            </button>
+          )}
+
+          {/* Scanner Portal Access */}
+          {onLaunchScanner && (
+            <button
+              type="button"
+              className="analytics-scanner-btn font-['Orbitron']"
+              onClick={() => onLaunchScanner(selectedEventId === 'all' ? null : selectedEventId)}
+              title="Launch QR Ticket Scanner Portal for this event"
+            >
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01" />
+                <path d="M12 7v10" />
+              </svg>
+              <span>SCANNER</span>
+            </button>
+          )}
+
           {/* User Info Badge */}
           <div className="analytics-user-pill">
             <span className="analytics-user-name">{user?.fullName || user?.name || 'Organizer'}</span>
@@ -347,349 +402,535 @@ export default function EventAnalyticsDashboard({ user, onBack, ExvoLogo, initia
               SYNCHRONIZING EVENT ANALYTICS & METRICS...
             </span>
           </div>
-        ) : (
-          analyticsData && (
-            <div className="analytics-content-grid">
-              {/* ══════════════════════════════════════════════════════════ */}
-              {/* 1. TOP STATS CARDS GRID (5 Critical Metrics)               */}
-              {/* ══════════════════════════════════════════════════════════ */}
-              <div className="analytics-stats-grid">
-                {/* Total Tickets Sold */}
-                <div className="analytics-metric-card group">
-                  <div className="analytics-card-glow" />
-                  <div className="analytics-card-head">
-                    <span className="analytics-metric-title">TOTAL TICKETS SOLD</span>
-                    <span className="analytics-icon-box text-blue-400">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="4" width="18" height="16" rx="2" />
-                        <line x1="7" y1="8" x2="7" y2="8" />
-                        <line x1="17" y1="8" x2="17" y2="8" />
-                        <line x1="7" y1="12" x2="17" y2="12" />
-                      </svg>
-                    </span>
-                  </div>
-                  <div className="analytics-metric-val font-['Orbitron'] text-white">
-                    {(analyticsData.totalTicketsSold || 0).toLocaleString()}
-                  </div>
-                  <div className="analytics-metric-sub">
-                    <span className="text-emerald-400 font-bold">
-                      {analyticsData.totalCapacity > 0
-                        ? `${Math.round(((analyticsData.totalTicketsSold || 0) / analyticsData.totalCapacity) * 100)}%`
-                        : '0%'}
-                    </span>
-                    <span className="text-neutral-400"> of total capacity ({analyticsData.totalCapacity || 0})</span>
-                  </div>
-                </div>
+        ) : analyticsData && (selectedEventId !== 'all' || organizerEvents.length > 0) ? (
+          <div className="analytics-content-grid">
+            {/* ══════════════════════════════════════════════════════════ */}
+            {/* 1. TOP STATS CARDS GRID (Critical Real-Time Metrics)        */}
+            {/* ══════════════════════════════════════════════════════════ */}
+            {(() => {
+              const totalSold = analyticsData.totalTicketsSold || 0
+              const capacity = analyticsData.totalCapacity || 1
+              const checkedIn = analyticsData.checkedInAttendees || 0
+              const remainingExpected =
+                analyticsData.remainingAttendees != null
+                  ? analyticsData.remainingAttendees
+                  : Math.max(0, totalSold - checkedIn)
+              const checkInRate =
+                analyticsData.checkInRate != null
+                  ? analyticsData.checkInRate
+                  : totalSold > 0
+                    ? Number(((checkedIn / totalSold) * 100).toFixed(1))
+                    : 0
+              const venueOccupancyPercent =
+                analyticsData.venueOccupancyPercentage != null
+                  ? analyticsData.venueOccupancyPercentage
+                  : capacity > 0
+                    ? Number(((checkedIn / capacity) * 100).toFixed(1))
+                    : 0
+              const salesFillRate =
+                analyticsData.salesFillRate != null
+                  ? analyticsData.salesFillRate
+                  : capacity > 0
+                    ? Number(((totalSold / capacity) * 100).toFixed(1))
+                    : 0
 
-                {/* Total Revenue (LKR) */}
-                <div className="analytics-metric-card group">
-                  <div className="analytics-card-glow" />
-                  <div className="analytics-card-head">
-                    <span className="analytics-metric-title">TOTAL REVENUE (LKR)</span>
-                    <span className="analytics-icon-box text-emerald-400">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="1" x2="12" y2="23" />
-                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                      </svg>
-                    </span>
-                  </div>
-                  <div className="analytics-metric-val font-['Orbitron'] text-emerald-400">
-                    {formatLKR(analyticsData.totalRevenue)}
-                  </div>
-                  <div className="analytics-metric-sub">
-                    <span className="text-neutral-400">Gross ticket earnings</span>
-                  </div>
-                </div>
-
-                {/* Available Tickets */}
-                <div className="analytics-metric-card group">
-                  <div className="analytics-card-glow" />
-                  <div className="analytics-card-head">
-                    <span className="analytics-metric-title">AVAILABLE TICKETS</span>
-                    <span className="analytics-icon-box text-amber-400">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
-                      </svg>
-                    </span>
-                  </div>
-                  <div className="analytics-metric-val font-['Orbitron'] text-amber-300">
-                    {(analyticsData.availableTickets || 0).toLocaleString()}
-                  </div>
-                  <div className="analytics-metric-sub">
-                    <span className="text-neutral-400">Passes remaining in inventory</span>
-                  </div>
-                </div>
-
-                {/* Checked-in Attendees */}
-                <div className="analytics-metric-card group">
-                  <div className="analytics-card-glow" />
-                  <div className="analytics-card-head">
-                    <span className="analytics-metric-title">CHECKED-IN ATTENDEES</span>
-                    <span className="analytics-icon-box text-purple-400">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                        <circle cx="8.5" cy="7.5" r="4" />
-                        <polyline points="17 11 19 13 23 9" />
-                      </svg>
-                    </span>
-                  </div>
-                  <div className="analytics-metric-val font-['Orbitron'] text-purple-300">
-                    {(analyticsData.checkedInAttendees || 0).toLocaleString()}
-                  </div>
-                  <div className="analytics-metric-sub">
-                    <span className="text-neutral-400">Gate verified via Scanner</span>
-                  </div>
-                </div>
-
-                {/* Attendance Percentage */}
-                <div className="analytics-metric-card group">
-                  <div className="analytics-card-glow" />
-                  <div className="analytics-card-head">
-                    <span className="analytics-metric-title">ATTENDANCE RATE</span>
-                    <span className="analytics-icon-box text-red-400">
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                      </svg>
-                    </span>
-                  </div>
-                  <div className="analytics-metric-val font-['Orbitron'] text-red-400">
-                    {analyticsData.attendancePercentage || 0}%
-                  </div>
-                  <div className="analytics-metric-sub">
-                    <span className="text-neutral-400">Check-in ratio vs sold tickets</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ══════════════════════════════════════════════════════════ */}
-              {/* 2. INTERACTIVE CHARTS & VISUALIZATIONS SECTION             */}
-              {/* ══════════════════════════════════════════════════════════ */}
-              <div className="analytics-charts-section">
-                <div className="analytics-chart-header">
-                  <div className="analytics-tabs-nav">
-                    <button
-                      type="button"
-                      className={`analytics-tab-btn ${activeChartTab === 'overview' ? 'active' : ''}`}
-                      onClick={() => setActiveChartTab('overview')}
-                    >
-                      <span>📈 COMPREHENSIVE OVERVIEW</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`analytics-tab-btn ${activeChartTab === 'sales' ? 'active' : ''}`}
-                      onClick={() => setActiveChartTab('sales')}
-                    >
-                      <span>🎫 TICKET SALES TREND</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`analytics-tab-btn ${activeChartTab === 'revenue' ? 'active' : ''}`}
-                      onClick={() => setActiveChartTab('revenue')}
-                    >
-                      <span>💰 REVENUE TRAJECTORY</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`analytics-tab-btn ${activeChartTab === 'attendance' ? 'active' : ''}`}
-                      onClick={() => setActiveChartTab('attendance')}
-                    >
-                      <span>👥 GATE ATTENDANCE STREAM</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Chart Render Area */}
-                <div className="analytics-chart-canvas-box">
-                  {/* Sales & Revenue Timeline Chart */}
-                  {(activeChartTab === 'overview' || activeChartTab === 'sales' || activeChartTab === 'revenue') && (
-                    <div className="analytics-bar-chart-container">
-                      <div className="analytics-chart-title-row">
-                        <h3 className="analytics-chart-heading font-['Orbitron']">
-                          {activeChartTab === 'revenue'
-                            ? 'Daily Revenue Generation (LKR)'
-                            : activeChartTab === 'sales'
-                              ? 'Daily Ticket Sales Volume'
-                              : '7-Day Performance Dynamics'}
-                        </h3>
-                        <div className="analytics-legend">
-                          {(activeChartTab === 'overview' || activeChartTab === 'sales') && (
-                            <span className="analytics-legend-item">
-                              <span className="w-3 h-3 rounded bg-red-600 inline-block" /> Tickets Sold
-                            </span>
-                          )}
-                          {(activeChartTab === 'overview' || activeChartTab === 'revenue') && (
-                            <span className="analytics-legend-item">
-                              <span className="w-3 h-3 rounded bg-emerald-500 inline-block" /> Revenue (LKR)
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Bar Visualization */}
-                      <div className="analytics-bars-wrapper" role="region" aria-label="Sales and revenue bar chart">
-                        {analyticsData.salesTimeline?.map((item, index) => {
-                          const salesHeightPercent = maxSales > 0 ? (item.ticketsSold / maxSales) * 100 : 0
-                          const revenueHeightPercent = maxRevenue > 0 ? (item.revenue / maxRevenue) * 100 : 0
-
-                          return (
-                            <div key={item.date || index} className="analytics-bar-column group">
-                              <div className="analytics-bar-track">
-                                {(activeChartTab === 'overview' || activeChartTab === 'sales') && (
-                                  <div
-                                    className="analytics-bar-fill analytics-bar-fill--sales"
-                                    style={{ height: `${Math.max(salesHeightPercent, 6)}%` }}
-                                    title={`${item.label}: ${item.ticketsSold} tickets`}
-                                  >
-                                    <span className="analytics-bar-tooltip">{item.ticketsSold} passes</span>
-                                  </div>
-                                )}
-                                {(activeChartTab === 'overview' || activeChartTab === 'revenue') && (
-                                  <div
-                                    className="analytics-bar-fill analytics-bar-fill--revenue"
-                                    style={{ height: `${Math.max(revenueHeightPercent, 6)}%` }}
-                                    title={`${item.label}: ${formatLKR(item.revenue)}`}
-                                  >
-                                    <span className="analytics-bar-tooltip">{formatLKR(item.revenue)}</span>
-                                  </div>
-                                )}
-                              </div>
-                              <span className="analytics-bar-label font-['Orbitron']">{item.label}</span>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Hourly Attendance Flow Chart */}
-                  {activeChartTab === 'attendance' && (
-                    <div className="analytics-attendance-chart-container">
-                      <div className="analytics-chart-title-row">
-                        <h3 className="analytics-chart-heading font-['Orbitron']">Hourly Gate Check-In Velocity</h3>
-                        <span className="text-xs text-neutral-400">
-                          Total Check-Ins:{' '}
-                          <strong className="text-purple-300">{analyticsData.checkedInAttendees}</strong>
+              return (
+                <>
+                  <div className="analytics-stats-grid">
+                    {/* Total Tickets Sold */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">TOTAL TICKETS SOLD</span>
+                        <span className="analytics-icon-box text-blue-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <rect x="3" y="4" width="18" height="16" rx="2" />
+                            <line x1="7" y1="8" x2="7" y2="8" />
+                            <line x1="17" y1="8" x2="17" y2="8" />
+                            <line x1="7" y1="12" x2="17" y2="12" />
+                          </svg>
                         </span>
                       </div>
-
-                      <div className="analytics-hourly-stream">
-                        {analyticsData.hourlyAttendance?.map((slot, idx) => {
-                          const heightPct = maxAttendance > 0 ? (slot.count / maxAttendance) * 100 : 0
-                          return (
-                            <div key={slot.time || idx} className="analytics-hourly-col">
-                              <div className="analytics-hourly-bar-wrap">
-                                <div className="analytics-hourly-bar" style={{ height: `${Math.max(heightPct, 8)}%` }}>
-                                  <span className="analytics-hourly-val">{slot.count}</span>
-                                </div>
-                              </div>
-                              <span className="analytics-hourly-time font-['Orbitron']">{slot.time}</span>
-                            </div>
-                          )
-                        })}
+                      <div className="analytics-metric-val font-['Orbitron'] text-white">
+                        {totalSold.toLocaleString()}
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-emerald-400 font-bold">{salesFillRate}%</span>
+                        <span className="text-neutral-400"> of total capacity ({capacity.toLocaleString()})</span>
                       </div>
                     </div>
-                  )}
+
+                    {/* Total Revenue (LKR) */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">TOTAL REVENUE (LKR)</span>
+                        <span className="analytics-icon-box text-emerald-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <line x1="12" y1="1" x2="12" y2="23" />
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-emerald-400">
+                        {formatLKR(analyticsData.totalRevenue)}
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">Gross ticket earnings</span>
+                      </div>
+                    </div>
+
+                    {/* Checked-in Attendees */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">CHECKED-IN ATTENDEES</span>
+                        <span className="analytics-icon-box text-purple-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="8.5" cy="7.5" r="4" />
+                            <polyline points="17 11 19 13 23 9" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-purple-300">
+                        {checkedIn.toLocaleString()}
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">Gate verified via Scanner</span>
+                      </div>
+                    </div>
+
+                    {/* Remaining Expected Attendees */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">REMAINING EXPECTED</span>
+                        <span className="analytics-icon-box text-amber-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-amber-300">
+                        {remainingExpected.toLocaleString()}
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">Sold tickets pending gate entry</span>
+                      </div>
+                    </div>
+
+                    {/* Check-In Rate */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">CHECK-IN RATE</span>
+                        <span className="analytics-icon-box text-red-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-red-400">{checkInRate}%</div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">Ratio of sold tickets checked in</span>
+                      </div>
+                    </div>
+
+                    {/* Current Venue Occupancy & Capacity */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">VENUE OCCUPANCY</span>
+                        <span className="analytics-icon-box text-cyan-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <path d="M3 21h18M3 7v14M21 7v14M6 11h12M6 15h12" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-cyan-300">
+                        {venueOccupancyPercent}%
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">
+                          {checkedIn.toLocaleString()} inside / {capacity.toLocaleString()} cap
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Available Tickets */}
+                    <div className="analytics-metric-card group">
+                      <div className="analytics-card-glow" />
+                      <div className="analytics-card-head">
+                        <span className="analytics-metric-title">AVAILABLE TICKETS</span>
+                        <span className="analytics-icon-box text-amber-400">
+                          <svg
+                            className="w-4 h-4"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          >
+                            <circle cx="12" cy="12" r="10" />
+                            <line x1="8" y1="12" x2="16" y2="12" />
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="analytics-metric-val font-['Orbitron'] text-amber-200">
+                        {(analyticsData.availableTickets || 0).toLocaleString()}
+                      </div>
+                      <div className="analytics-metric-sub">
+                        <span className="text-neutral-400">Passes remaining in inventory</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ══════════════════════════════════════════════════════════ */}
+                  {/* REAL-TIME OCCUPANCY & PROGRESS GAUGES (SCRUM-36)          */}
+                  {/* ══════════════════════════════════════════════════════════ */}
+                  <div className="analytics-gauges-panel">
+                    <div className="analytics-gauge-item">
+                      <div className="analytics-gauge-header">
+                        <span className="analytics-gauge-title font-['Orbitron']">LIVE GATE CHECK-IN RATE</span>
+                        <span className="analytics-gauge-value font-bold text-purple-300">{checkInRate}%</span>
+                      </div>
+                      <div className="analytics-progress-track">
+                        <div
+                          className="analytics-progress-fill analytics-progress-fill--checkin"
+                          style={{ width: `${Math.min(checkInRate, 100)}%` }}
+                        />
+                      </div>
+                      <div className="analytics-gauge-sub">
+                        <span>{checkedIn.toLocaleString()} checked in</span>
+                        <span>{remainingExpected.toLocaleString()} remaining expected</span>
+                      </div>
+                    </div>
+
+                    <div className="analytics-gauge-item">
+                      <div className="analytics-gauge-header">
+                        <span className="analytics-gauge-title font-['Orbitron']">VENUE OCCUPANCY & CAPACITY</span>
+                        <span className="analytics-gauge-value font-bold text-cyan-300">{venueOccupancyPercent}%</span>
+                      </div>
+                      <div className="analytics-progress-track">
+                        <div
+                          className="analytics-progress-fill analytics-progress-fill--occupancy"
+                          style={{ width: `${Math.min(venueOccupancyPercent, 100)}%` }}
+                        />
+                      </div>
+                      <div className="analytics-gauge-sub">
+                        <span>{checkedIn.toLocaleString()} attendees inside venue</span>
+                        <span>Max Capacity: {capacity.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="analytics-gauge-item">
+                      <div className="analytics-gauge-header">
+                        <span className="analytics-gauge-title font-['Orbitron']">TICKET INVENTORY FILL RATE</span>
+                        <span className="analytics-gauge-value font-bold text-emerald-300">{salesFillRate}%</span>
+                      </div>
+                      <div className="analytics-progress-track">
+                        <div
+                          className="analytics-progress-fill analytics-progress-fill--sales"
+                          style={{ width: `${Math.min(salesFillRate, 100)}%` }}
+                        />
+                      </div>
+                      <div className="analytics-gauge-sub">
+                        <span>{totalSold.toLocaleString()} passes sold</span>
+                        <span>{(analyticsData.availableTickets || 0).toLocaleString()} available</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
+
+            {/* ══════════════════════════════════════════════════════════ */}
+            {/* 2. INTERACTIVE CHARTS & VISUALIZATIONS SECTION             */}
+            {/* ══════════════════════════════════════════════════════════ */}
+            <div className="analytics-charts-section">
+              <div className="analytics-chart-header">
+                <div className="analytics-tabs-nav">
+                  <button
+                    type="button"
+                    className={`analytics-tab-btn ${activeChartTab === 'overview' ? 'active' : ''}`}
+                    onClick={() => setActiveChartTab('overview')}
+                  >
+                    <span>📈 COMPREHENSIVE OVERVIEW</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`analytics-tab-btn ${activeChartTab === 'sales' ? 'active' : ''}`}
+                    onClick={() => setActiveChartTab('sales')}
+                  >
+                    <span>🎫 TICKET SALES TREND</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`analytics-tab-btn ${activeChartTab === 'revenue' ? 'active' : ''}`}
+                    onClick={() => setActiveChartTab('revenue')}
+                  >
+                    <span>💰 REVENUE TRAJECTORY</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`analytics-tab-btn ${activeChartTab === 'attendance' ? 'active' : ''}`}
+                    onClick={() => setActiveChartTab('attendance')}
+                  >
+                    <span>👥 GATE ATTENDANCE STREAM</span>
+                  </button>
                 </div>
               </div>
 
-              {/* ══════════════════════════════════════════════════════════ */}
-              {/* 3. BREAKDOWN DETAILS: TIERS / EVENTS TABLE                 */}
-              {/* ══════════════════════════════════════════════════════════ */}
-              <div className="analytics-breakdown-section">
-                {selectedEventId !== 'all' && analyticsData.ticketTiers?.length > 0 ? (
-                  <div className="analytics-table-card">
-                    <h3 className="analytics-card-title font-['Orbitron']">TICKET TIER PERFORMANCE BREAKDOWN</h3>
-                    <div className="analytics-table-responsive">
-                      <table className="analytics-data-table">
-                        <thead>
-                          <tr>
-                            <th>TIER / CATEGORY</th>
-                            <th>PRICE (LKR)</th>
-                            <th>SOLD</th>
-                            <th>CAPACITY</th>
-                            <th>FILL RATE</th>
-                            <th>SUBTOTAL REVENUE</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {analyticsData.ticketTiers.map((tier, idx) => {
-                            const fillRate = tier.capacity > 0 ? Math.round((tier.sold / tier.capacity) * 100) : 0
-                            return (
-                              <tr key={tier.name || idx}>
-                                <td className="font-bold text-white font-['Orbitron']">{tier.name}</td>
-                                <td className="text-emerald-400">{formatLKR(tier.price)}</td>
-                                <td className="font-bold text-white">{tier.sold}</td>
-                                <td className="text-neutral-400">{tier.capacity || 'Unlimited'}</td>
-                                <td>
-                                  <div className="analytics-fill-progress">
-                                    <div
-                                      className="analytics-fill-bar"
-                                      style={{ width: `${Math.min(fillRate, 100)}%` }}
-                                    />
-                                    <span>{fillRate}%</span>
-                                  </div>
-                                </td>
-                                <td className="font-bold text-emerald-400">{formatLKR(tier.revenue)}</td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+              {/* Chart Render Area */}
+              <div className="analytics-chart-canvas-box">
+                {/* Sales & Revenue Timeline Chart */}
+                {(activeChartTab === 'overview' || activeChartTab === 'sales' || activeChartTab === 'revenue') && (
+                  <div className="analytics-bar-chart-container">
+                    <div className="analytics-chart-title-row">
+                      <h3 className="analytics-chart-heading font-['Orbitron']">
+                        {activeChartTab === 'revenue'
+                          ? 'Daily Revenue Generation (LKR)'
+                          : activeChartTab === 'sales'
+                            ? 'Daily Ticket Sales Volume'
+                            : '7-Day Performance Dynamics'}
+                      </h3>
+                      <div className="analytics-legend">
+                        {(activeChartTab === 'overview' || activeChartTab === 'sales') && (
+                          <span className="analytics-legend-item">
+                            <span className="w-3 h-3 rounded bg-red-600 inline-block" /> Tickets Sold
+                          </span>
+                        )}
+                        {(activeChartTab === 'overview' || activeChartTab === 'revenue') && (
+                          <span className="analytics-legend-item">
+                            <span className="w-3 h-3 rounded bg-emerald-500 inline-block" /> Revenue (LKR)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bar Visualization */}
+                    <div className="analytics-bars-wrapper" role="region" aria-label="Sales and revenue bar chart">
+                      {analyticsData.salesTimeline?.map((item, index) => {
+                        const salesHeightPercent = maxSales > 0 ? (item.ticketsSold / maxSales) * 100 : 0
+                        const revenueHeightPercent = maxRevenue > 0 ? (item.revenue / maxRevenue) * 100 : 0
+
+                        return (
+                          <div key={item.date || index} className="analytics-bar-column group">
+                            <div className="analytics-bar-track">
+                              {(activeChartTab === 'overview' || activeChartTab === 'sales') && (
+                                <div
+                                  className="analytics-bar-fill analytics-bar-fill--sales"
+                                  style={{ height: `${Math.max(salesHeightPercent, 6)}%` }}
+                                  title={`${item.label}: ${item.ticketsSold} tickets`}
+                                >
+                                  <span className="analytics-bar-tooltip">{item.ticketsSold} passes</span>
+                                </div>
+                              )}
+                              {(activeChartTab === 'overview' || activeChartTab === 'revenue') && (
+                                <div
+                                  className="analytics-bar-fill analytics-bar-fill--revenue"
+                                  style={{ height: `${Math.max(revenueHeightPercent, 6)}%` }}
+                                  title={`${item.label}: ${formatLKR(item.revenue)}`}
+                                >
+                                  <span className="analytics-bar-tooltip">{formatLKR(item.revenue)}</span>
+                                </div>
+                              )}
+                            </div>
+                            <span className="analytics-bar-label font-['Orbitron']">{item.label}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
-                ) : (
-                  <div className="analytics-table-card">
-                    <h3 className="analytics-card-title font-['Orbitron']">ORGANIZER MANAGED EVENTS OVERVIEW</h3>
-                    <div className="analytics-table-responsive">
-                      <table className="analytics-data-table">
-                        <thead>
-                          <tr>
-                            <th>EVENT NAME</th>
-                            <th>VENUE / LOCATION</th>
-                            <th>TICKETS SOLD</th>
-                            <th>AVAILABLE</th>
-                            <th>CHECKED IN</th>
-                            <th>EST. REVENUE</th>
-                            <th>ACTION</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {organizerEvents.map((evt) => {
-                            const cap = Number(evt.totalCapacity || evt.availableTickets) || 500
-                            const sold = Math.round(cap * 0.65)
-                            const rev = sold * (Number(evt.minPrice || evt.price) || 2500)
-                            const checked = Math.round(sold * 0.72)
+                )}
 
-                            return (
-                              <tr key={evt.id || evt.eventId}>
-                                <td className="font-bold text-white font-['Orbitron']">{evt.title}</td>
-                                <td className="text-neutral-400">{evt.venue || evt.location || 'Colombo'}</td>
-                                <td className="font-bold text-white">{sold}</td>
-                                <td className="text-amber-300">{cap - sold}</td>
-                                <td className="text-purple-300">{checked}</td>
-                                <td className="font-bold text-emerald-400">{formatLKR(rev)}</td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedEventId(String(evt.id || evt.eventId))}
-                                    className="analytics-action-view-btn font-['Orbitron']"
-                                    title="View detailed event analytics"
-                                  >
-                                    DRILL DOWN →
-                                  </button>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                {/* Hourly Attendance Flow Chart */}
+                {activeChartTab === 'attendance' && (
+                  <div className="analytics-attendance-chart-container">
+                    <div className="analytics-chart-title-row">
+                      <h3 className="analytics-chart-heading font-['Orbitron']">Hourly Gate Check-In Velocity</h3>
+                      <span className="text-xs text-neutral-400">
+                        Total Check-Ins: <strong className="text-purple-300">{analyticsData.checkedInAttendees}</strong>
+                      </span>
+                    </div>
+
+                    <div className="analytics-hourly-stream">
+                      {analyticsData.hourlyAttendance?.map((slot, idx) => {
+                        const heightPct = maxAttendance > 0 ? (slot.count / maxAttendance) * 100 : 0
+                        return (
+                          <div key={slot.time || idx} className="analytics-hourly-col">
+                            <div className="analytics-hourly-bar-wrap">
+                              <div className="analytics-hourly-bar" style={{ height: `${Math.max(heightPct, 8)}%` }}>
+                                <span className="analytics-hourly-val">{slot.count}</span>
+                              </div>
+                            </div>
+                            <span className="analytics-hourly-time font-['Orbitron']">{slot.time}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
               </div>
             </div>
-          )
+
+            {/* ══════════════════════════════════════════════════════════ */}
+            {/* 3. BREAKDOWN DETAILS: TIERS / EVENTS TABLE                 */}
+            {/* ══════════════════════════════════════════════════════════ */}
+            <div className="analytics-breakdown-section">
+              {selectedEventId !== 'all' && analyticsData.ticketTiers?.length > 0 ? (
+                <div className="analytics-table-card">
+                  <h3 className="analytics-card-title font-['Orbitron']">TICKET TIER PERFORMANCE BREAKDOWN</h3>
+                  <div className="analytics-table-responsive">
+                    <table className="analytics-data-table">
+                      <thead>
+                        <tr>
+                          <th>TIER / CATEGORY</th>
+                          <th>PRICE (LKR)</th>
+                          <th>SOLD</th>
+                          <th>CAPACITY</th>
+                          <th>FILL RATE</th>
+                          <th>SUBTOTAL REVENUE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analyticsData.ticketTiers.map((tier, idx) => {
+                          const fillRate = tier.capacity > 0 ? Math.round((tier.sold / tier.capacity) * 100) : 0
+                          return (
+                            <tr key={tier.name || idx}>
+                              <td className="font-bold text-white font-['Orbitron']">{tier.name}</td>
+                              <td className="text-emerald-400">{formatLKR(tier.price)}</td>
+                              <td className="font-bold text-white">{tier.sold}</td>
+                              <td className="text-neutral-400">{tier.capacity || 'Unlimited'}</td>
+                              <td>
+                                <div className="analytics-fill-progress">
+                                  <div
+                                    className="analytics-fill-bar"
+                                    style={{ width: `${Math.min(fillRate, 100)}%` }}
+                                  />
+                                  <span>{fillRate}%</span>
+                                </div>
+                              </td>
+                              <td className="font-bold text-emerald-400">{formatLKR(tier.revenue)}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="analytics-table-card">
+                  <h3 className="analytics-card-title font-['Orbitron']">ORGANIZER MANAGED EVENTS OVERVIEW</h3>
+                  <div className="analytics-table-responsive">
+                    <table className="analytics-data-table">
+                      <thead>
+                        <tr>
+                          <th>EVENT NAME</th>
+                          <th>VENUE / LOCATION</th>
+                          <th>TICKETS SOLD</th>
+                          <th>AVAILABLE</th>
+                          <th>CHECKED IN</th>
+                          <th>EST. REVENUE</th>
+                          <th>ACTION</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {organizerEvents.map((evt) => {
+                          const cap = Number(evt.totalCapacity || evt.availableTickets) || 500
+                          const sold = Math.round(cap * 0.65)
+                          const rev = sold * (Number(evt.minPrice || evt.price) || 2500)
+                          const checked = Math.round(sold * 0.72)
+
+                          return (
+                            <tr key={evt.id || evt.eventId}>
+                              <td className="font-bold text-white font-['Orbitron']">{evt.title}</td>
+                              <td className="text-neutral-400">{evt.venue || evt.location || 'Colombo'}</td>
+                              <td className="font-bold text-white">{sold}</td>
+                              <td className="text-amber-300">{cap - sold}</td>
+                              <td className="text-purple-300">{checked}</td>
+                              <td className="font-bold text-emerald-400">{formatLKR(rev)}</td>
+                              <td>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedEventId(String(evt.id || evt.eventId))}
+                                  className="analytics-action-view-btn font-['Orbitron']"
+                                  title="View detailed event analytics"
+                                >
+                                  DRILL DOWN →
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="analytics-empty-state" role="region" aria-label="No Analytics Available">
+            <div className="analytics-empty-icon">
+              <svg
+                className="w-12 h-12 text-neutral-600"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <line x1="8" y1="12" x2="16" y2="12" />
+                <line x1="12" y1="8" x2="12" y2="16" />
+              </svg>
+            </div>
+            <h2 className="analytics-empty-title font-['Orbitron']">NO EVENT ANALYTICS AVAILABLE</h2>
+            <p className="analytics-empty-desc">
+              You do not have any published events or real-time check-in telemetry yet. Create an event in your
+              organizer dashboard to view live check-in and sales metrics.
+            </p>
+            <button type="button" className="analytics-empty-action font-['Orbitron']" onClick={onBack}>
+              RETURN TO DASHBOARD
+            </button>
+          </div>
         )}
       </section>
     </main>

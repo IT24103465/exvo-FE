@@ -148,6 +148,12 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
   // If tickets have been sold, checked-in count reflects gate activity (or scanner verification)
   const checkedInAttendees = Math.round(totalSold * 0.76) // Real-time gate validation estimate / stream
   const attendancePercentage = totalSold > 0 ? Number(((checkedInAttendees / totalSold) * 100).toFixed(1)) : 0
+  const remainingAttendees = Math.max(0, totalSold - checkedInAttendees)
+  const venueOccupancy = checkedInAttendees
+  const venueOccupancyPercentage =
+    totalCapacity > 0 ? Number(((checkedInAttendees / totalCapacity) * 100).toFixed(1)) : 0
+  const checkInRate = attendancePercentage
+  const salesFillRate = totalCapacity > 0 ? Number(((totalSold / totalCapacity) * 100).toFixed(1)) : 0
 
   // 7-day sales progression based on real total revenue & volume
   const now = new Date()
@@ -183,7 +189,12 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
     totalRevenue,
     availableTickets: totalAvailable,
     checkedInAttendees,
+    remainingAttendees,
+    venueOccupancy,
+    venueOccupancyPercentage,
     attendancePercentage,
+    checkInRate,
+    salesFillRate,
     ticketTiers: tierBreakdowns,
     salesTimeline,
     hourlyAttendance,
@@ -206,7 +217,12 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
       availableTickets: 0,
       totalCapacity: 0,
       checkedInAttendees: 0,
+      remainingAttendees: 0,
+      venueOccupancy: 0,
+      venueOccupancyPercentage: 0,
       attendancePercentage: 0,
+      checkInRate: 0,
+      salesFillRate: 0,
       eventsBreakdown: [],
       salesTimeline: [],
       hourlyAttendance: [],
@@ -225,8 +241,14 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
   const totalRevenue = eventAnalyticsList.reduce((sum, item) => sum + item.totalRevenue, 0)
   const availableTickets = eventAnalyticsList.reduce((sum, item) => sum + item.availableTickets, 0)
   const checkedInAttendees = eventAnalyticsList.reduce((sum, item) => sum + item.checkedInAttendees, 0)
+  const remainingAttendees = Math.max(0, totalTicketsSold - checkedInAttendees)
+  const venueOccupancy = checkedInAttendees
+  const venueOccupancyPercentage =
+    totalCapacity > 0 ? Number(((checkedInAttendees / totalCapacity) * 100).toFixed(1)) : 0
   const attendancePercentage =
     totalTicketsSold > 0 ? Number(((checkedInAttendees / totalTicketsSold) * 100).toFixed(1)) : 0
+  const checkInRate = attendancePercentage
+  const salesFillRate = totalCapacity > 0 ? Number(((totalTicketsSold / totalCapacity) * 100).toFixed(1)) : 0
 
   // Aggregate 7-day timeline
   const now = new Date()
@@ -261,7 +283,12 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
     availableTickets,
     totalCapacity,
     checkedInAttendees,
+    remainingAttendees,
+    venueOccupancy,
+    venueOccupancyPercentage,
     attendancePercentage,
+    checkInRate,
+    salesFillRate,
     eventsBreakdown: eventAnalyticsList.map((item) => ({
       id: item.eventId,
       title: item.eventTitle,
@@ -270,8 +297,174 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
       available: item.availableTickets,
       revenue: item.totalRevenue,
       checkedIn: item.checkedInAttendees,
+      remaining: item.remainingAttendees,
+      checkInRate: item.checkInRate,
     })),
     salesTimeline,
     hourlyAttendance,
   }
+}
+
+/**
+ * Fetch report data from backend analytics/reports endpoint
+ * @param {number|string} [eventId]
+ * @param {string} [reportType='sales'] - 'sales' | 'attendance' | 'comprehensive'
+ */
+export const getEventReport = async (eventId = null, reportType = 'sales') => {
+  const path =
+    eventId != null && eventId !== '' && eventId !== 'all'
+      ? `/api/analytics/events/${eventId}/reports?type=${reportType}`
+      : `/api/analytics/organizer/reports?type=${reportType}`
+
+  return request(path)
+}
+
+/**
+ * Helper to trigger a browser file download for a given Blob
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+export const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.style.display = 'none'
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  setTimeout(() => {
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }, 100)
+}
+
+/**
+ * Generate formatted client-side CSV string from report data
+ * @param {Object} data - Processed report data
+ * @param {string} reportType - 'sales' | 'attendance' | 'comprehensive'
+ */
+export const generateClientCsv = (data, reportType = 'sales') => {
+  if (!data) return ''
+
+  const rows = []
+  const title = data.eventTitle || 'Event Report'
+
+  rows.push(['EXVO EVENT ANALYTICS & REPORTS'])
+  rows.push(['Report Type', reportType.toUpperCase()])
+  rows.push(['Event', title])
+  rows.push(['Venue', data.venue || 'All Venues'])
+  rows.push(['Generated At', new Date().toLocaleString()])
+  rows.push([])
+
+  if (reportType === 'sales' || reportType === 'comprehensive') {
+    rows.push(['--- SALES & FINANCIAL SUMMARY ---'])
+    rows.push(['Metric', 'Value'])
+    rows.push(['Total Capacity', data.totalCapacity || 0])
+    rows.push(['Total Tickets Sold', data.totalTicketsSold || 0])
+    rows.push(['Available Tickets', data.availableTickets || 0])
+    rows.push(['Sales Fill Rate', `${data.salesFillRate || 0}%`])
+    rows.push(['Total Revenue (LKR)', data.totalRevenue || 0])
+    rows.push([])
+
+    if (data.ticketTiers && data.ticketTiers.length > 0) {
+      rows.push(['--- TICKET TIER BREAKDOWN ---'])
+      rows.push(['Tier Name', 'Price (LKR)', 'Allocated Capacity', 'Sold Quantity', 'Available', 'Revenue (LKR)'])
+      data.ticketTiers.forEach((tier) => {
+        rows.push([tier.name, tier.price, tier.capacity, tier.sold, tier.available, tier.revenue])
+      })
+      rows.push([])
+    }
+  }
+
+  if (reportType === 'attendance' || reportType === 'comprehensive') {
+    rows.push(['--- ATTENDANCE & CHECK-IN SUMMARY ---'])
+    rows.push(['Metric', 'Value'])
+    rows.push(['Total Tickets Sold', data.totalTicketsSold || 0])
+    rows.push(['Successfully Checked-In', data.checkedInAttendees || 0])
+    rows.push(['Remaining Expected Attendees', data.remainingAttendees || 0])
+    rows.push(['Check-In Rate', `${data.checkInRate || data.attendancePercentage || 0}%`])
+    rows.push(['Venue Occupancy Rate', `${data.venueOccupancyPercentage || 0}%`])
+    rows.push([])
+
+    if (data.hourlyAttendance && data.hourlyAttendance.length > 0) {
+      rows.push(['--- HOURLY GATE CHECK-IN VELOCITY ---'])
+      rows.push(['Time Window', 'Checked-In Count'])
+      data.hourlyAttendance.forEach((slot) => {
+        rows.push([slot.time, slot.count])
+      })
+      rows.push([])
+    }
+  }
+
+  if (data.eventsBreakdown && data.eventsBreakdown.length > 0) {
+    rows.push(['--- MULTI-EVENT BREAKDOWN ---'])
+    rows.push(['Event Title', 'Venue', 'Sold', 'Available', 'Checked-In', 'Remaining', 'Revenue (LKR)'])
+    data.eventsBreakdown.forEach((ev) => {
+      rows.push([ev.title, ev.venue, ev.ticketsSold, ev.available, ev.checkedIn, ev.remaining || 0, ev.revenue])
+    })
+    rows.push([])
+  }
+
+  return rows
+    .map((r) =>
+      r
+        .map((field) => {
+          const str = String(field ?? '')
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`
+          }
+          return str
+        })
+        .join(','),
+    )
+    .join('\r\n')
+}
+
+/**
+ * Download report in CSV or PDF format.
+ * Attempts to fetch from backend API first; if unavailable, uses client-side generator.
+ * @param {number|string} eventId
+ * @param {string} reportType - 'sales' | 'attendance' | 'comprehensive'
+ * @param {string} format - 'csv' | 'pdf'
+ * @param {Object} [reportData] - Fallback client data if backend download endpoint is 404
+ */
+export const downloadReportFile = async (eventId, reportType = 'sales', format = 'csv', reportData = null) => {
+  const token = localStorage.getItem('token')
+  const eventIdParam = eventId != null && eventId !== '' && eventId !== 'all' ? eventId : 'overview'
+  const filename = `exvo_${reportType}_report_${eventIdParam}_${new Date().toISOString().split('T')[0]}.${format}`
+
+  try {
+    const response = await fetchApi(
+      `/api/analytics/events/${eventIdParam}/reports/export?type=${reportType}&format=${format}`,
+      {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      },
+    )
+
+    if (response.ok) {
+      const blob = await response.blob()
+      downloadBlob(blob, filename)
+      return { success: true, source: 'backend', filename }
+    }
+  } catch (err) {
+    console.warn('Backend report export endpoint returned error, generating export client-side:', err)
+  }
+
+  // Client-side fallback generation
+  if (format === 'csv') {
+    const csvContent = generateClientCsv(reportData, reportType)
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    downloadBlob(blob, filename)
+    return { success: true, source: 'client', filename }
+  }
+
+  if (format === 'pdf') {
+    // For PDF, generate a clean printable document or print view
+    window.print()
+    return { success: true, source: 'client-print', filename }
+  }
+
+  throw new Error(`Unsupported report export format: ${format}`)
 }

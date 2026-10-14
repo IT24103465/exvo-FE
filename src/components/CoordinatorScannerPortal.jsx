@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import * as coordinatorService from '../services/coordinatorService'
+import * as analyticsService from '../services/analyticsService'
 
 // Play audio feedback using Web Audio API
 const playFeedbackSound = (type) => {
@@ -83,7 +84,15 @@ const isEventPast = (eventDate) => {
   return evtStart < todayStart
 }
 
-export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initialSelectedEvent = null }) {
+export default function CoordinatorScannerPortal({
+  user,
+  onBack,
+  ExvoLogo,
+  initialSelectedEvent = null,
+  onNavigateAnalytics,
+  onNavigateReports,
+  onCheckInConfirmed,
+}) {
   // ── Role-Based Access Control (RBAC) ──
   const isAuthorizedScanner = Boolean(
     user && (user.role === 'Organizer' || user.role === 'Company' || user.role === 'Admin'),
@@ -100,6 +109,9 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   const [selectedEvent, setSelectedEvent] = useState(initialSelectedEvent)
   const [verifyingAccess, setVerifyingAccess] = useState(false)
   const [accessError, setAccessError] = useState(null)
+
+  // SCRUM-36: Live Attendance & Occupancy Analytics state for active event
+  const [liveAnalytics, setLiveAnalytics] = useState(null)
 
   // Device/Viewport Mode (Mobile camera vs Web Terminal manual entry)
   const [isMobile, setIsMobile] = useState(() => {
@@ -152,6 +164,39 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       setLoadingEvents(false)
     }
   }, [isAuthorizedScanner])
+
+  // ── Fetch Live Analytics for Active Event (SCRUM-36) ──
+  const fetchLiveEventAnalytics = useCallback(
+    async (targetEventId) => {
+      if (!targetEventId) {
+        setLiveAnalytics(null)
+        return
+      }
+      try {
+        let data = await analyticsService.getEventAnalytics(targetEventId)
+        if (!data && selectedEvent) {
+          data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent)
+        }
+        if (data) {
+          setLiveAnalytics(data)
+        }
+      } catch {
+        if (selectedEvent) {
+          setLiveAnalytics(analyticsService.calculateEventRealTimeAnalytics(selectedEvent))
+        }
+      }
+    },
+    [selectedEvent],
+  )
+
+  useEffect(() => {
+    if (selectedEvent) {
+      const eventId = selectedEvent.eventId || selectedEvent.id
+      fetchLiveEventAnalytics(eventId)
+    } else {
+      setLiveAnalytics(null)
+    }
+  }, [selectedEvent, fetchLiveEventAnalytics])
 
   useEffect(() => {
     if (isAuthorizedScanner) {
@@ -433,6 +478,12 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
       setScanHistory((prev) =>
         prev.map((item) => (item.ticketCode === code && item.status === 'VALID' ? updatedResult : item)),
       )
+
+      // SCRUM-36: Automatically refresh analytics after successful check-in
+      fetchLiveEventAnalytics(eventId)
+      if (typeof onCheckInConfirmed === 'function') {
+        onCheckInConfirmed(eventId, updatedResult)
+      }
     } catch (err) {
       setLastScanResult((prev) =>
         prev
@@ -503,6 +554,22 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
   const wrongEventScansCount = scanHistory.filter((s) => s.status === 'WRONG_EVENT').length
   const notEligibleScansCount = scanHistory.filter((s) => s.status === 'NOT_ELIGIBLE').length
   const invalidScansCount = scanHistory.filter((s) => s.status === 'INVALID').length
+
+  // Live attendance and venue occupancy calculations (SCRUM-36)
+  const analyticsSold = Number(liveAnalytics?.totalTicketsSold || selectedEvent?.totalCapacity || 0)
+  const analyticsCheckedIn = Math.max(Number(liveAnalytics?.checkedInAttendees || 0), checkedInCount)
+  const analyticsRemaining =
+    liveAnalytics?.remainingAttendees != null
+      ? Math.max(0, Number(liveAnalytics.remainingAttendees) - checkedInCount)
+      : Math.max(0, analyticsSold - analyticsCheckedIn)
+  const analyticsRate = analyticsSold > 0 ? Number(((analyticsCheckedIn / analyticsSold) * 100).toFixed(1)) : 0
+  const totalCapacity = Number(liveAnalytics?.totalCapacity || selectedEvent?.totalCapacity || 1)
+  const venueOccupancyPercent =
+    liveAnalytics?.venueOccupancyPercentage != null
+      ? Number(liveAnalytics.venueOccupancyPercentage)
+      : totalCapacity > 0
+        ? Number(((analyticsCheckedIn / totalCapacity) * 100).toFixed(1))
+        : 0
 
   // ── If NOT an authorized scanner, render RBAC barrier ──
   if (!isAuthorizedScanner) {
@@ -576,6 +643,51 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
         </div>
 
         <div className="coordinator-header-right">
+          {onNavigateAnalytics && (
+            <button
+              type="button"
+              className="coordinator-nav-btn font-['Orbitron']"
+              onClick={() => onNavigateAnalytics(selectedEvent ? selectedEvent.eventId || selectedEvent.id : null)}
+              title="Open Real-time Attendance Analytics Dashboard"
+            >
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
+                <line x1="18" y1="20" x2="18" y2="10" />
+                <line x1="12" y1="20" x2="12" y2="4" />
+                <line x1="6" y1="20" x2="6" y2="14" />
+              </svg>
+              <span>LIVE DASHBOARD</span>
+            </button>
+          )}
+
+          {onNavigateReports && (
+            <button
+              type="button"
+              className="coordinator-nav-btn coordinator-nav-btn--reports font-['Orbitron']"
+              onClick={() => onNavigateReports(selectedEvent ? selectedEvent.eventId || selectedEvent.id : null)}
+              title="Open Sales & Attendance Reports"
+            >
+              <svg
+                className="w-4 h-4 text-amber-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>REPORTS</span>
+            </button>
+          )}
+
           <div className="coordinator-user-pill">
             <span className="coordinator-status-dot" aria-hidden="true" />
             <span className="coordinator-user-name">{user?.fullName || user?.name || 'Organizer'}</span>
@@ -583,7 +695,7 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
           </div>
           <button
             type="button"
-            className="coordinator-sync-btn"
+            className="coordinator-sync-btn font-['Orbitron']"
             onClick={loadAssignedEvents}
             disabled={loadingEvents}
             title="Sync assigned events"
@@ -842,6 +954,53 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
                       </div>
 
                       <div className="coordinator-card-footer">
+                        {onNavigateAnalytics && (
+                          <button
+                            type="button"
+                            className="coordinator-card-action-btn font-['Orbitron']"
+                            title="View Real-Time Analytics"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onNavigateAnalytics(evtId)
+                            }}
+                          >
+                            <svg
+                              className="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                            >
+                              <line x1="18" y1="20" x2="18" y2="10" />
+                              <line x1="12" y1="20" x2="12" y2="4" />
+                              <line x1="6" y1="20" x2="6" y2="14" />
+                            </svg>
+                            <span>STATS</span>
+                          </button>
+                        )}
+                        {onNavigateReports && (
+                          <button
+                            type="button"
+                            className="coordinator-card-action-btn coordinator-card-action-btn--reports font-['Orbitron']"
+                            title="Generate Reports"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onNavigateReports(evtId)
+                            }}
+                          >
+                            <svg
+                              className="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                              <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                            <span>REPORTS</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           className={`coordinator-launch-btn font-['Orbitron'] ${!isToday ? 'coordinator-launch-btn--locked' : ''}`}
@@ -905,6 +1064,86 @@ export default function CoordinatorScannerPortal({ user, onBack, ExvoLogo, initi
               <div className="coordinator-live-counter">
                 <span className="live-count-num font-['Orbitron']">{validScansCount}</span>
                 <span className="live-count-label">CHECKED IN THIS SESSION</span>
+              </div>
+            </div>
+
+            {/* Live Attendance & Venue Occupancy Telemetry HUD (SCRUM-36) */}
+            <div className="coordinator-telemetry-hud" role="region" aria-label="Live Attendance Telemetry">
+              <div className="coordinator-telemetry-grid">
+                <div className="coordinator-telemetry-card">
+                  <span className="coordinator-telemetry-label font-['Orbitron']">TOTAL SOLD</span>
+                  <span className="coordinator-telemetry-value text-white font-['Orbitron']">
+                    {analyticsSold.toLocaleString()}
+                  </span>
+                  <span className="coordinator-telemetry-sub">Total passes sold</span>
+                </div>
+
+                <div className="coordinator-telemetry-card">
+                  <span className="coordinator-telemetry-label font-['Orbitron']">CHECKED-IN</span>
+                  <span className="coordinator-telemetry-value text-emerald-400 font-['Orbitron']">
+                    {analyticsCheckedIn.toLocaleString()}
+                  </span>
+                  <span className="coordinator-telemetry-sub">
+                    {checkedInCount > 0 ? `+${checkedInCount} verified now` : 'Total entries'}
+                  </span>
+                </div>
+
+                <div className="coordinator-telemetry-card">
+                  <span className="coordinator-telemetry-label font-['Orbitron']">REMAINING</span>
+                  <span className="coordinator-telemetry-value text-cyan-400 font-['Orbitron']">
+                    {analyticsRemaining.toLocaleString()}
+                  </span>
+                  <span className="coordinator-telemetry-sub">Expected arrivals</span>
+                </div>
+
+                <div className="coordinator-telemetry-card">
+                  <span className="coordinator-telemetry-label font-['Orbitron']">CHECK-IN RATE</span>
+                  <span className="coordinator-telemetry-value text-amber-400 font-['Orbitron']">{analyticsRate}%</span>
+                  <div className="coordinator-telemetry-bar-wrap">
+                    <div
+                      className="coordinator-telemetry-bar-fill"
+                      style={{ width: `${Math.min(100, Math.max(0, analyticsRate))}%`, backgroundColor: '#f59e0b' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="coordinator-telemetry-card">
+                  <span className="coordinator-telemetry-label font-['Orbitron']">VENUE OCCUPANCY</span>
+                  <span className="coordinator-telemetry-value text-purple-400 font-['Orbitron']">
+                    {venueOccupancyPercent}%
+                  </span>
+                  <div className="coordinator-telemetry-bar-wrap">
+                    <div
+                      className="coordinator-telemetry-bar-fill"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, venueOccupancyPercent))}%`,
+                        backgroundColor: venueOccupancyPercent > 90 ? '#ef4444' : '#a855f7',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Reciprocal Navigation Shortcuts */}
+              <div className="coordinator-telemetry-actions">
+                {onNavigateAnalytics && (
+                  <button
+                    type="button"
+                    className="coordinator-telemetry-link font-['Orbitron']"
+                    onClick={() => onNavigateAnalytics(selectedEvent.eventId || selectedEvent.id)}
+                  >
+                    FULL ATTENDANCE DASHBOARD →
+                  </button>
+                )}
+                {onNavigateReports && (
+                  <button
+                    type="button"
+                    className="coordinator-telemetry-link coordinator-telemetry-link--reports font-['Orbitron']"
+                    onClick={() => onNavigateReports(selectedEvent.eventId || selectedEvent.id)}
+                  >
+                    GENERATE REPORTS →
+                  </button>
+                )}
               </div>
             </div>
 
