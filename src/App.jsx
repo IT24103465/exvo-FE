@@ -5,6 +5,7 @@ import './App.css'
 import { EventSkeleton, EventLoadError } from './components/EventListState'
 import CoordinatorScannerPortal from './components/CoordinatorScannerPortal'
 import EventAnalyticsDashboard from './components/EventAnalyticsDashboard'
+import EventReportsPage from './components/EventReportsPage'
 import {
   localDate,
   minimumEventTime,
@@ -1500,6 +1501,8 @@ function App() {
   const [coordinatorPortalEvent, setCoordinatorPortalEvent] = useState(null)
   const [analyticsDashboardOpen, setAnalyticsDashboardOpen] = useState(false)
   const [analyticsDashboardEventId, setAnalyticsDashboardEventId] = useState(null)
+  const [reportsPageOpen, setReportsPageOpen] = useState(false)
+  const [reportsPageEventId, setReportsPageEventId] = useState(null)
   const [activeCategory, setActiveCategory] = useState(null)
   const [showAllEventsInGrid, setShowAllEventsInGrid] = useState(false)
   const [categorySearchQuery, setCategorySearchQuery] = useState('')
@@ -3178,7 +3181,7 @@ function App() {
     }
   }
 
-  const getTierInventoryMeta = (availability, tier, index = 0) => {
+  const getTierInventoryMeta = (availability, tier, _index = 0) => {
     const match = availability?.tiers?.find(
       (item) => String(item.ticketTierId) === String(tier?.id) || Number(item.price) === Number(tier?.price),
     )
@@ -3455,6 +3458,18 @@ function App() {
           setCoordinatorPortalOpen(false)
           setCoordinatorPortalEvent(null)
         }}
+        onNavigateAnalytics={(eventId) => {
+          setCoordinatorPortalOpen(false)
+          setCoordinatorPortalEvent(null)
+          setAnalyticsDashboardEventId(eventId || null)
+          setAnalyticsDashboardOpen(true)
+        }}
+        onNavigateReports={(eventId) => {
+          setCoordinatorPortalOpen(false)
+          setCoordinatorPortalEvent(null)
+          setReportsPageEventId(eventId || null)
+          setReportsPageOpen(true)
+        }}
         ExvoLogo={ExvoLogo}
         initialSelectedEvent={coordinatorPortalEvent}
       />
@@ -3469,8 +3484,48 @@ function App() {
           setAnalyticsDashboardOpen(false)
           setAnalyticsDashboardEventId(null)
         }}
+        onOpenReports={(eventId) => {
+          setAnalyticsDashboardOpen(false)
+          setAnalyticsDashboardEventId(null)
+          setReportsPageEventId(eventId || null)
+          setReportsPageOpen(true)
+        }}
+        onLaunchScanner={(eventId) => {
+          setAnalyticsDashboardOpen(false)
+          setAnalyticsDashboardEventId(null)
+          const target = myOrganizerEvents.find((e) => String(e.id || e.eventId) === String(eventId))
+          setCoordinatorPortalEvent(target || null)
+          setCoordinatorPortalOpen(true)
+        }}
         ExvoLogo={ExvoLogo}
         initialSelectedEventId={analyticsDashboardEventId}
+      />
+    )
+  }
+
+  if (reportsPageOpen) {
+    return (
+      <EventReportsPage
+        user={userDetails}
+        onBack={() => {
+          setReportsPageOpen(false)
+          setReportsPageEventId(null)
+        }}
+        onNavigateAnalytics={(eventId) => {
+          setReportsPageOpen(false)
+          setReportsPageEventId(null)
+          setAnalyticsDashboardEventId(eventId || null)
+          setAnalyticsDashboardOpen(true)
+        }}
+        onLaunchScanner={(eventId) => {
+          setReportsPageOpen(false)
+          setReportsPageEventId(null)
+          const target = myOrganizerEvents.find((e) => String(e.id || e.eventId) === String(eventId))
+          setCoordinatorPortalEvent(target || null)
+          setCoordinatorPortalOpen(true)
+        }}
+        ExvoLogo={ExvoLogo}
+        initialSelectedEventId={reportsPageEventId}
       />
     )
   }
@@ -3555,6 +3610,34 @@ function App() {
                 <line x1="6" y1="20" x2="6" y2="14" />
               </svg>
               <span>ANALYTICS</span>
+            </button>
+          )}
+
+          {isOrganizer && (
+            <button
+              type="button"
+              className="nav-dash-btn"
+              onClick={() => {
+                setReportsPageEventId(null)
+                setReportsPageOpen(true)
+              }}
+              title="Open Sales & Attendance Reports (SCRUM-37)"
+            >
+              <svg
+                className="w-4 h-4 text-amber-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <span>REPORTS</span>
             </button>
           )}
 
@@ -3753,18 +3836,7 @@ function App() {
           <div className="nav-overlay-body">
             {(authState.isAuthenticated
               ? isOrganizer
-                ? [
-                    'HOME',
-                    'EVENTS',
-                    'DASHBOARD',
-                    'ANALYTICS',
-                    'SCANNER PORTAL',
-                    'ADD EVENT',
-                    'ABOUT US',
-                    'CONTACT',
-                    'PROFILE',
-                    'LOGOUT',
-                  ]
+                ? ['HOME', 'EVENTS', 'DASHBOARD', 'ADD EVENT', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
                 : ['HOME', 'EVENTS', 'MY TICKETS', 'ABOUT US', 'CONTACT', 'PROFILE', 'LOGOUT']
               : ['HOME', 'EVENTS', 'ABOUT US', 'CONTACT', 'LOGIN']
             ).map((link) => (
@@ -3780,6 +3852,10 @@ function App() {
                     setMobileMenuOpen(false)
                     setAnalyticsDashboardEventId(null)
                     setAnalyticsDashboardOpen(true)
+                  } else if (link === 'REPORTS') {
+                    setMobileMenuOpen(false)
+                    setReportsPageEventId(null)
+                    setReportsPageOpen(true)
                   } else if (link === 'ADD EVENT') {
                     setMobileMenuOpen(false)
                     setShowAddEventModal(true)
@@ -6971,6 +7047,51 @@ function App() {
               </button>
             )}
 
+            {/* Event Reports & Audit Access Button */}
+            {isOrganizer && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrganizerDashboardOpen(false)
+                  setReportsPageEventId(null)
+                  setReportsPageOpen(true)
+                }}
+                className="dash-analytics-portal-btn mt-2 mb-1"
+                title="Launch Event Sales & Attendance Reports (SCRUM-37)"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="dash-analytics-portal-icon"
+                    style={{ background: 'rgba(245, 158, 11, 0.2)', borderColor: 'rgba(245, 158, 11, 0.35)' }}
+                  >
+                    <svg
+                      className="w-4 h-4 text-amber-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                  </span>
+                  <div className="text-left">
+                    <span className="dash-analytics-portal-title" style={{ color: '#fbbf24' }}>
+                      EVENT REPORTS & AUDIT
+                    </span>
+                    <span className="dash-analytics-portal-sub">Generate sales & attendance CSV / PDF reports</span>
+                  </div>
+                </div>
+                <span className="dash-analytics-portal-arrow font-['Orbitron']" style={{ color: '#fbbf24' }}>
+                  REPORTS →
+                </span>
+              </button>
+            )}
+
             {/* Scanner Portal Access Button */}
             {canAccessScanner && (
               <button
@@ -7126,6 +7247,31 @@ function App() {
                                   <line x1="6" y1="20" x2="6" y2="14" />
                                 </svg>
                                 <span>STATS</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrganizerDashboardOpen(false)
+                                  setReportsPageEventId(evt.id)
+                                  setReportsPageOpen(true)
+                                }}
+                                className="dash-action-btn dash-action-btn--reports"
+                                title="Generate Sales & Attendance Reports (SCRUM-37)"
+                              >
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                >
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                  <line x1="16" y1="13" x2="8" y2="13" />
+                                  <line x1="16" y1="17" x2="8" y2="17" />
+                                </svg>
+                                <span>REPORTS</span>
                               </button>
 
                               <button

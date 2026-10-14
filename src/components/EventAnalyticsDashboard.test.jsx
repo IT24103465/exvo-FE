@@ -101,14 +101,22 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
       expect(screen.getByText('TOTAL REVENUE (LKR)')).toBeInTheDocument()
       expect(screen.getByText('AVAILABLE TICKETS')).toBeInTheDocument()
       expect(screen.getByText('CHECKED-IN ATTENDEES')).toBeInTheDocument()
-      expect(screen.getByText('ATTENDANCE RATE')).toBeInTheDocument()
+      expect(screen.getByText('REMAINING EXPECTED')).toBeInTheDocument()
+      expect(screen.getByText('CHECK-IN RATE')).toBeInTheDocument()
+      expect(screen.getByText('VENUE OCCUPANCY')).toBeInTheDocument()
     })
 
     expect(screen.getByText('950')).toBeInTheDocument()
     expect(screen.getByText('LKR 3,450,000')).toBeInTheDocument()
     expect(screen.getByText('550')).toBeInTheDocument()
     expect(screen.getByText('720')).toBeInTheDocument()
-    expect(screen.getByText('75.8%')).toBeInTheDocument()
+    expect(screen.getByText('230')).toBeInTheDocument() // 950 - 720
+    expect(screen.getAllByText('75.8%').length).toBeGreaterThanOrEqual(1)
+
+    // Verify Real-time Occupancy & Progress Gauges Panel
+    expect(screen.getByText('LIVE GATE CHECK-IN RATE')).toBeInTheDocument()
+    expect(screen.getByText('VENUE OCCUPANCY & CAPACITY')).toBeInTheDocument()
+    expect(screen.getByText('TICKET INVENTORY FILL RATE')).toBeInTheDocument()
   })
 
   it('supports event selection dropdown to filter metrics by organizer-owned event', async () => {
@@ -124,6 +132,18 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
     await waitFor(() => {
       expect(analyticsService.getEventAnalytics).toHaveBeenCalledWith('101')
     })
+  })
+
+  it('calls onOpenReports when REPORTS button is clicked in header', async () => {
+    const mockOpenReports = vi.fn()
+    render(<EventAnalyticsDashboard user={mockOrganizer} onBack={vi.fn()} onOpenReports={mockOpenReports} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('REPORTS')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('REPORTS'))
+    expect(mockOpenReports).toHaveBeenCalledWith(null)
   })
 
   it('allows switching chart tabs between Overview, Sales, Revenue, and Attendance', async () => {
@@ -166,8 +186,20 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
     render(<EventAnalyticsDashboard user={mockOrganizer} onBack={vi.fn()} />)
 
     await waitFor(() => {
-      // If service fails and fallback derivation handles or displays retry alert
       expect(screen.getByRole('main')).toBeInTheDocument()
     })
   })
+
+  it('displays empty state when organizer has no analytics data and no events', async () => {
+    eventService.getMyEvents.mockResolvedValueOnce([])
+    analyticsService.getEventAnalytics.mockResolvedValueOnce(null)
+
+    render(<EventAnalyticsDashboard user={mockOrganizer} onBack={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('NO EVENT ANALYTICS AVAILABLE')).toBeInTheDocument()
+      expect(screen.getByText('RETURN TO DASHBOARD')).toBeInTheDocument()
+    })
+  })
 })
+

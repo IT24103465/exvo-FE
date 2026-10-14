@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CoordinatorScannerPortal from './CoordinatorScannerPortal'
 import * as coordinatorService from '../services/coordinatorService'
+import * as analyticsService from '../services/analyticsService'
 
 describe('CoordinatorScannerPortal (SCRUM-30)', () => {
   const mockOrganizer = {
@@ -71,6 +72,14 @@ describe('CoordinatorScannerPortal (SCRUM-30)', () => {
       status: 'CHECKED_IN',
       checkedInAt: '2026-11-20T18:06:00Z',
       message: 'Check-in confirmed successfully!',
+    })
+    vi.spyOn(analyticsService, 'getEventAnalytics').mockResolvedValue({
+      totalTicketsSold: 800,
+      checkedInAttendees: 400,
+      remainingAttendees: 400,
+      checkInRate: 50,
+      venueOccupancyPercentage: 40,
+      totalCapacity: 1000,
     })
   })
 
@@ -516,5 +525,73 @@ describe('CoordinatorScannerPortal (SCRUM-30)', () => {
     // Expired event button is disabled
     const expiredBtn = screen.getByRole('button', { name: /EVENT EXPIRED/i })
     expect(expiredBtn).toBeDisabled()
+  })
+
+  it('SCRUM-36: displays live attendance telemetry HUD and auto-refreshes analytics on check-in', async () => {
+    const mockOnCheckInConfirmed = vi.fn()
+    render(
+      <CoordinatorScannerPortal
+        user={mockOrganizer}
+        onBack={vi.fn()}
+        onCheckInConfirmed={mockOnCheckInConfirmed}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Neon Horizon Music Fest 2026')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getAllByRole('button', { name: /LAUNCH SCANNER/i })[0])
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/MANUAL TICKET CODE ENTRY/i)).toBeInTheDocument()
+      expect(screen.getByText('TOTAL SOLD')).toBeInTheDocument()
+      expect(screen.getByText('800')).toBeInTheDocument()
+      expect(screen.getByText('CHECK-IN RATE')).toBeInTheDocument()
+      expect(screen.getByText('50%')).toBeInTheDocument()
+      expect(screen.getByText('VENUE OCCUPANCY')).toBeInTheDocument()
+      expect(screen.getByText('40%')).toBeInTheDocument()
+    })
+
+    const input = screen.getByLabelText(/MANUAL TICKET CODE ENTRY/i)
+    fireEvent.change(input, { target: { value: 'EXVO-TICK-101' } })
+    fireEvent.click(screen.getByRole('button', { name: /VALIDATE \/ CHECK IN/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /CONFIRM CHECK-IN/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /CONFIRM CHECK-IN/i }))
+
+    await waitFor(() => {
+      expect(coordinatorService.confirmTicketCheckIn).toHaveBeenCalledWith(101, 'EXVO-TICK-101')
+      expect(analyticsService.getEventAnalytics).toHaveBeenCalledWith(101)
+      expect(mockOnCheckInConfirmed).toHaveBeenCalledWith(101, expect.objectContaining({ ticketCode: 'EXVO-TICK-101' }))
+    })
+  })
+
+  it('supports direct reciprocal navigation to Live Attendance Dashboard and Reports', async () => {
+    const mockNavigateAnalytics = vi.fn()
+    const mockNavigateReports = vi.fn()
+
+    render(
+      <CoordinatorScannerPortal
+        user={mockOrganizer}
+        onBack={vi.fn()}
+        onNavigateAnalytics={mockNavigateAnalytics}
+        onNavigateReports={mockNavigateReports}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Open Real-time Attendance Analytics Dashboard')).toBeInTheDocument()
+      expect(screen.getByTitle('Open Sales & Attendance Reports')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle('Open Real-time Attendance Analytics Dashboard'))
+    expect(mockNavigateAnalytics).toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTitle('Open Sales & Attendance Reports'))
+    expect(mockNavigateReports).toHaveBeenCalled()
   })
 })

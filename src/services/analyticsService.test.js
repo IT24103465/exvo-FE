@@ -100,6 +100,10 @@ test('calculateEventRealTimeAnalytics computes real revenue and sold metrics fro
   expect(result.availableTickets).toBe(170) // 20 + 150
   expect(result.totalCapacity).toBe(500)
   expect(result.attendancePercentage).toBeGreaterThan(0)
+  expect(result.remainingAttendees).toBe(330 - result.checkedInAttendees)
+  expect(result.venueOccupancy).toBe(result.checkedInAttendees)
+  expect(result.venueOccupancyPercentage).toBeGreaterThan(0)
+  expect(result.salesFillRate).toBe(66) // (330 / 500) * 100
 })
 
 test('calculateAggregateRealTimeAnalytics calculates total numbers across multiple events', () => {
@@ -126,4 +130,57 @@ test('calculateAggregateRealTimeAnalytics calculates total numbers across multip
   expect(aggregate.totalTicketsSold).toBe(110)
   expect(aggregate.totalRevenue).toBe(160000)
   expect(aggregate.availableTickets).toBe(90)
+  expect(aggregate.remainingAttendees).toBe(110 - aggregate.checkedInAttendees)
+  expect(aggregate.venueOccupancy).toBe(aggregate.checkedInAttendees)
 })
+
+test('getEventReport calls backend reports endpoint with eventId and reportType', async () => {
+  const mockReport = {
+    eventId: 101,
+    reportType: 'sales',
+    totalTicketsSold: 500,
+    totalRevenue: 1500000,
+  }
+
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => mockReport,
+  })
+
+  const { getEventReport } = await import('./analyticsService.js')
+  const report = await getEventReport(101, 'sales')
+  expect(report).toEqual(mockReport)
+  expect(globalThis.fetch).toHaveBeenCalledWith(
+    expect.stringContaining('/api/analytics/events/101/reports?type=sales'),
+    expect.anything(),
+  )
+})
+
+test('generateClientCsv generates formatted CSV string with report sections', async () => {
+  const { generateClientCsv } = await import('./analyticsService.js')
+  const mockData = {
+    eventTitle: 'Neon Fest 2026',
+    venue: 'Lotus Arena',
+    totalCapacity: 1000,
+    totalTicketsSold: 800,
+    availableTickets: 200,
+    totalRevenue: 2800000,
+    checkedInAttendees: 600,
+    remainingAttendees: 200,
+    checkInRate: 75,
+    salesFillRate: 80,
+    ticketTiers: [
+      { name: 'VIP', price: 5000, capacity: 200, sold: 200, available: 0, revenue: 1000000 },
+      { name: 'General', price: 3000, capacity: 800, sold: 600, available: 200, revenue: 1800000 },
+    ],
+  }
+
+  const csv = generateClientCsv(mockData, 'sales')
+  expect(csv).toContain('EXVO EVENT ANALYTICS & REPORTS')
+  expect(csv).toContain('Neon Fest 2026')
+  expect(csv).toContain('VIP')
+  expect(csv).toContain('General')
+  expect(csv).toContain('Total Tickets Sold,800')
+})
+
