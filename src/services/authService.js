@@ -1,0 +1,225 @@
+import { fetchApi } from './apiConfig.js'
+
+const fetchWithFallback = async (endpoint, options = {}) => {
+  return fetchApi(`/api/auth${endpoint}`, options)
+}
+
+const getStorage = () => {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null
+  } catch {
+    return null
+  }
+}
+
+export const registerUser = async (
+  payloadOrFullName,
+  email,
+  password,
+  role = 'Attendee',
+  companyName = null,
+  companyRegNumber = null,
+  contactNumber = null,
+) => {
+  let body
+  if (typeof payloadOrFullName === 'object' && payloadOrFullName !== null) {
+    body = payloadOrFullName
+  } else {
+    body = {
+      fullName: payloadOrFullName,
+      email,
+      password,
+      role,
+      companyName,
+      companyRegNumber,
+      contactNumber,
+    }
+  }
+
+  const response = await fetchWithFallback('/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  let data = {}
+  const text = await response.text()
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { message: text }
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Request failed with status ${response.status}`)
+  }
+
+  if (data.token) {
+    const storage = getStorage()
+    storage?.setItem('token', data.token)
+    storage?.setItem('user', JSON.stringify(data))
+  }
+  return data
+}
+
+export const loginUser = async (email, password) => {
+  const response = await fetchWithFallback('/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+
+  let data = {}
+  const text = await response.text()
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { message: text }
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Login failed with status ${response.status}`)
+  }
+
+  if (data.token) {
+    const storage = getStorage()
+    storage?.setItem('token', data.token)
+    storage?.setItem('user', JSON.stringify(data))
+  }
+  return data
+}
+
+export const getCurrentUserProfile = async () => {
+  const storage = getStorage()
+  const token = storage?.getItem('token')
+  if (!token) return null
+
+  try {
+    const response = await fetchWithFallback('/me', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        storage?.removeItem('token')
+        return null
+      }
+      return null
+    }
+
+    const profile = await response.json()
+    // Update cached user in localStorage
+    const cachedUser = JSON.parse(storage?.getItem('user') || '{}')
+    const updatedUser = {
+      ...cachedUser,
+      fullName: profile.name || cachedUser.fullName,
+      email: profile.email || cachedUser.email,
+      contactNumber: profile.phoneNumber || cachedUser.contactNumber,
+      address: profile.address || cachedUser.address,
+      profilePicture: profile.profilePicture || cachedUser.profilePicture,
+    }
+    storage?.setItem('user', JSON.stringify(updatedUser))
+
+    return profile
+  } catch {
+    return null
+  }
+}
+
+export const updateUserProfile = async (profileData) => {
+  const storage = getStorage()
+  const token = storage?.getItem('token')
+  if (!token) {
+    throw new Error('Not authenticated')
+  }
+
+  const response = await fetchWithFallback('/profile', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: profileData.name || profileData.fullName,
+      email: profileData.email,
+      address: profileData.address || null,
+      phoneNumber: profileData.phoneNumber || profileData.contactNumber || null,
+      profilePicture: profileData.profilePicture || null,
+    }),
+  })
+
+  let data = {}
+  const text = await response.text()
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { message: text }
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Update profile failed with status ${response.status}`)
+  }
+
+  // Update localStorage
+  const cachedUser = JSON.parse(storage?.getItem('user') || '{}')
+  const updatedUser = {
+    ...cachedUser,
+    fullName: data.name || profileData.name,
+    email: data.email || profileData.email,
+    contactNumber: data.phoneNumber || profileData.phoneNumber,
+    address: data.address || profileData.address,
+    profilePicture: data.profilePicture || profileData.profilePicture,
+  }
+  storage?.setItem('user', JSON.stringify(updatedUser))
+
+  return data
+}
+
+export const logoutUser = () => {
+  const storage = getStorage()
+  storage?.removeItem('token')
+  storage?.removeItem('user')
+}
+
+export const deleteUserAccount = async () => {
+  const storage = getStorage()
+  const token = storage?.getItem('token')
+  if (!token) {
+    throw new Error('Not authenticated')
+  }
+
+  const response = await fetchWithFallback('/profile', {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  })
+
+  let data = {}
+  const text = await response.text()
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = { message: text }
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || `Delete account failed with status ${response.status}`)
+  }
+
+  logoutUser()
+  return data
+}
