@@ -4,7 +4,9 @@ import App from './App.jsx'
 
 afterEach(() => {
   vi.restoreAllMocks()
-  localStorage.clear()
+  if (typeof localStorage !== 'undefined') {
+    localStorage.clear()
+  }
 })
 
 describe('Exvo homepage', () => {
