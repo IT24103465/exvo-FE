@@ -613,14 +613,11 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
   const historyTickets = flattenedTickets.filter((ticket) => isTicketHistoryEvent(ticket.event))
   const activeTickets = flattenedTickets.filter(
     (ticket) =>
-      !ticket.event.isDeleted &&
-      !isTicketHistoryEvent(ticket.event) &&
-      !hiddenSet.has(ticketStorageIdentity(ticket)),
+      !ticket.event.isDeleted && !isTicketHistoryEvent(ticket.event) && !hiddenSet.has(ticketStorageIdentity(ticket)),
   )
   const hiddenTickets = flattenedTickets.filter(
     (ticket) =>
-      ticket.event.isDeleted ||
-      (!isTicketHistoryEvent(ticket.event) && hiddenSet.has(ticketStorageIdentity(ticket))),
+      ticket.event.isDeleted || (!isTicketHistoryEvent(ticket.event) && hiddenSet.has(ticketStorageIdentity(ticket))),
   )
   const eventOptions = [
     ...new Map(
