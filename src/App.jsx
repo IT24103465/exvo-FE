@@ -603,7 +603,9 @@ const TicketBarcode = ({ value, className = '' }) => {
 
 const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh, onDownload, formatDate, user }) => {
   const userDetails = getUserDetails(user)
-  const hiddenStorageKey = `exvo-hidden-tickets:${userDetails.id || userDetails.email || userDetails.name || 'guest'}`
+  const userStorageSeed = userDetails.id || userDetails.email || userDetails.name || 'guest'
+  const legacyHiddenStorageKey = `exvo-hidden-tickets:${userStorageSeed}`
+  const hiddenStorageKey = `exvo-hidden-tickets:${hashTicketStorageValue(userStorageSeed)}`
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketTypeFilter, setTicketTypeFilter] = useState('all')
   const [eventFilter, setEventFilter] = useState('all')
@@ -612,7 +614,9 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
   const [hiddenTicketCodes, setHiddenTicketCodes] = useState(() => {
     try {
       if (typeof localStorage === 'undefined') return []
-      return normalizeHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]'))
+      const storedCodes =
+        localStorage.getItem(hiddenStorageKey) || localStorage.getItem(legacyHiddenStorageKey) || '[]'
+      return normalizeHiddenTicketCodes(JSON.parse(storedCodes))
     } catch {
       return []
     }
@@ -682,7 +686,11 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
     try {
       if (typeof localStorage !== 'undefined') {
         setHiddenTicketCodes(
-          normalizeHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]')),
+          normalizeHiddenTicketCodes(
+            JSON.parse(
+              localStorage.getItem(hiddenStorageKey) || localStorage.getItem(legacyHiddenStorageKey) || '[]',
+            ),
+          ),
         )
       } else {
         setHiddenTicketCodes([])
@@ -737,11 +745,12 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(hiddenStorageKey, JSON.stringify(hiddenTicketCodes))
+        if (legacyHiddenStorageKey !== hiddenStorageKey) localStorage.removeItem(legacyHiddenStorageKey)
       }
     } catch {
       // ignore storage errors
     }
-  }, [hiddenStorageKey, hiddenTicketCodes])
+  }, [hiddenStorageKey, hiddenTicketCodes, legacyHiddenStorageKey])
 
   const toggleTicketHidden = (ticket) => {
     const code = ticketStorageIdentity(ticket)
