@@ -510,16 +510,6 @@ const hashTicketStorageValue = (value) => {
   return `h:${(hash >>> 0).toString(36)}`
 }
 
-const normalizeHiddenTicketCodes = (codes = []) =>
-  Array.from(
-    new Set(
-      (Array.isArray(codes) ? codes : [])
-        .map((code) => String(code || ''))
-        .filter(Boolean)
-        .map((code) => (code.startsWith('h:') ? code : hashTicketStorageValue(code))),
-    ),
-  )
-
 const ticketStorageIdentity = (ticket) => hashTicketStorageValue(ticketIdentity(ticket))
 
 const isTicketHistoryEvent = (event = {}, now = Date.now()) => {
@@ -601,22 +591,13 @@ const TicketBarcode = ({ value, className = '' }) => {
   return <svg ref={barcodeRef} className={className} aria-label={`Barcode for ticket ${value}`} />
 }
 
-const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh, onDownload, formatDate, user }) => {
-  const userDetails = getUserDetails(user)
-  const hiddenStorageKey = 'exvo-hidden-tickets'
+const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh, onDownload, formatDate }) => {
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketTypeFilter, setTicketTypeFilter] = useState('all')
   const [eventFilter, setEventFilter] = useState('all')
   const [ticketTab, setTicketTab] = useState('active')
   const [ticketEventSnapshots, setTicketEventSnapshots] = useState({})
-  const [hiddenTicketCodes, setHiddenTicketCodes] = useState(() => {
-    try {
-      if (typeof localStorage === 'undefined') return []
-      return normalizeHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]'))
-    } catch {
-      return []
-    }
-  })
+  const [hiddenTicketCodes, setHiddenTicketCodes] = useState([])
   const eventById = new Map(events.map((event) => [Number(event.id), event]))
   Object.entries(ticketEventSnapshots).forEach(([eventId, event]) => {
     if (!eventById.has(Number(eventId))) eventById.set(Number(eventId), event)
@@ -679,20 +660,6 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
   })
 
   useEffect(() => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        setHiddenTicketCodes(
-          normalizeHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]')),
-        )
-      } else {
-        setHiddenTicketCodes([])
-      }
-    } catch {
-      setHiddenTicketCodes([])
-    }
-  }, [hiddenStorageKey])
-
-  useEffect(() => {
     const missingEventIds = [
       ...new Set(
         bookings
@@ -732,16 +699,6 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
       active = false
     }
   }, [bookings, events, ticketEventSnapshots])
-
-  useEffect(() => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(hiddenStorageKey, JSON.stringify(hiddenTicketCodes))
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }, [hiddenStorageKey, hiddenTicketCodes])
 
   const toggleTicketHidden = (ticket) => {
     const code = ticketStorageIdentity(ticket)
