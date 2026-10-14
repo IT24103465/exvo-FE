@@ -23,6 +23,20 @@ globalThis.ResizeObserver = class {
 globalThis.requestAnimationFrame = () => 1
 globalThis.cancelAnimationFrame = () => {}
 
+if (typeof globalThis.localStorage === 'undefined') {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => store.get(String(key)) ?? null,
+    setItem: (key, val) => store.set(String(key), String(val)),
+    removeItem: (key) => store.delete(String(key)),
+    clear: () => store.clear(),
+    key: (index) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size
+    },
+  }
+}
+
 afterEach(() => {
   cleanup()
 })

@@ -4,6 +4,14 @@ const fetchWithFallback = async (endpoint, options = {}) => {
   return fetchApi(`/api/auth${endpoint}`, options)
 }
 
+const getStorage = () => {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null
+  } catch {
+    return null
+  }
+}
+
 export const registerUser = async (
   payloadOrFullName,
   email,
@@ -49,8 +57,9 @@ export const registerUser = async (
   }
 
   if (data.token) {
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('user', JSON.stringify(data))
+    const storage = getStorage()
+    storage?.setItem('token', data.token)
+    storage?.setItem('user', JSON.stringify(data))
   }
   return data
 }
@@ -77,14 +86,16 @@ export const loginUser = async (email, password) => {
   }
 
   if (data.token) {
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('user', JSON.stringify(data))
+    const storage = getStorage()
+    storage?.setItem('token', data.token)
+    storage?.setItem('user', JSON.stringify(data))
   }
   return data
 }
 
 export const getCurrentUserProfile = async () => {
-  const token = localStorage.getItem('token')
+  const storage = getStorage()
+  const token = storage?.getItem('token')
   if (!token) return null
 
   try {
@@ -98,7 +109,7 @@ export const getCurrentUserProfile = async () => {
 
     if (!response.ok) {
       if (response.status === 401) {
-        localStorage.removeItem('token')
+        storage?.removeItem('token')
         return null
       }
       return null
@@ -106,7 +117,7 @@ export const getCurrentUserProfile = async () => {
 
     const profile = await response.json()
     // Update cached user in localStorage
-    const cachedUser = JSON.parse(localStorage.getItem('user') || '{}')
+    const cachedUser = JSON.parse(storage?.getItem('user') || '{}')
     const updatedUser = {
       ...cachedUser,
       fullName: profile.name || cachedUser.fullName,
@@ -115,7 +126,7 @@ export const getCurrentUserProfile = async () => {
       address: profile.address || cachedUser.address,
       profilePicture: profile.profilePicture || cachedUser.profilePicture,
     }
-    localStorage.setItem('user', JSON.stringify(updatedUser))
+    storage?.setItem('user', JSON.stringify(updatedUser))
 
     return profile
   } catch {
@@ -124,7 +135,8 @@ export const getCurrentUserProfile = async () => {
 }
 
 export const updateUserProfile = async (profileData) => {
-  const token = localStorage.getItem('token')
+  const storage = getStorage()
+  const token = storage?.getItem('token')
   if (!token) {
     throw new Error('Not authenticated')
   }
@@ -159,7 +171,7 @@ export const updateUserProfile = async (profileData) => {
   }
 
   // Update localStorage
-  const cachedUser = JSON.parse(localStorage.getItem('user') || '{}')
+  const cachedUser = JSON.parse(storage?.getItem('user') || '{}')
   const updatedUser = {
     ...cachedUser,
     fullName: data.name || profileData.name,
@@ -168,18 +180,20 @@ export const updateUserProfile = async (profileData) => {
     address: data.address || profileData.address,
     profilePicture: data.profilePicture || profileData.profilePicture,
   }
-  localStorage.setItem('user', JSON.stringify(updatedUser))
+  storage?.setItem('user', JSON.stringify(updatedUser))
 
   return data
 }
 
 export const logoutUser = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  const storage = getStorage()
+  storage?.removeItem('token')
+  storage?.removeItem('user')
 }
 
 export const deleteUserAccount = async () => {
-  const token = localStorage.getItem('token')
+  const storage = getStorage()
+  const token = storage?.getItem('token')
   if (!token) {
     throw new Error('Not authenticated')
   }

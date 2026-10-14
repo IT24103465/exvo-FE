@@ -35,7 +35,12 @@ const fetchWithFallback = async (endpoint = '', options = {}) => {
 }
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('token')
+  let token = null
+  try {
+    token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null
+  } catch {
+    token = null
+  }
   const headers = { 'Content-Type': 'application/json' }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
