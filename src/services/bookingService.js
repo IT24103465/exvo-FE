@@ -1,7 +1,12 @@
 import { fetchApi } from './apiConfig.js'
 
 const authHeaders = () => {
-  const token = localStorage.getItem('token')
+  let token = null
+  try {
+    token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null
+  } catch {
+    token = null
+  }
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

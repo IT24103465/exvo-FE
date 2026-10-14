@@ -79,16 +79,28 @@ const EventPoster = ({ src, title, className = '', loading }) =>
   )
 
 const readAuthState = () => {
-  const token = localStorage.getItem('token')
-  let user = null
-
   try {
-    user = JSON.parse(localStorage.getItem('user') || 'null')
-  } catch {
-    localStorage.removeItem('user')
-  }
+    const storage = typeof localStorage !== 'undefined' ? localStorage : null
+    if (!storage) {
+      return { isAuthenticated: false, user: null }
+    }
+    const token = storage.getItem('token')
+    let user = null
 
-  return { isAuthenticated: Boolean(token), user }
+    try {
+      user = JSON.parse(storage.getItem('user') || 'null')
+    } catch {
+      try {
+        storage.removeItem('user')
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    return { isAuthenticated: Boolean(token), user }
+  } catch {
+    return { isAuthenticated: false, user: null }
+  }
 }
 
 const getUserDetails = (user) => {
@@ -117,6 +129,7 @@ const HIDDEN_EVENTS_STORAGE_KEY = 'exvo_hidden_event_ids'
 
 const getHiddenEventIds = () => {
   try {
+    if (typeof localStorage === 'undefined') return []
     const raw = localStorage.getItem(HIDDEN_EVENTS_STORAGE_KEY)
     return raw ? JSON.parse(raw) : []
   } catch {
@@ -126,6 +139,7 @@ const getHiddenEventIds = () => {
 
 const addHiddenEventId = (id) => {
   try {
+    if (typeof localStorage === 'undefined') return
     const ids = getHiddenEventIds()
     const strId = String(id)
     if (!ids.includes(strId)) {
@@ -139,6 +153,7 @@ const addHiddenEventId = (id) => {
 
 const removeHiddenEventId = (id) => {
   try {
+    if (typeof localStorage === 'undefined') return
     const ids = getHiddenEventIds()
     const strId = String(id)
     const updated = ids.filter((i) => i !== strId)
@@ -574,6 +589,7 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
   const [ticketEventSnapshots, setTicketEventSnapshots] = useState({})
   const [hiddenTicketCodes, setHiddenTicketCodes] = useState(() => {
     try {
+      if (typeof localStorage === 'undefined') return []
       return JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]')
     } catch {
       return []
@@ -639,7 +655,11 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
 
   useEffect(() => {
     try {
-      setHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]'))
+      if (typeof localStorage !== 'undefined') {
+        setHiddenTicketCodes(JSON.parse(localStorage.getItem(hiddenStorageKey) || '[]'))
+      } else {
+        setHiddenTicketCodes([])
+      }
     } catch {
       setHiddenTicketCodes([])
     }
@@ -687,7 +707,13 @@ const TicketManagerPage = ({ bookings, events, error, loading, onBack, onRefresh
   }, [bookings, events, ticketEventSnapshots])
 
   useEffect(() => {
-    localStorage.setItem(hiddenStorageKey, JSON.stringify(hiddenTicketCodes))
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(hiddenStorageKey, JSON.stringify(hiddenTicketCodes))
+      }
+    } catch {
+      // ignore storage errors
+    }
   }, [hiddenStorageKey, hiddenTicketCodes])
 
   const toggleTicketHidden = (ticket) => {
@@ -1010,6 +1036,20 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
   const [message, setMessage] = useState('')
   const [isSuccess, setIsSuccess] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const timerRef = useRef(null)
+
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      clearTimer()
+    }
+  }, [])
 
   // Login form fields
   const [loginEmail, setLoginEmail] = useState('')
@@ -1028,12 +1068,15 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
     setIsLoading(true)
     setMessage('Authenticating...')
     setIsSuccess(false)
+    clearTimer()
 
     try {
       await loginUser(loginEmail, loginPassword)
       setIsSuccess(true)
       setMessage('Login successful! Welcome back.')
-      setTimeout(onSuccess, 800)
+      timerRef.current = setTimeout(() => {
+        onSuccess?.()
+      }, 800)
     } catch (error) {
       setIsSuccess(false)
       setMessage(error.message || 'Invalid email or password.')
@@ -1047,6 +1090,7 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
     setIsLoading(true)
     setMessage(accountType === 'company' ? 'Registering your company...' : 'Creating your account...')
     setIsSuccess(false)
+    clearTimer()
 
     try {
       if (accountType === 'company') {
@@ -1077,7 +1121,9 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
 
       setIsSuccess(true)
       setMessage('Account created successfully! Welcome to Exvo.')
-      setTimeout(onSuccess, 900)
+      timerRef.current = setTimeout(() => {
+        onSuccess?.()
+      }, 900)
     } catch (error) {
       setIsSuccess(false)
       setMessage(error.message || 'Registration failed. Please try again.')
@@ -1094,7 +1140,14 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
       <section className="auth-card" aria-labelledby="auth-title">
         {/* Top bar with back button & Exvo Brand */}
         <div className="auth-card-header">
-          <button className="login-back" type="button" onClick={onBack}>
+          <button
+            className="login-back"
+            type="button"
+            onClick={() => {
+              clearTimer()
+              onBack?.()
+            }}
+          >
             ← Back to home
           </button>
           <div className="auth-brand-badge">
@@ -1111,8 +1164,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             type="button"
             className={`auth-mode-tab ${authMode === 'login' ? 'active' : ''}`}
             onClick={() => {
+              clearTimer()
               setAuthMode('login')
               setMessage('')
+              setIsSuccess(false)
             }}
             role="tab"
             aria-selected={authMode === 'login'}
@@ -1123,8 +1178,10 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             type="button"
             className={`auth-mode-tab ${authMode === 'register' ? 'active' : ''}`}
             onClick={() => {
+              clearTimer()
               setAuthMode('register')
               setMessage('')
+              setIsSuccess(false)
             }}
             role="tab"
             aria-selected={authMode === 'register'}
