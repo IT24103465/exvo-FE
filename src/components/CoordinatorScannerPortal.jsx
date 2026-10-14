@@ -166,25 +166,28 @@ export default function CoordinatorScannerPortal({
   }, [isAuthorizedScanner])
 
   // ── Fetch Live Analytics for Active Event (SCRUM-36) ──
-  const fetchLiveEventAnalytics = useCallback(async (targetEventId) => {
-    if (!targetEventId) {
-      setLiveAnalytics(null)
-      return
-    }
-    try {
-      let data = await analyticsService.getEventAnalytics(targetEventId)
-      if (!data && selectedEvent) {
-        data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent)
+  const fetchLiveEventAnalytics = useCallback(
+    async (targetEventId) => {
+      if (!targetEventId) {
+        setLiveAnalytics(null)
+        return
       }
-      if (data) {
-        setLiveAnalytics(data)
+      try {
+        let data = await analyticsService.getEventAnalytics(targetEventId)
+        if (!data && selectedEvent) {
+          data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent)
+        }
+        if (data) {
+          setLiveAnalytics(data)
+        }
+      } catch {
+        if (selectedEvent) {
+          setLiveAnalytics(analyticsService.calculateEventRealTimeAnalytics(selectedEvent))
+        }
       }
-    } catch {
-      if (selectedEvent) {
-        setLiveAnalytics(analyticsService.calculateEventRealTimeAnalytics(selectedEvent))
-      }
-    }
-  }, [selectedEvent])
+    },
+    [selectedEvent],
+  )
 
   useEffect(() => {
     if (selectedEvent) {
@@ -554,18 +557,12 @@ export default function CoordinatorScannerPortal({
 
   // Live attendance and venue occupancy calculations (SCRUM-36)
   const analyticsSold = Number(liveAnalytics?.totalTicketsSold || selectedEvent?.totalCapacity || 0)
-  const analyticsCheckedIn = Math.max(
-    Number(liveAnalytics?.checkedInAttendees || 0),
-    checkedInCount,
-  )
+  const analyticsCheckedIn = Math.max(Number(liveAnalytics?.checkedInAttendees || 0), checkedInCount)
   const analyticsRemaining =
     liveAnalytics?.remainingAttendees != null
       ? Math.max(0, Number(liveAnalytics.remainingAttendees) - checkedInCount)
       : Math.max(0, analyticsSold - analyticsCheckedIn)
-  const analyticsRate =
-    analyticsSold > 0
-      ? Number(((analyticsCheckedIn / analyticsSold) * 100).toFixed(1))
-      : 0
+  const analyticsRate = analyticsSold > 0 ? Number(((analyticsCheckedIn / analyticsSold) * 100).toFixed(1)) : 0
   const totalCapacity = Number(liveAnalytics?.totalCapacity || selectedEvent?.totalCapacity || 1)
   const venueOccupancyPercent =
     liveAnalytics?.venueOccupancyPercentage != null
@@ -650,10 +647,16 @@ export default function CoordinatorScannerPortal({
             <button
               type="button"
               className="coordinator-nav-btn font-['Orbitron']"
-              onClick={() => onNavigateAnalytics(selectedEvent ? (selectedEvent.eventId || selectedEvent.id) : null)}
+              onClick={() => onNavigateAnalytics(selectedEvent ? selectedEvent.eventId || selectedEvent.id : null)}
               title="Open Real-time Attendance Analytics Dashboard"
             >
-              <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
                 <line x1="18" y1="20" x2="18" y2="10" />
                 <line x1="12" y1="20" x2="12" y2="4" />
                 <line x1="6" y1="20" x2="6" y2="14" />
@@ -666,10 +669,16 @@ export default function CoordinatorScannerPortal({
             <button
               type="button"
               className="coordinator-nav-btn coordinator-nav-btn--reports font-['Orbitron']"
-              onClick={() => onNavigateReports(selectedEvent ? (selectedEvent.eventId || selectedEvent.id) : null)}
+              onClick={() => onNavigateReports(selectedEvent ? selectedEvent.eventId || selectedEvent.id : null)}
               title="Open Sales & Attendance Reports"
             >
-              <svg className="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="w-4 h-4 text-amber-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <polyline points="14 2 14 8 20 8" />
                 <line x1="16" y1="13" x2="8" y2="13" />
@@ -955,7 +964,13 @@ export default function CoordinatorScannerPortal({
                               onNavigateAnalytics(evtId)
                             }}
                           >
-                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <svg
+                              className="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                            >
                               <line x1="18" y1="20" x2="18" y2="10" />
                               <line x1="12" y1="20" x2="12" y2="4" />
                               <line x1="6" y1="20" x2="6" y2="14" />
@@ -973,7 +988,13 @@ export default function CoordinatorScannerPortal({
                               onNavigateReports(evtId)
                             }}
                           >
-                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              className="w-3.5 h-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
                               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                               <polyline points="14 2 14 8 20 8" />
                             </svg>
@@ -1077,9 +1098,7 @@ export default function CoordinatorScannerPortal({
 
                 <div className="coordinator-telemetry-card">
                   <span className="coordinator-telemetry-label font-['Orbitron']">CHECK-IN RATE</span>
-                  <span className="coordinator-telemetry-value text-amber-400 font-['Orbitron']">
-                    {analyticsRate}%
-                  </span>
+                  <span className="coordinator-telemetry-value text-amber-400 font-['Orbitron']">{analyticsRate}%</span>
                   <div className="coordinator-telemetry-bar-wrap">
                     <div
                       className="coordinator-telemetry-bar-fill"

@@ -468,4 +468,3 @@ export const downloadReportFile = async (eventId, reportType = 'sales', format =
 
   throw new Error(`Unsupported report export format: ${format}`)
 }
-
