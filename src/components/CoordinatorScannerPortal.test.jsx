@@ -530,11 +530,7 @@ describe('CoordinatorScannerPortal (SCRUM-30)', () => {
   it('SCRUM-36: displays live attendance telemetry HUD and auto-refreshes analytics on check-in', async () => {
     const mockOnCheckInConfirmed = vi.fn()
     render(
-      <CoordinatorScannerPortal
-        user={mockOrganizer}
-        onBack={vi.fn()}
-        onCheckInConfirmed={mockOnCheckInConfirmed}
-      />,
+      <CoordinatorScannerPortal user={mockOrganizer} onBack={vi.fn()} onCheckInConfirmed={mockOnCheckInConfirmed} />,
     )
 
     await waitFor(() => {

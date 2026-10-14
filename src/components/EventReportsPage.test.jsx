@@ -197,13 +197,7 @@ describe('EventReportsPage (SCRUM-37)', () => {
 
   it('allows switching to live dashboard via LIVE DASHBOARD button', async () => {
     const mockNavigateAnalytics = vi.fn()
-    render(
-      <EventReportsPage
-        user={mockOrganizer}
-        onBack={vi.fn()}
-        onNavigateAnalytics={mockNavigateAnalytics}
-      />,
-    )
+    render(<EventReportsPage user={mockOrganizer} onBack={vi.fn()} onNavigateAnalytics={mockNavigateAnalytics} />)
 
     await waitFor(() => {
       expect(screen.getByText('LIVE DASHBOARD')).toBeInTheDocument()

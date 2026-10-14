@@ -124,7 +124,8 @@ export default function EventReportsPage({
           const sold = Number(data.totalTicketsSold || 0)
           const capacity = Number(data.totalCapacity || 1)
           const checkedIn = Number(data.checkedInAttendees || 0)
-          const remaining = data.remainingAttendees != null ? Number(data.remainingAttendees) : Math.max(0, sold - checkedIn)
+          const remaining =
+            data.remainingAttendees != null ? Number(data.remainingAttendees) : Math.max(0, sold - checkedIn)
           const checkInRate =
             data.checkInRate != null
               ? Number(data.checkInRate)
@@ -232,9 +233,10 @@ export default function EventReportsPage({
             <h1 className="coordinator-rbac-title font-['Orbitron']">ACCESS RESTRICTED</h1>
             <p className="coordinator-rbac-kicker">ORGANIZER CLEARANCE REQUIRED</p>
             <p className="coordinator-rbac-desc">
-              The Event Sales & Attendance Reports page is strictly restricted to verified <strong>Event Organizers</strong> and
-              administrators. Your account role (<code>{user?.role || 'Guest'}</code>) is not authorized to generate
-              or export official financial and attendance audit documents.
+              The Event Sales & Attendance Reports page is strictly restricted to verified{' '}
+              <strong>Event Organizers</strong> and administrators. Your account role (
+              <code>{user?.role || 'Guest'}</code>) is not authorized to generate or export official financial and
+              attendance audit documents.
             </p>
             <div className="coordinator-rbac-actions">
               <button type="button" className="coordinator-primary-btn" onClick={onBack}>
@@ -275,7 +277,13 @@ export default function EventReportsPage({
               onClick={() => onNavigateAnalytics(selectedEventId === 'all' ? null : selectedEventId)}
               title="Switch to Real-time Analytics Dashboard"
             >
-              <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
                 <line x1="18" y1="20" x2="18" y2="10" />
                 <line x1="12" y1="20" x2="12" y2="4" />
                 <line x1="6" y1="20" x2="6" y2="14" />
@@ -291,7 +299,13 @@ export default function EventReportsPage({
               onClick={() => onLaunchScanner(selectedEventId === 'all' ? null : selectedEventId)}
               title="Switch to QR Ticket Scanner Portal"
             >
-              <svg className="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <svg
+                className="w-4 h-4 text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+              >
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <path d="M7 7h.01M17 7h.01M7 17h.01M17 17h.01" />
                 <path d="M12 7v10" />
@@ -396,13 +410,23 @@ export default function EventReportsPage({
         {/* Notices & Alerts */}
         {error && (
           <div className="analytics-alert analytics-alert--error" role="alert">
-            <svg className="w-5 h-5 flex-shrink-0 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              className="w-5 h-5 flex-shrink-0 text-red-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <span>{error}</span>
-            <button type="button" onClick={() => handleGenerateReport(selectedEventId, reportType)} className="analytics-alert-retry">
+            <button
+              type="button"
+              onClick={() => handleGenerateReport(selectedEventId, reportType)}
+              className="analytics-alert-retry"
+            >
               Retry
             </button>
           </div>
@@ -410,7 +434,13 @@ export default function EventReportsPage({
 
         {exportNotice && (
           <div className="reports-notice-banner" role="status">
-            <svg className="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              className="w-5 h-5 text-emerald-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="20 6 9 17 4 12" />
             </svg>
             <span>{exportNotice.message}</span>
@@ -491,7 +521,8 @@ export default function EventReportsPage({
                         : 'COMPREHENSIVE EVENT PERFORMANCE REPORT'}
                   </h1>
                   <p className="report-doc-subtitle">
-                    Event: <strong>{currentEventTitle}</strong> | Venue: <strong>{reportData.venue || 'All Venues'}</strong>
+                    Event: <strong>{currentEventTitle}</strong> | Venue:{' '}
+                    <strong>{reportData.venue || 'All Venues'}</strong>
                   </p>
                 </div>
 
@@ -567,9 +598,7 @@ export default function EventReportsPage({
 
                     <div className="report-kpi-card">
                       <span className="report-kpi-title">CHECK-IN RATE</span>
-                      <span className="report-kpi-value font-['Orbitron'] text-red-400">
-                        {reportData.checkInRate}%
-                      </span>
+                      <span className="report-kpi-value font-['Orbitron'] text-red-400">{reportData.checkInRate}%</span>
                       <span className="report-kpi-sub">Turnout percentage</span>
                     </div>
 
@@ -607,7 +636,9 @@ export default function EventReportsPage({
                   <div className="report-meter-box">
                     <div className="report-meter-info">
                       <span className="report-meter-label font-['Orbitron']">VENUE OCCUPANCY RATE</span>
-                      <span className="report-meter-pct font-bold text-cyan-300">{reportData.venueOccupancyPercentage}%</span>
+                      <span className="report-meter-pct font-bold text-cyan-300">
+                        {reportData.venueOccupancyPercentage}%
+                      </span>
                     </div>
                     <div className="report-progress-track">
                       <div
@@ -767,7 +798,13 @@ export default function EventReportsPage({
         ) : (
           <div className="analytics-empty-state" role="region" aria-label="No Report Data">
             <div className="analytics-empty-icon">
-              <svg className="w-12 h-12 text-neutral-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <svg
+                className="w-12 h-12 text-neutral-600"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+              >
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <line x1="8" y1="12" x2="16" y2="12" />
                 <line x1="12" y1="8" x2="12" y2="16" />
@@ -775,7 +812,8 @@ export default function EventReportsPage({
             </div>
             <h2 className="analytics-empty-title font-['Orbitron']">NO EVENTS FOR REPORT GENERATION</h2>
             <p className="analytics-empty-desc">
-              You do not have any published events eligible for report generation. Create an event in your organizer dashboard to generate sales and attendance reports.
+              You do not have any published events eligible for report generation. Create an event in your organizer
+              dashboard to generate sales and attendance reports.
             </p>
             <button type="button" className="analytics-empty-action font-['Orbitron']" onClick={onBack}>
               RETURN TO DASHBOARD

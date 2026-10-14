@@ -183,4 +183,3 @@ test('generateClientCsv generates formatted CSV string with report sections', as
   expect(csv).toContain('General')
   expect(csv).toContain('Total Tickets Sold,800')
 })
-
