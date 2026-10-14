@@ -2305,7 +2305,7 @@
 
 .nav-overlay-label {
   font-family: 'Orbitron', sans-serif;
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2314,22 +2314,22 @@
 
 @media (min-width: 768px) {
   .nav-overlay-label {
-    font-size: 24px;
+    font-size: 28px;
     letter-spacing: 0.18em;
   }
 }
 
 @media (min-height: 800px) and (min-width: 1024px) {
   .nav-overlay-body {
-    gap: 8px;
+    gap: 10px;
   }
 
   .nav-overlay-item {
-    padding: 10px 22px;
+    padding: 12px 24px;
   }
 
   .nav-overlay-label {
-    font-size: 26px;
+    font-size: 32px;
     letter-spacing: 0.2em;
   }
 }
@@ -2345,20 +2345,20 @@
   }
 
   .nav-overlay-label {
-    font-size: 15px;
+    font-size: 18px;
     letter-spacing: 0.14em;
   }
 }
 
 .nav-overlay-body--organizer .nav-overlay-label {
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 800;
   letter-spacing: 0.15em;
 }
 
 @media (min-width: 768px) {
   .nav-overlay-body--organizer .nav-overlay-label {
-    font-size: 21px;
+    font-size: 25px;
     letter-spacing: 0.17em;
   }
 }

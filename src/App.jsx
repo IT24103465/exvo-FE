@@ -1084,13 +1084,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           password: registerPassword,
           role: 'Organizer',
         })
-      } else if (accountType === 'coordinator') {
-        await registerUser({
-          fullName,
-          email: registerEmail,
-          password: registerPassword,
-          role: 'Coordinator',
-        })
       } else {
         await registerUser({
           fullName,
@@ -1197,18 +1190,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
               role="radio"
             >
               Register Company
-            </button>
-            <button
-              type="button"
-              className={`account-type-btn ${accountType === 'coordinator' ? 'active' : ''}`}
-              onClick={() => {
-                setAccountType('coordinator')
-                setMessage('')
-              }}
-              aria-checked={accountType === 'coordinator'}
-              role="radio"
-            >
-              Access Coordinator
             </button>
           </div>
         )}
