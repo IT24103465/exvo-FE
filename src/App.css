@@ -2319,16 +2319,18 @@
   }
 }
 
-.nav-overlay-body--organizer .nav-overlay-label {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.15em;
-}
+@media (min-height: 800px) and (min-width: 1024px) {
+  .nav-overlay-body {
+    gap: 8px;
+  }
 
-@media (min-width: 768px) {
-  .nav-overlay-body--organizer .nav-overlay-label {
-    font-size: 21px;
-    letter-spacing: 0.17em;
+  .nav-overlay-item {
+    padding: 10px 22px;
+  }
+
+  .nav-overlay-label {
+    font-size: 26px;
+    letter-spacing: 0.2em;
   }
 }
 
@@ -2345,6 +2347,19 @@
   .nav-overlay-label {
     font-size: 15px;
     letter-spacing: 0.14em;
+  }
+}
+
+.nav-overlay-body--organizer .nav-overlay-label {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+@media (min-width: 768px) {
+  .nav-overlay-body--organizer .nav-overlay-label {
+    font-size: 21px;
+    letter-spacing: 0.17em;
   }
 }
 
