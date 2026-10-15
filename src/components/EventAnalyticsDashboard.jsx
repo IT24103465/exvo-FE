@@ -462,7 +462,7 @@ export default function EventAnalyticsDashboard({
                       </div>
                       <div className="analytics-metric-sub">
                         <span className="text-emerald-400 font-bold">{salesFillRate}%</span>
-                        <span className="text-neutral-400"> of total capacity ({capacity.toLocaleString()})</span>
+                        <span className="text-neutral-400"> of {capacity.toLocaleString()} cap</span>
                       </div>
                     </div>
 
@@ -541,7 +541,7 @@ export default function EventAnalyticsDashboard({
                         {remainingExpected.toLocaleString()}
                       </div>
                       <div className="analytics-metric-sub">
-                        <span className="text-neutral-400">Sold tickets pending gate entry</span>
+                        <span className="text-neutral-400">Pending gate admission</span>
                       </div>
                     </div>
 
@@ -564,11 +564,11 @@ export default function EventAnalyticsDashboard({
                       </div>
                       <div className="analytics-metric-val font-['Orbitron'] text-red-400">{checkInRate}%</div>
                       <div className="analytics-metric-sub">
-                        <span className="text-neutral-400">Ratio of sold tickets checked in</span>
+                        <span className="text-neutral-400">Checked-in vs total sold</span>
                       </div>
                     </div>
 
-                    {/* Current Venue Occupancy & Capacity */}
+                    {/* Current Venue Occupancy & Available Inventory */}
                     <div className="analytics-metric-card group">
                       <div className="analytics-card-glow" />
                       <div className="analytics-card-head">
@@ -589,35 +589,13 @@ export default function EventAnalyticsDashboard({
                         {venueOccupancyPercent}%
                       </div>
                       <div className="analytics-metric-sub">
-                        <span className="text-neutral-400">
-                          {checkedIn.toLocaleString()} inside / {capacity.toLocaleString()} cap
+                        <span className="text-cyan-400 font-bold">{checkedIn.toLocaleString()}</span>
+                        <span className="text-neutral-400"> inside • </span>
+                        <span className="text-amber-300 font-bold">
+                          {(analyticsData.availableTickets || 0).toLocaleString()}
                         </span>
-                      </div>
-                    </div>
-
-                    {/* Available Tickets */}
-                    <div className="analytics-metric-card group">
-                      <div className="analytics-card-glow" />
-                      <div className="analytics-card-head">
-                        <span className="analytics-metric-title">AVAILABLE TICKETS</span>
-                        <span className="analytics-icon-box text-amber-400">
-                          <svg
-                            className="w-4 h-4"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <circle cx="12" cy="12" r="10" />
-                            <line x1="8" y1="12" x2="16" y2="12" />
-                          </svg>
-                        </span>
-                      </div>
-                      <div className="analytics-metric-val font-['Orbitron'] text-amber-200">
-                        {(analyticsData.availableTickets || 0).toLocaleString()}
-                      </div>
-                      <div className="analytics-metric-sub">
-                        <span className="text-neutral-400">Passes remaining in inventory</span>
+                        <span className="text-neutral-400"> left</span>
+                        <span className="sr-only">AVAILABLE TICKETS</span>
                       </div>
                     </div>
                   </div>
@@ -874,18 +852,29 @@ export default function EventAnalyticsDashboard({
                       </thead>
                       <tbody>
                         {organizerEvents.map((evt) => {
-                          const cap = Number(evt.totalCapacity || evt.availableTickets) || 500
-                          const sold = Math.round(cap * 0.65)
-                          const rev = sold * (Number(evt.minPrice || evt.price) || 2500)
-                          const checked = Math.round(sold * 0.72)
+                          const evtId = String(evt.id || evt.eventId)
+                          // Look up real calculated breakdown from analyticsData.eventsBreakdown
+                          const realItem = analyticsData?.eventsBreakdown?.find((item) => String(item.id) === evtId)
+
+                          const cap = Number(
+                            realItem?.totalCapacity || evt.totalCapacity || evt.availableTickets || 500,
+                          )
+                          const sold = realItem
+                            ? Number(realItem.ticketsSold || 0)
+                            : Number(evt.ticketsSold || Math.max(0, cap - (evt.availableTickets ?? cap)))
+                          const available = realItem ? Number(realItem.available || 0) : Math.max(0, cap - sold)
+                          const checked = realItem ? Number(realItem.checkedIn || 0) : Math.round(sold * 0.76)
+                          const rev = realItem
+                            ? Number(realItem.revenue || 0)
+                            : sold * (Number(evt.minPrice || evt.price) || 0)
 
                           return (
                             <tr key={evt.id || evt.eventId}>
                               <td className="font-bold text-white font-['Orbitron']">{evt.title}</td>
                               <td className="text-neutral-400">{evt.venue || evt.location || 'Colombo'}</td>
-                              <td className="font-bold text-white">{sold}</td>
-                              <td className="text-amber-300">{cap - sold}</td>
-                              <td className="text-purple-300">{checked}</td>
+                              <td className="font-bold text-white">{sold.toLocaleString()}</td>
+                              <td className="text-amber-300">{available.toLocaleString()}</td>
+                              <td className="text-purple-300">{checked.toLocaleString()}</td>
                               <td className="font-bold text-emerald-400">{formatLKR(rev)}</td>
                               <td>
                                 <button
