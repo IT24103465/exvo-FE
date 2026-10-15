@@ -46,12 +46,15 @@ export const getCoordinatorEvents = async () => {
     const myEvents = await request('/api/catalog/events/my-events')
     if (Array.isArray(myEvents)) {
       return myEvents.map((evt) => ({
+        ...evt,
         eventId: evt.id || evt.eventId,
         id: evt.id || evt.eventId,
         title: evt.title,
         eventDate: evt.eventDate || `${evt.date || ''}T${evt.time || '19:00'}:00`,
         venue: evt.venue,
         location: evt.venue || evt.location,
+        totalCapacity: evt.totalCapacity || evt.availableTickets || 500,
+        availableTickets: evt.availableTickets != null ? evt.availableTickets : evt.totalCapacity,
       }))
     }
   } catch {
