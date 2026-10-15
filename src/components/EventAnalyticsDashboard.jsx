@@ -595,6 +595,7 @@ export default function EventAnalyticsDashboard({
                           {(analyticsData.availableTickets || 0).toLocaleString()}
                         </span>
                         <span className="text-neutral-400"> left</span>
+                        <span className="sr-only">AVAILABLE TICKETS</span>
                       </div>
                     </div>
                   </div>
