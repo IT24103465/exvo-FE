@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import * as coordinatorService from '../services/coordinatorService'
 import * as analyticsService from '../services/analyticsService'
+import * as bookingService from '../services/bookingService'
 
 // Play audio feedback using Web Audio API
 const playFeedbackSound = (type) => {

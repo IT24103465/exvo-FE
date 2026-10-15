@@ -591,7 +591,9 @@ export default function EventAnalyticsDashboard({
                       <div className="analytics-metric-sub">
                         <span className="text-cyan-400 font-bold">{checkedIn.toLocaleString()}</span>
                         <span className="text-neutral-400"> inside • </span>
-                        <span className="text-amber-300 font-bold">{(analyticsData.availableTickets || 0).toLocaleString()}</span>
+                        <span className="text-amber-300 font-bold">
+                          {(analyticsData.availableTickets || 0).toLocaleString()}
+                        </span>
                         <span className="text-neutral-400"> left</span>
                       </div>
                     </div>
@@ -853,11 +855,17 @@ export default function EventAnalyticsDashboard({
                           // Look up real calculated breakdown from analyticsData.eventsBreakdown
                           const realItem = analyticsData?.eventsBreakdown?.find((item) => String(item.id) === evtId)
 
-                          const cap = Number(realItem?.totalCapacity || evt.totalCapacity || evt.availableTickets || 500)
-                          const sold = realItem ? Number(realItem.ticketsSold || 0) : Number(evt.ticketsSold || Math.max(0, cap - (evt.availableTickets ?? cap)))
+                          const cap = Number(
+                            realItem?.totalCapacity || evt.totalCapacity || evt.availableTickets || 500,
+                          )
+                          const sold = realItem
+                            ? Number(realItem.ticketsSold || 0)
+                            : Number(evt.ticketsSold || Math.max(0, cap - (evt.availableTickets ?? cap)))
                           const available = realItem ? Number(realItem.available || 0) : Math.max(0, cap - sold)
                           const checked = realItem ? Number(realItem.checkedIn || 0) : Math.round(sold * 0.76)
-                          const rev = realItem ? Number(realItem.revenue || 0) : sold * (Number(evt.minPrice || evt.price) || 0)
+                          const rev = realItem
+                            ? Number(realItem.revenue || 0)
+                            : sold * (Number(evt.minPrice || evt.price) || 0)
 
                           return (
                             <tr key={evt.id || evt.eventId}>
