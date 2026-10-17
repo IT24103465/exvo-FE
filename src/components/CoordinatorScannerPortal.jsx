@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import * as coordinatorService from '../services/coordinatorService'
 import * as analyticsService from '../services/analyticsService'
+import * as bookingService from '../services/bookingService'
 
 // Play audio feedback using Web Audio API
 const playFeedbackSound = (type) => {
@@ -175,7 +176,13 @@ export default function CoordinatorScannerPortal({
       try {
         let data = await analyticsService.getEventAnalytics(targetEventId)
         if (!data && selectedEvent) {
-          data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent)
+          let liveAvailability = null
+          try {
+            liveAvailability = await bookingService.getEventAvailability(targetEventId)
+          } catch {
+            // ignore
+          }
+          data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent, liveAvailability)
         }
         if (data) {
           setLiveAnalytics(data)
@@ -193,6 +200,13 @@ export default function CoordinatorScannerPortal({
     if (selectedEvent) {
       const eventId = selectedEvent.eventId || selectedEvent.id
       fetchLiveEventAnalytics(eventId)
+
+      // Auto-poll live telemetry every 15s to keep scanner telemetry up to date with real data
+      const pollTimer = setInterval(() => {
+        fetchLiveEventAnalytics(eventId)
+      }, 15000)
+
+      return () => clearInterval(pollTimer)
     } else {
       setLiveAnalytics(null)
     }
@@ -954,52 +968,56 @@ export default function CoordinatorScannerPortal({
                       </div>
 
                       <div className="coordinator-card-footer">
-                        {onNavigateAnalytics && (
-                          <button
-                            type="button"
-                            className="coordinator-card-action-btn font-['Orbitron']"
-                            title="View Real-Time Analytics"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onNavigateAnalytics(evtId)
-                            }}
-                          >
-                            <svg
-                              className="w-3.5 h-3.5"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.2"
-                            >
-                              <line x1="18" y1="20" x2="18" y2="10" />
-                              <line x1="12" y1="20" x2="12" y2="4" />
-                              <line x1="6" y1="20" x2="6" y2="14" />
-                            </svg>
-                            <span>STATS</span>
-                          </button>
-                        )}
-                        {onNavigateReports && (
-                          <button
-                            type="button"
-                            className="coordinator-card-action-btn coordinator-card-action-btn--reports font-['Orbitron']"
-                            title="Generate Reports"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onNavigateReports(evtId)
-                            }}
-                          >
-                            <svg
-                              className="w-3.5 h-3.5"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                            >
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                            </svg>
-                            <span>REPORTS</span>
-                          </button>
+                        {(onNavigateAnalytics || onNavigateReports) && (
+                          <div className="coordinator-card-aux-actions">
+                            {onNavigateAnalytics && (
+                              <button
+                                type="button"
+                                className="coordinator-card-action-btn font-['Orbitron']"
+                                title="View Real-Time Analytics"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onNavigateAnalytics(evtId)
+                                }}
+                              >
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2.2"
+                                >
+                                  <line x1="18" y1="20" x2="18" y2="10" />
+                                  <line x1="12" y1="20" x2="12" y2="4" />
+                                  <line x1="6" y1="20" x2="6" y2="14" />
+                                </svg>
+                                <span>STATS</span>
+                              </button>
+                            )}
+                            {onNavigateReports && (
+                              <button
+                                type="button"
+                                className="coordinator-card-action-btn coordinator-card-action-btn--reports font-['Orbitron']"
+                                title="Generate Reports"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onNavigateReports(evtId)
+                                }}
+                              >
+                                <svg
+                                  className="w-3.5 h-3.5"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                </svg>
+                                <span>REPORTS</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                         <button
                           type="button"
@@ -1178,74 +1196,6 @@ export default function CoordinatorScannerPortal({
                       </button>
                     </div>
                   </form>
-
-                  {/* Quick Simulation Bar for Fast Testing / Verification */}
-                  <div className="coordinator-sim-bar">
-                    <span className="sim-label font-['Orbitron']">DEMO SIMULATOR:</span>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--valid"
-                      onClick={() => handleProcessScan(`EXVO-GA-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + VALID TICKET
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--vip"
-                      onClick={() => handleProcessScan(`EXVO-VIP-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + VIP PASS
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--already"
-                      style={{
-                        background: 'rgba(245, 158, 11, 0.15)',
-                        borderColor: 'rgba(245, 158, 11, 0.4)',
-                        color: '#fbbf24',
-                      }}
-                      onClick={() => handleProcessScan(`EXVO-USED-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + ALREADY USED
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--wrong"
-                      style={{
-                        background: 'rgba(168, 85, 247, 0.15)',
-                        borderColor: 'rgba(168, 85, 247, 0.4)',
-                        color: '#c084fc',
-                      }}
-                      onClick={() => handleProcessScan(`EXVO-WRONG-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + WRONG EVENT
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--noteligible"
-                      style={{
-                        background: 'rgba(249, 115, 22, 0.15)',
-                        borderColor: 'rgba(249, 115, 22, 0.4)',
-                        color: '#fb923c',
-                      }}
-                      onClick={() => handleProcessScan(`EXVO-NOT_ELIGIBLE-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + NOT ELIGIBLE
-                    </button>
-                    <button
-                      type="button"
-                      className="sim-btn sim-btn--invalid"
-                      onClick={() => handleProcessScan(`INVALID-${Math.floor(1000 + Math.random() * 9000)}`)}
-                      disabled={scanning || confirmingCheckIn}
-                    >
-                      + INVALID CODE
-                    </button>
-                  </div>
                 </div>
 
                 {isMobile ? (

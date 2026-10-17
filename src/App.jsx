@@ -1198,18 +1198,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
             >
               Register Company
             </button>
-            <button
-              type="button"
-              className={`account-type-btn ${accountType === 'coordinator' ? 'active' : ''}`}
-              onClick={() => {
-                setAccountType('coordinator')
-                setMessage('')
-              }}
-              aria-checked={accountType === 'coordinator'}
-              role="radio"
-            >
-              Access Coordinator
-            </button>
           </div>
         )}
 
