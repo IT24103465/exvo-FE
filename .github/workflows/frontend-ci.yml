@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '24.x'
+  NODE_VERSION: '20.x'
 
 jobs:
   dependency-install:
@@ -236,4 +236,4 @@ jobs:
             exit 1
           fi
           echo 'All nine frontend release checks passed.'
-      # TODO: Connect the approved hosting platform deployment here when credentials and a target are specified.
+        # TODO: Connect the approved hosting platform deployment here when credentials and a target are specified.
