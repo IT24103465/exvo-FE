@@ -87,14 +87,10 @@ test('handles offline/unmounted endpoint fallback during ticket check-in', async
   vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: false,
     status: 404,
-    json: async () => ({ message: 'Not found 404' }),
+    json: async () => ({ message: 'Ticket not found' }),
   })
 
-  const res = await validateTicketCheckIn(5, 'EXVO-VIP-001')
-  expect(res.isValid).toBe(true)
-  expect(res.ticketCode).toBe('EXVO-VIP-001')
-  expect(res.eventId).toBe(5)
-  expect(res.status).toBe('VALID')
+  await expect(validateTicketCheckIn(5, 'EXVO-VIP-001')).rejects.toThrow('Ticket not found')
 })
 
 test('validates ticket via CheckInService validate endpoint (SCRUM-31)', async () => {
@@ -157,24 +153,38 @@ test('confirms ticket check-in separately for valid ticket (SCRUM-31)', async ()
 })
 
 test('validates ticket fallback statuses (ALREADY_USED, WRONG_EVENT, NOT_ELIGIBLE, INVALID)', async () => {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-    ok: false,
-    status: 404,
-    json: async () => ({ message: 'Not found' }),
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: 'ALREADY_USED', isValid: false, message: 'Already used' }),
   })
-
   const usedRes = await coordinatorService.validateTicket(1, 'EXVO-ALREADY-USED-001')
   expect(usedRes.status).toBe('ALREADY_USED')
   expect(usedRes.isValid).toBe(false)
 
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: 'WRONG_EVENT', isValid: false, message: 'Wrong event' }),
+  })
   const wrongRes = await coordinatorService.validateTicket(1, 'EXVO-WRONG-EVENT-002')
   expect(wrongRes.status).toBe('WRONG_EVENT')
   expect(wrongRes.isValid).toBe(false)
 
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: 'NOT_ELIGIBLE', isValid: false, message: 'Not eligible' }),
+  })
   const notEligibleRes = await coordinatorService.validateTicket(1, 'EXVO-NOT_ELIGIBLE-003')
   expect(notEligibleRes.status).toBe('NOT_ELIGIBLE')
   expect(notEligibleRes.isValid).toBe(false)
 
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: 'INVALID', isValid: false, message: 'Invalid ticket' }),
+  })
   const invalidRes = await coordinatorService.validateTicket(1, 'BAD-INVALID-004')
   expect(invalidRes.status).toBe('INVALID')
   expect(invalidRes.isValid).toBe(false)

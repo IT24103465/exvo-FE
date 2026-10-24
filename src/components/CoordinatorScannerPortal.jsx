@@ -173,7 +173,17 @@ export default function CoordinatorScannerPortal({
         return
       }
       try {
-        let data = await analyticsService.getEventAnalytics(targetEventId)
+        // First try real-time CheckInService analytics from DB
+        let data = null
+        try {
+          data = await coordinatorService.getEventLiveAnalytics(targetEventId)
+        } catch {
+          data = null
+        }
+
+        if (!data) {
+          data = await analyticsService.getEventAnalytics(targetEventId)
+        }
         if (!data && selectedEvent) {
           data = analyticsService.calculateEventRealTimeAnalytics(selectedEvent)
         }
@@ -193,6 +203,12 @@ export default function CoordinatorScannerPortal({
     if (selectedEvent) {
       const eventId = selectedEvent.eventId || selectedEvent.id
       fetchLiveEventAnalytics(eventId)
+
+      // Poll real live analytics every 5 seconds while scanner is open
+      const interval = setInterval(() => {
+        fetchLiveEventAnalytics(eventId)
+      }, 5000)
+      return () => clearInterval(interval)
     } else {
       setLiveAnalytics(null)
     }
@@ -556,20 +572,45 @@ export default function CoordinatorScannerPortal({
   const invalidScansCount = scanHistory.filter((s) => s.status === 'INVALID').length
 
   // Live attendance and venue occupancy calculations (SCRUM-36)
-  const analyticsSold = Number(liveAnalytics?.totalTicketsSold || selectedEvent?.totalCapacity || 0)
-  const analyticsCheckedIn = Math.max(Number(liveAnalytics?.checkedInAttendees || 0), checkedInCount)
+  const analyticsSold = Number(
+    liveAnalytics?.totalSoldTickets ??
+      liveAnalytics?.totalTicketsSold ??
+      liveAnalytics?.totalSold ??
+      selectedEvent?.totalCapacity ??
+      0,
+  )
+  const analyticsCheckedIn = Math.max(
+    Number(
+      liveAnalytics?.totalUniqueCheckedInTickets ??
+        liveAnalytics?.totalCheckedIn ??
+        liveAnalytics?.checkedInAttendees ??
+        0,
+    ),
+    checkedInCount,
+  )
   const analyticsRemaining =
-    liveAnalytics?.remainingAttendees != null
-      ? Math.max(0, Number(liveAnalytics.remainingAttendees) - checkedInCount)
-      : Math.max(0, analyticsSold - analyticsCheckedIn)
-  const analyticsRate = analyticsSold > 0 ? Number(((analyticsCheckedIn / analyticsSold) * 100).toFixed(1)) : 0
-  const totalCapacity = Number(liveAnalytics?.totalCapacity || selectedEvent?.totalCapacity || 1)
-  const venueOccupancyPercent =
-    liveAnalytics?.venueOccupancyPercentage != null
-      ? Number(liveAnalytics.venueOccupancyPercentage)
-      : totalCapacity > 0
-        ? Number(((analyticsCheckedIn / totalCapacity) * 100).toFixed(1))
+    liveAnalytics?.remainingExpectedAttendees != null
+      ? Math.max(0, Number(liveAnalytics.remainingExpectedAttendees))
+      : liveAnalytics?.remainingAttendees != null
+        ? Math.max(0, Number(liveAnalytics.remainingAttendees) - checkedInCount)
+        : Math.max(0, analyticsSold - analyticsCheckedIn)
+  const analyticsRate =
+    liveAnalytics?.checkInRate != null
+      ? Number(Number(liveAnalytics.checkInRate).toFixed(1))
+      : analyticsSold > 0
+        ? Number(((analyticsCheckedIn / analyticsSold) * 100).toFixed(1))
         : 0
+  const totalCapacity = Number(
+    liveAnalytics?.venueCapacity ?? liveAnalytics?.totalCapacity ?? selectedEvent?.totalCapacity ?? 1,
+  )
+  const venueOccupancyPercent =
+    liveAnalytics?.occupancyPercentage != null
+      ? Number(Number(liveAnalytics.occupancyPercentage).toFixed(1))
+      : liveAnalytics?.venueOccupancyPercentage != null
+        ? Number(liveAnalytics.venueOccupancyPercentage)
+        : totalCapacity > 0
+          ? Number(((analyticsCheckedIn / totalCapacity) * 100).toFixed(1))
+          : 0
 
   // ── If NOT an authorized scanner, render RBAC barrier ──
   if (!isAuthorizedScanner) {

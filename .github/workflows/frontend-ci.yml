@@ -198,7 +198,15 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
       - name: Run Playwright UI tests
-        run: npm run test:e2e
+        run: npm run test:e2e:mock
+      - name: Run real backend integration E2E tests when configured
+        if: ${{ secrets.EXVO_E2E_BASE_URL != '' && secrets.EXVO_E2E_ATTENDEE_EMAIL != '' && secrets.EXVO_E2E_ATTENDEE_PASSWORD != '' }}
+        env:
+          EXVO_E2E_BASE_URL: ${{ secrets.EXVO_E2E_BASE_URL }}
+          VITE_API_BASE_URL: ${{ secrets.EXVO_E2E_API_BASE_URL }}
+          EXVO_E2E_ATTENDEE_EMAIL: ${{ secrets.EXVO_E2E_ATTENDEE_EMAIL }}
+          EXVO_E2E_ATTENDEE_PASSWORD: ${{ secrets.EXVO_E2E_ATTENDEE_PASSWORD }}
+        run: npm run test:e2e:integration
       - name: Upload Playwright reports and failure evidence
         if: always()
         uses: actions/upload-artifact@v4

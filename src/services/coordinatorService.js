@@ -46,6 +46,7 @@ export const getCoordinatorEvents = async () => {
     const myEvents = await request('/api/catalog/events/my-events')
     if (Array.isArray(myEvents)) {
       return myEvents.map((evt) => ({
+        ...evt,
         eventId: evt.id || evt.eventId,
         id: evt.id || evt.eventId,
         title: evt.title,
@@ -123,4 +124,16 @@ export const validateTicketCheckIn = async (eventId, ticketCode) => {
     body: JSON.stringify({ ticketCode: normalizedCode }),
   })
   return response
+}
+
+/**
+ * Fetch real-time attendance, ticket sales and check-in stats directly from backend DB
+ */
+export const getEventLiveAnalytics = async (eventId) => {
+  if (!eventId) return null
+  try {
+    return await request(`/api/analytics/events/${eventId}`)
+  } catch {
+    return await request(`/api/checkin/analytics/event/${eventId}/realtime`)
+  }
 }

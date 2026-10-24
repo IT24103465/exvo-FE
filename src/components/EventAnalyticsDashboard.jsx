@@ -408,25 +408,34 @@ export default function EventAnalyticsDashboard({
             {/* 1. TOP STATS CARDS GRID (Critical Real-Time Metrics)        */}
             {/* ══════════════════════════════════════════════════════════ */}
             {(() => {
-              const totalSold = analyticsData.totalTicketsSold || 0
-              const capacity = analyticsData.totalCapacity || 1
-              const checkedIn = analyticsData.checkedInAttendees || 0
+              const totalSold =
+                analyticsData.totalSoldTickets ?? analyticsData.totalTicketsSold ?? analyticsData.totalSold ?? 0
+              const capacity = analyticsData.venueCapacity ?? analyticsData.totalCapacity ?? 1
+              const checkedIn =
+                analyticsData.totalUniqueCheckedInTickets ??
+                analyticsData.totalCheckedIn ??
+                analyticsData.checkedInAttendees ??
+                0
               const remainingExpected =
-                analyticsData.remainingAttendees != null
-                  ? analyticsData.remainingAttendees
-                  : Math.max(0, totalSold - checkedIn)
+                analyticsData.remainingExpectedAttendees != null
+                  ? analyticsData.remainingExpectedAttendees
+                  : analyticsData.remainingAttendees != null
+                    ? analyticsData.remainingAttendees
+                    : Math.max(0, totalSold - checkedIn)
               const checkInRate =
                 analyticsData.checkInRate != null
-                  ? analyticsData.checkInRate
+                  ? Number(Number(analyticsData.checkInRate).toFixed(1))
                   : totalSold > 0
                     ? Number(((checkedIn / totalSold) * 100).toFixed(1))
                     : 0
               const venueOccupancyPercent =
-                analyticsData.venueOccupancyPercentage != null
-                  ? analyticsData.venueOccupancyPercentage
-                  : capacity > 0
-                    ? Number(((checkedIn / capacity) * 100).toFixed(1))
-                    : 0
+                analyticsData.occupancyPercentage != null
+                  ? Number(Number(analyticsData.occupancyPercentage).toFixed(1))
+                  : analyticsData.venueOccupancyPercentage != null
+                    ? analyticsData.venueOccupancyPercentage
+                    : capacity > 0
+                      ? Number(((checkedIn / capacity) * 100).toFixed(1))
+                      : 0
               const salesFillRate =
                 analyticsData.salesFillRate != null
                   ? analyticsData.salesFillRate
