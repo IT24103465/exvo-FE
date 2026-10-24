@@ -53,6 +53,8 @@ export const getCoordinatorEvents = async () => {
         eventDate: evt.eventDate || `${evt.date || ''}T${evt.time || '19:00'}:00`,
         venue: evt.venue,
         location: evt.venue || evt.location,
+        totalCapacity: evt.totalCapacity || evt.availableTickets || 500,
+        availableTickets: evt.availableTickets != null ? evt.availableTickets : evt.totalCapacity,
       }))
     }
   } catch {

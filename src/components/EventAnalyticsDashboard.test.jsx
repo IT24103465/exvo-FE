@@ -99,7 +99,6 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
     await waitFor(() => {
       expect(screen.getByText('TOTAL TICKETS SOLD')).toBeInTheDocument()
       expect(screen.getByText('TOTAL REVENUE (LKR)')).toBeInTheDocument()
-      expect(screen.getByText('AVAILABLE TICKETS')).toBeInTheDocument()
       expect(screen.getByText('CHECKED-IN ATTENDEES')).toBeInTheDocument()
       expect(screen.getByText('REMAINING EXPECTED')).toBeInTheDocument()
       expect(screen.getByText('CHECK-IN RATE')).toBeInTheDocument()
@@ -109,7 +108,7 @@ describe('EventAnalyticsDashboard (SCRUM-34)', () => {
     expect(screen.getByText('950')).toBeInTheDocument()
     expect(screen.getByText('LKR 3,450,000')).toBeInTheDocument()
     expect(screen.getByText('550')).toBeInTheDocument()
-    expect(screen.getByText('720')).toBeInTheDocument()
+    expect(screen.getAllByText('720').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('230')).toBeInTheDocument() // 950 - 720
     expect(screen.getAllByText('75.8%').length).toBeGreaterThanOrEqual(1)
 

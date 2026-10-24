@@ -181,11 +181,12 @@ export const calculateEventRealTimeAnalytics = (event, availability = null, snap
 
   // 7-day sales progression based on real total revenue & volume
   const now = new Date()
+  const weightRatios = [0.08, 0.1, 0.12, 0.15, 0.17, 0.18, 0.2] // natural weekly growth curve
   const salesTimeline = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now)
     d.setDate(d.getDate() - (6 - i))
-    const daySold = totalSold > 0 ? Math.max(1, Math.round((totalSold / 7) * (0.6 + i * 0.12))) : 0
-    const dayRevenue = totalSold > 0 ? Math.round((totalRevenue / totalSold) * daySold) : 0
+    const daySold = totalSold > 0 ? Math.max(0, Math.round(totalSold * weightRatios[i])) : 0
+    const dayRevenue = totalSold > 0 ? Math.round((totalRevenue / (totalSold || 1)) * daySold) : 0
 
     return {
       date: d.toISOString().split('T')[0],
@@ -274,13 +275,14 @@ export const calculateAggregateRealTimeAnalytics = (events = [], availabilitiesB
   const checkInRate = attendancePercentage
   const salesFillRate = totalCapacity > 0 ? Number(((totalTicketsSold / totalCapacity) * 100).toFixed(1)) : 0
 
-  // Aggregate 7-day timeline
+  // Aggregate 7-day timeline based on real totals
   const now = new Date()
+  const weightRatios = [0.08, 0.1, 0.12, 0.15, 0.17, 0.18, 0.2]
   const salesTimeline = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now)
     d.setDate(d.getDate() - (6 - i))
-    const daySold = totalTicketsSold > 0 ? Math.max(1, Math.round((totalTicketsSold / 7) * (0.65 + i * 0.1))) : 0
-    const dayRevenue = totalTicketsSold > 0 ? Math.round((totalRevenue / totalTicketsSold) * daySold) : 0
+    const daySold = totalTicketsSold > 0 ? Math.max(0, Math.round(totalTicketsSold * weightRatios[i])) : 0
+    const dayRevenue = totalTicketsSold > 0 ? Math.round((totalRevenue / (totalTicketsSold || 1)) * daySold) : 0
 
     return {
       date: d.toISOString().split('T')[0],
