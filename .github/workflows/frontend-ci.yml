@@ -199,8 +199,21 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run Playwright UI tests
         run: npm run test:e2e:mock
+      - name: Detect real backend integration configuration
+        id: integration-config
+        env:
+          EXVO_E2E_BASE_URL: ${{ secrets.EXVO_E2E_BASE_URL }}
+          EXVO_E2E_ATTENDEE_EMAIL: ${{ secrets.EXVO_E2E_ATTENDEE_EMAIL }}
+          EXVO_E2E_ATTENDEE_PASSWORD: ${{ secrets.EXVO_E2E_ATTENDEE_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -n "$EXVO_E2E_BASE_URL" ] && [ -n "$EXVO_E2E_ATTENDEE_EMAIL" ] && [ -n "$EXVO_E2E_ATTENDEE_PASSWORD" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run real backend integration E2E tests when configured
-        if: ${{ secrets.EXVO_E2E_BASE_URL != '' && secrets.EXVO_E2E_ATTENDEE_EMAIL != '' && secrets.EXVO_E2E_ATTENDEE_PASSWORD != '' }}
+        if: steps.integration-config.outputs.configured == 'true'
         env:
           EXVO_E2E_BASE_URL: ${{ secrets.EXVO_E2E_BASE_URL }}
           VITE_API_BASE_URL: ${{ secrets.EXVO_E2E_API_BASE_URL }}
