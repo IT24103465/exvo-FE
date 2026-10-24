@@ -29,9 +29,29 @@ const request = async (path, options = {}) => {
 
 /**
  * Fetch analytics overview for an organizer's event or all organizer events
- * @param {number|string} [eventId] - Optional event ID. If not provided, aggregate analytics across organizer events are returned.
+ * Prioritizes CheckInService real-time DB analytics: /api/checkin/analytics/event/${eventId}/realtime
+ * @param {number|string} [eventId] - Optional event ID.
  */
 export const getEventAnalytics = async (eventId = null) => {
+  if (eventId != null && eventId !== '' && eventId !== 'all') {
+    try {
+      const realtimeData = await request(`/api/checkin/analytics/event/${eventId}/realtime`)
+      if (realtimeData && typeof realtimeData === 'object') {
+        return realtimeData
+      }
+    } catch {
+      // Fall back to summary endpoint if realtime unavailable
+      try {
+        const summaryData = await request(`/api/checkin/analytics/event/${eventId}/summary`)
+        if (summaryData && typeof summaryData === 'object') {
+          return summaryData
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   const path =
     eventId != null && eventId !== '' && eventId !== 'all'
       ? `/api/analytics/events/${eventId}`
@@ -49,7 +69,11 @@ export const getEventAnalytics = async (eventId = null) => {
  * @param {number|string} eventId
  */
 export const getEventAttendanceData = async (eventId) => {
-  return request(`/api/analytics/events/${eventId}/attendance`)
+  try {
+    return await request(`/api/checkin/analytics/event/${eventId}/attendance`)
+  } catch {
+    return request(`/api/analytics/events/${eventId}/attendance`)
+  }
 }
 
 /**

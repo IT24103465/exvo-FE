@@ -1084,13 +1084,6 @@ const AuthPage = ({ onBack, onSuccess, initialMode = 'login' }) => {
           password: registerPassword,
           role: 'Organizer',
         })
-      } else if (accountType === 'coordinator') {
-        await registerUser({
-          fullName,
-          email: registerEmail,
-          password: registerPassword,
-          role: 'Coordinator',
-        })
       } else {
         await registerUser({
           fullName,

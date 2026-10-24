@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:mock": "playwright test --project=mock-chromium",
+    "test:e2e:integration": "playwright test --project=integration-chromium",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"*.{js,json,md}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,css}\" \"*.{js,json,md}\"",
     "preview": "vite preview"

@@ -1,3 +1,15 @@
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+try {
+  const wt = require('node:worker_threads')
+  if (typeof wt.markAsUncloneable !== 'function') {
+    wt.markAsUncloneable = (obj) => obj
+  }
+} catch {
+  // worker_threads not available in jsdom or non-node environments
+}
+
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'

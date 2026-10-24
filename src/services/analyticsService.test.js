@@ -37,7 +37,7 @@ test('getEventAnalytics fetches aggregate overview when no eventId provided', as
   )
 })
 
-test('getEventAnalytics fetches event-specific analytics when eventId provided', async () => {
+test('getEventAnalytics prioritizes real-time event analytics when eventId provided', async () => {
   const mockEventAnalytics = {
     eventId: 42,
     totalTicketsSold: 450,
@@ -55,7 +55,7 @@ test('getEventAnalytics fetches event-specific analytics when eventId provided',
     ],
   }
 
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
     json: async () => mockEventAnalytics,
@@ -63,11 +63,47 @@ test('getEventAnalytics fetches event-specific analytics when eventId provided',
 
   const res = await getEventAnalytics(42)
   expect(res).toEqual(mockEventAnalytics)
-  expect(globalThis.fetch).toHaveBeenCalledWith(
-    expect.stringContaining('/api/analytics/events/42'),
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining('/api/checkin/analytics/event/42/realtime'),
     expect.objectContaining({
       headers: expect.objectContaining({
         Authorization: 'Bearer test-organizer-token',
+      }),
+    }),
+  )
+})
+
+test('getEventAnalytics falls back to legacy event analytics when real-time data is unavailable', async () => {
+  const mockEventAnalytics = { eventId: 42, totalTicketsSold: 450 }
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ message: 'Check-in service unavailable' }),
+    })
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: async () => ({ message: 'Summary service unavailable' }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => mockEventAnalytics,
+    })
+
+  const res = await getEventAnalytics(42)
+
+  expect(res).toEqual(mockEventAnalytics)
+  expect(fetchMock).toHaveBeenNthCalledWith(
+    3,
+    expect.stringContaining('/api/analytics/events/42'),
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        Authorization: expect.stringContaining('test-organizer-token'),
+        'Content-Type': 'application/json',
       }),
     }),
   )
