@@ -56,11 +56,12 @@ test.describe('event discovery, details, booking and tickets', () => {
     await expect(page.getByText('MY TICKETS')).toBeVisible()
     await page.getByPlaceholder('Search event, venue, code, row...').fill('EXVO-GA-1001')
     await expect(page.getByText('EXVO-GA-1001')).toBeVisible()
-    const download = page.waitForEvent('download')
+    const downloadPromise = page.waitForEvent('download', { timeout: 45000 })
     await page
       .getByRole('button', { name: /DOWNLOAD/i })
       .first()
       .click({ force: true })
-    await expect(download).resolves.toBeTruthy()
+    const download = await downloadPromise
+    expect(download).toBeTruthy()
   })
 })

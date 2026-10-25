@@ -1912,7 +1912,10 @@ function App() {
     const fontFamily = "'Orbitron', 'Arial Black', sans-serif"
     const hasSeat = ticketHasAssignedSeat(ticket)
 
-    await document.fonts?.load?.(`900 40px ${fontFamily}`).catch(() => {})
+    await Promise.race([
+      document.fonts?.load?.(`900 40px ${fontFamily}`),
+      new Promise((resolve) => setTimeout(resolve, 800)),
+    ]).catch(() => {})
 
     const drawText = (text, x, y, maxWidth, size, weight = 700, color = '#ffffff', align = 'left', maxLines = 2) => {
       ctx.fillStyle = color
@@ -1981,8 +1984,15 @@ function App() {
         }
         const image = new Image()
         image.crossOrigin = 'anonymous'
-        image.onload = () => resolve(image)
-        image.onerror = () => resolve(null)
+        const timer = setTimeout(() => resolve(null), 1500)
+        image.onload = () => {
+          clearTimeout(timer)
+          resolve(image)
+        }
+        image.onerror = () => {
+          clearTimeout(timer)
+          resolve(null)
+        }
         image.src = src
       })
 
