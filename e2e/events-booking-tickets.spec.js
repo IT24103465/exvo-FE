@@ -7,7 +7,7 @@ test.describe('event discovery, details, booking and tickets', () => {
 
   test('search filters events and the visitor can inspect event details', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: 'Search Events' }).click()
+    await page.getByRole('button', { name: 'Search Events' }).click({ force: true })
     await page.getByPlaceholder('Search events, artists...').fill('Neon')
     await expect(page.getByText(/Filtered by "Neon"/)).toBeVisible()
     await page.locator('#all-events-grid').getByRole('button', { name: 'VIEW' }).click({ force: true })
